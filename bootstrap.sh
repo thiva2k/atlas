@@ -25,7 +25,10 @@ main() {
   if ! command -v git >/dev/null 2>&1; then
     echo "git not found — installing (requires sudo)…"
     if command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y git
+      if ! sudo dnf install -y git; then
+        echo "failed to install git via dnf; install it manually and re-run" >&2
+        return 1
+      fi
     else
       echo "no dnf available; install git manually and re-run" >&2
       return 1
@@ -34,7 +37,10 @@ main() {
 
   if [ ! -d "$ATLAS_HOME/.git" ]; then
     echo "cloning Atlas into $ATLAS_HOME…"
-    git clone "$ATLAS_REPO" "$ATLAS_HOME"
+    if ! git clone "$ATLAS_REPO" "$ATLAS_HOME"; then
+      echo "failed to clone Atlas from $ATLAS_REPO into $ATLAS_HOME" >&2
+      return 1
+    fi
   else
     echo "Atlas already present at $ATLAS_HOME — leaving it as is."
   fi
