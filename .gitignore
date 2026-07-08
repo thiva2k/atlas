@@ -1,0 +1,8 @@
+# Atlas runtime state (never committed)
+.local/
+*.log
+
+# OS / editor noise
+.DS_Store
+__MACOSX/
+*.swp
