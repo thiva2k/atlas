@@ -119,7 +119,7 @@ atlas/
 │   ├── apps/             #   applications (brave, ghostty)
 │   └── desktop/          #   desktop environment (kde, fonts)
 ├── docs/                 # architecture, conventions, module-authoring guide
-├── tests/                # contributor test suite (dev-only dependency)
+├── tests/                # pure-Bash test harness (no external framework)
 ├── assets/               # static, non-code assets
 ├── README.md  LICENSE  CONTRIBUTING.md  CHANGELOG.md
 ```
@@ -216,8 +216,9 @@ reach inside a module, the contract is wrong and should be extended instead.
 
 Failure behaviour is predictable and loud.
 
-- Every entry point runs under `set -euo pipefail` plus an `ERR` trap installed
-  by `internal/error.sh`.
+- The `atlas` entrypoint runs under `set -uo pipefail` and propagates exit
+  codes explicitly; each **module hook subshell** runs under `set -euo
+  pipefail`. Fatal paths go through `die`.
 - **Module isolation.** Each module hook runs in its own subshell, so one
   module's failure cannot poison the runner or sibling modules.
 - **Fatal vs recoverable.** The runner distinguishes a *fatal* failure (stop
