@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Atlas — workstation lifecycle manager. CLI entrypoint.
+set -uo pipefail
+
+# Resolve ATLAS_ROOT = directory of this script, following symlinks.
+_src="${BASH_SOURCE[0]}"
+while [ -h "$_src" ]; do
+  _dir="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
+  _src="$(readlink "$_src")"
+  case "$_src" in /*) ;; *) _src="$_dir/$_src" ;; esac
+done
+ATLAS_ROOT="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
+export ATLAS_ROOT
+
+ATLAS_VERSION="0.1.0-dev"
+
+source "$ATLAS_ROOT/internal/log.sh"
+source "$ATLAS_ROOT/internal/error.sh"
+source "$ATLAS_ROOT/internal/os.sh"
+source "$ATLAS_ROOT/internal/module.sh"
+source "$ATLAS_ROOT/internal/runner.sh"
+
+usage() {
+  cat <<EOF
+Atlas — workstation lifecycle manager (v$ATLAS_VERSION)
+
+Usage: atlas <command> [modules...] [options]
+
+Commands:
+  install    ensure modules are present & configured
+  update     bring modules to their latest desired state
+  verify     check that modules are healthy
+  backup     capture irreplaceable module state
+  restore    re-apply previously captured state
+  doctor     diagnose the workstation
+  status     show what is / isn't installed
+  help       show this help
+  version    show the version
+
+Options:
+  -v, --verbose   more output (debug level)
+  -q, --quiet     less output (errors only)
+      --version   print version and exit
+  -h, --help      print this help and exit
+EOF
+}
+
+main() {
+  local verb="" ; local -a rest=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -v|--verbose) ATLAS_LOG_LEVEL=debug ;;
+      -q|--quiet)   ATLAS_LOG_LEVEL=error ;;
+      --version)    echo "$ATLAS_VERSION"; return 0 ;;
+      -h|--help)    usage; return 0 ;;
+      -*)           die "$ATLAS_EXIT_USAGE" "unknown option: $1" "" "run 'atlas --help'" ;;
+      *)            if [ -z "$verb" ]; then verb="$1"; else rest+=("$1"); fi ;;
+    esac
+    shift
+  done
+  export ATLAS_LOG_LEVEL
+
+  case "${verb:-help}" in
+    help)    usage ;;
+    version) echo "$ATLAS_VERSION" ;;
+    install|update|verify|backup|restore|doctor|status)
+      runner::run "$verb" "${rest[@]}" ;;
+    *) die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'" ;;
+  esac
+}
+
+main "$@"
