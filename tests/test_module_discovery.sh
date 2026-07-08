@@ -11,10 +11,12 @@ assert_contains "discovers beta"  "$found" "apps/beta"
 assert_eq "path points at module.sh" \
   "$(module::path core/alpha)" "$ATLAS_MODULES_DIR/core/alpha/module.sh"
 
-# has_hook works after sourcing a module
-( source "$(module::path core/alpha)"
-  assert_status "alpha defines install hook" 0 module::has_hook install
-  assert_status "alpha lacks backup hook"    1 module::has_hook backup )
+# has_hook works after sourcing a module. Assert in the OUTER scope so the
+# suite counters see the result; source the module inside a child bash -c so
+# its hook definitions don't leak into the test runner.
+_hh='source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_MODULES_DIR/core/alpha/module.sh";'
+assert_status "alpha defines install hook" 0 bash -c "$_hh"' module::has_hook install'
+assert_status "alpha lacks backup hook"    1 bash -c "$_hh"' module::has_hook backup'
 
 out="$(not_implemented "x" 2>&1 || true)"
 assert_contains "not_implemented warns" "$out" "not yet implemented"
