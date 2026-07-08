@@ -26,3 +26,9 @@ assert_contains "satisfied module is skipped" "$out" "already satisfied"
 # a module whose install hook fails makes runner::run return ATLAS_EXIT_MODULE (4)
 assert_status "failing module install returns exit 4" 4 \
   bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_failing"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/fail'
+
+# status reports installed/not-installed and NEVER fails on a not-installed module
+assert_status "status exits 0 on not-installed modules" 0 \
+  runner::run status core/alpha apps/beta
+out="$(runner::run status core/alpha apps/beta 2>&1 || true)"
+assert_contains "status reports 'not installed'" "$out" "not installed"

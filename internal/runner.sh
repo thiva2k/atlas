@@ -36,6 +36,16 @@ _runner_run_module() {
         fi
         continue
       fi
+      # status: report installed/not-installed via check; never a failure
+      if [ "$verb" = "status" ] && [ "$hook" = "check" ]; then
+        if module::has_hook check && module::check; then
+          log::info "installed"
+        else
+          log::info "not installed"
+          printf '__SKIP__'
+        fi
+        exit 0
+      fi
       module::has_hook "$hook" || { log::debug "no $hook hook"; continue; }
       if ! "module::$hook"; then
         log::error "$hook failed"
