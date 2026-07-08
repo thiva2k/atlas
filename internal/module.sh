@@ -21,4 +21,46 @@ module::path() { printf '%s\n' "$ATLAS_MODULES_DIR/$1/module.sh"; }
 
 module::has_hook() { declare -F "module::$1" >/dev/null 2>&1; }
 
-# Dependency ordering (module::deps_of, module::resolve_order) is added in Task 6.
+# --- dependency resolution -------------------------------------------------
+
+# Print a module's declared dependencies (one per line), read in isolation.
+module::deps_of() {
+  local id="$1" p; p="$(module::path "$id")"
+  [ -r "$p" ] || return 0
+  ( set +u
+    MODULE_DEPENDS=()
+    # shellcheck source=/dev/null
+    source "$p"
+    local d
+    for d in "${MODULE_DEPENDS[@]}"; do
+      [ -n "$d" ] && printf '%s\n' "$d"
+    done )
+}
+
+# Print ids + transitive deps in dependency-first order. Cycle => exit 3.
+module::resolve_order() {
+  local -a input=("$@")
+  local -A _state=()          # unset | temp | done
+  local -a _order=()
+
+  _module_visit() {
+    local id="$1" d
+    case "${_state[$id]:-}" in
+      done) return 0 ;;
+      temp) die "$ATLAS_EXIT_DEPENDENCY" \
+              "dependency cycle detected at '$id'" \
+              "two or more modules depend on each other in a loop" \
+              "break the loop by editing a module's MODULE_DEPENDS" ;;
+    esac
+    _state[$id]=temp
+    while IFS= read -r d; do
+      [ -n "$d" ] && _module_visit "$d"
+    done < <(module::deps_of "$id")
+    _state[$id]=done
+    _order+=("$id")
+  }
+
+  local id
+  for id in "${input[@]}"; do _module_visit "$id"; done
+  printf '%s\n' "${_order[@]}"
+}
