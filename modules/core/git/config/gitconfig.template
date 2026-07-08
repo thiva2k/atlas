@@ -1,0 +1,5 @@
+# Applied by the git module (placeholder — not yet wired up).
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true
