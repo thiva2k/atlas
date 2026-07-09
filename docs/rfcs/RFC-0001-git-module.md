@@ -373,3 +373,28 @@ instead asserts that the fragment's value is *present* among the resolved values
 (`--includes --get-all`), i.e. that the include resolves at all.
 
 No design decision changed, so no superseding RFC is required.
+
+---
+
+**Second errata, appended 2026-07-09 at implementation review.** Nothing above is
+modified; no §9 decision changes.
+
+**§11 acceptance: `remove` is met at the hook level, but no platform verb can reach
+it.** `module::remove` is implemented and covered by the suite: it drops the include,
+deletes the fragment, restores `~/.gitconfig` byte-for-byte, is safely re-runnable,
+refuses a locked config, and leaves the Git package and the user's identity alone.
+
+However, `docs/architecture.md` §3 lists `remove` among the *module hooks* while its
+*platform verb* list (`install update verify backup restore doctor status`) omits it,
+and `_runner_hooks_for_verb` in `internal/runner.sh` has no `remove` case. So
+`atlas remove core/git` exits `2` (unknown command) and the hook is unreachable from
+the CLI. Every other optional hook has a verb; `remove` alone does not.
+
+This is an **engine gap**, not a defect in this module, and closing it is out of scope
+here: a `remove` verb would be Atlas's first *destructive* verb, and it needs decisions
+this RFC never made. Must a bare `atlas remove` be refused, rather than tearing down the
+whole workstation? Must the runner reverse its topological order, so a module is removed
+before the dependencies it was built on? Must a module with no `remove` hook report a
+visible skip instead of counting as "ok"? Per `docs/rfcs/README.md`, a change to the
+engine or to the frozen architecture starts as its own RFC, written before the code.
+Tracked by **RFC-0002 — Platform verb: `remove`**.

@@ -5,9 +5,11 @@
 # or dnf is ever touched. GIT_CONFIG_SYSTEM=/dev/null isolates from system git
 # config. Assertions live in the outer scope (via bash -c) so counters count.
 
-# shared preamble: fresh sandbox + engine + mocked package install + the module
+# shared preamble: fresh sandbox + engine + mocked package install + the module.
+# `set -euo pipefail` mirrors the flags internal/runner.sh gives a hook subshell —
+# a hook that aborts on an unguarded non-zero under -e must fail here too.
 PRE='
-set -uo pipefail
+set -euo pipefail
 export HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 export GIT_CONFIG_SYSTEM=/dev/null
@@ -215,6 +217,28 @@ assert_eq "git migration leaves no orphan include header" \
     module::install >/dev/null 2>&1
     grep -cxF "[include]" "$GIT_CONFIG_GLOBAL"')" "1"
 
+# --- through the real runner --------------------------------------------------
+# Every assertion above calls the hooks directly. These drive the module the way
+# `atlas` actually does: runner::run sources it into its own `set -euo pipefail`
+# subshell and fans the verb out. Nothing else exercises that seam.
+RUN="$PRE"'
+source "$ATLAS_ROOT/internal/module.sh"
+source "$ATLAS_ROOT/internal/runner.sh"
+'
+assert_status "git installs cleanly through runner::run" 0 bash -c "$RUN"' runner::run install core/git'
+assert_status "git verifies through runner::run"         0 bash -c "$RUN"' runner::run install core/git >/dev/null 2>&1; runner::run verify core/git'
+assert_status "git updates through runner::run"          0 bash -c "$RUN"' runner::run install core/git >/dev/null 2>&1; runner::run update core/git'
+
+# a second install is skipped by the runner, not re-run
+assert_contains "runner skips an already-satisfied git" \
+  "$(bash -c "$RUN"' runner::run install core/git >/dev/null 2>&1; runner::run install core/git 2>&1')" \
+  "already satisfied"
+
+# a module failure surfaces as exit 4 through the runner, not a stack trace
+assert_status "runner reports git install failure as exit 4" 4 bash -c "$RUN"'
+  printf "[pull\n" > "$GIT_CONFIG_GLOBAL"
+  runner::run install core/git'
+
 # --- optional hooks: update / remove (RFC-0001 §4.7) --------------------------
 
 # update re-applies the managed fragment (picks up changes to Atlas's defaults)
@@ -278,6 +302,19 @@ assert_status "git remove refuses when config is locked" 4 bash -c "$PRE"'
   module::install >/dev/null 2>&1
   : > "$GIT_CONFIG_GLOBAL.lock"
   module::remove'
+
+# on a config git cannot read, remove must refuse -- not delete the fragment and
+# leave a dangling include.path behind (a silent half-revert)
+assert_status "git remove refuses an unparseable config" 4 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  printf "[pull\n" > "$GIT_CONFIG_GLOBAL"
+  module::remove'
+
+assert_status "git remove keeps the fragment when it refuses" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  printf "[pull\n" > "$GIT_CONFIG_GLOBAL"
+  ( module::remove ) >/dev/null 2>&1 || true
+  [ -r "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
 
 # --- refuse to proceed rather than damage a config we cannot safely rewrite ---
 # Each asserts BOTH the exit code and that the file was left untouched. die()

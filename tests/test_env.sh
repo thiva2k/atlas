@@ -22,3 +22,14 @@ assert_eq     "missing key prints nothing"   "$(env::get ATLAS_DEFINITELY_MISSIN
 
 # comment lines are ignored (no key named '# a comment')
 rm -rf "$sandbox"; unset ATLAS_CONFIG_HOME
+
+# atlas.env written on Windows must not leak a trailing CR into the value
+assert_eq "env::get strips a trailing CR" \
+  "$(bash -c '
+    set -euo pipefail
+    export HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
+    export ATLAS_CONFIG_HOME="$HOME/.config/atlas"; mkdir -p "$ATLAS_CONFIG_HOME"
+    printf "ATLAS_GIT_USER_EMAIL=ada@example.com\r\n" > "$ATLAS_CONFIG_HOME/atlas.env"
+    source "$ATLAS_ROOT/internal/env.sh"
+    env::get ATLAS_GIT_USER_EMAIL | od -c | head -1
+  ')" "0000000   a   d   a   @   e   x   a   m   p   l   e   .   c   o   m  \n"

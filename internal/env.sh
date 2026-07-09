@@ -16,6 +16,7 @@ env::get() {
   [ -r "$file" ] || return 1
   local line val=""
   while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"          # atlas.env may have been written on Windows
     [ -z "$line" ] && continue
     case "$line" in
       \#*) continue ;;

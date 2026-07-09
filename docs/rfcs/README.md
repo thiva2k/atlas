@@ -29,3 +29,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | RFC | Title | Status |
 |-----|-------|--------|
 | [0001](RFC-0001-git-module.md) | Git module (reference implementation) | Accepted |
+| [0002](RFC-0002-remove-verb.md) | Platform verb: `remove` | Proposed |

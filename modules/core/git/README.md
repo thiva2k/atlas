@@ -30,8 +30,8 @@ an include where the directive sits. Because the include comes first, anything
 you set below it overrides the Atlas default. Set `pull.rebase = false` in your
 own config and it stays `false`.
 
-The corollary: `atlas verify git` checks that the fragment is intact and that Git
-*resolves* it. It does **not** check that Atlas's value is the winning one,
+The corollary: `atlas verify core/git` checks that the fragment is intact and that
+Git *resolves* it. It does **not** check that Atlas's value is the winning one,
 because for any key you have overridden it deliberately is not.
 
 The managed defaults live in [`config/gitconfig`](config/gitconfig):
@@ -55,13 +55,21 @@ identity you have already set is never overwritten.
 
 ## Lifecycle
 
-| Verb | What happens |
+The module implements these **hooks** (`atlas <verb> core/git` fans a verb out to
+the matching hook):
+
+| Hook | What happens |
 |---|---|
 | `check` | Git present, fragment readable, and the include is the **first** section |
 | `install` | install Git if absent → write the fragment → wire the include → fill in identity if missing |
 | `verify` | `git --version` works, the fragment is intact, and Git resolves it |
 | `update` | re-apply the fragment (picks up new Atlas defaults) and re-check the include |
 | `remove` | drop the include and delete the fragment |
+
+> **`remove` is not reachable from the CLI yet.** Atlas's frozen architecture
+> defines a `remove` *hook* but no `remove` *platform verb*, so `atlas remove
+> core/git` currently exits `2` (unknown command). The hook is implemented and
+> covered by the test suite; closing the engine gap is tracked by RFC-0002.
 
 `backup` / `restore` are intentionally **not implemented**: the fragment is
 regenerable, and everything else in `~/.gitconfig` belongs to you, not to Atlas.

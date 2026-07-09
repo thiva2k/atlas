@@ -9,9 +9,11 @@ All notable changes to Atlas are documented here. Format loosely follows
 - **The `git` module** — the first real module, and the reference implementation
   for every module after it (see `RFC-0001`). Installs Git, layers Atlas's
   defaults *underneath* your own `~/.gitconfig` via an owned config fragment, and
-  fills in `user.name` / `user.email` only when they are missing. Supports
-  `check` / `install` / `verify` / `update` / `remove`; `remove` restores your
-  config byte-for-byte and leaves the Git package and your identity alone.
+  fills in `user.name` / `user.email` only when they are missing. Implements the
+  `check` / `install` / `verify` / `update` / `remove` hooks. (The `remove`
+  *hook* restores your config byte-for-byte and leaves the Git package and your
+  identity alone, but no `atlas remove` platform verb exists yet to invoke it —
+  an engine gap tracked by RFC-0002.)
 - `env::get` (`internal/env.sh`): resolves user-specific settings from the
   environment, then `~/.config/atlas/atlas.env`. Never prompts, never blocks.
 - `os::dnf_install`: a real, idempotent package primitive.
