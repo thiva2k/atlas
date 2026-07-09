@@ -64,7 +64,9 @@ runner::run() {
   local -a ids
   if [ "$#" -gt 0 ]; then ids=("$@"); else mapfile -t ids < <(module::discover); fi
   if [ "${#ids[@]}" -eq 0 ]; then log::warn "no modules found"; return 0; fi
-  mapfile -t ids < <(module::resolve_order "${ids[@]}")
+  local _ordered
+  _ordered="$(module::resolve_order "${ids[@]}")" || return $?
+  mapfile -t ids <<<"$_ordered"
 
   log::step "atlas $verb (${#ids[@]} modules)"
   local id out rc ok=0 skip=0 fail=0

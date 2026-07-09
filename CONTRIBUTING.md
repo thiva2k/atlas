@@ -29,6 +29,11 @@ bash tests/run.sh
 Tests are pure Bash (no framework). Add `tests/test_<area>.sh` and use the
 assertions in `tests/lib/assert.sh`. Every behavioural change ships with a test.
 
+> Test files are `source`d into one shell by `tests/run.sh`. `run.sh` resets
+> `ATLAS_MODULES_DIR` to the real `modules/` dir before each file; a test that
+> needs a fixtures dir must `export ATLAS_MODULES_DIR` itself (do not rely on a
+> value left by another test file).
+
 ## Commits
 
 Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, …). Keep them small and

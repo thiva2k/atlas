@@ -11,6 +11,9 @@ total_pass=0 total_fail=0
 for t in "$ATLAS_ROOT"/tests/test_*.sh; do
   [ -e "$t" ] || continue
   printf '\n%s\n' "$(basename "$t")"
+  # each test file starts from the real modules dir; files needing fixtures
+  # override ATLAS_MODULES_DIR in their own body (sourced after this reset).
+  export ATLAS_MODULES_DIR="$ATLAS_ROOT/modules"
   ATLAS_TESTS_PASS=0 ATLAS_TESTS_FAIL=0
   # shellcheck source=/dev/null
   source "$t"

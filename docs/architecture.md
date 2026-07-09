@@ -109,7 +109,7 @@ atlas/
 ├── bootstrap.sh          # zero-dependency first touch on a fresh machine
 ├── internal/             # the reusable engine (shared, not user-facing)
 │   ├── log.sh            # logging system (§9)
-│   ├── error.sh          # error handling, traps, exit codes (§8)
+│   ├── error.sh          # error handling + exit codes (§8)
 │   ├── os.sh             # Fedora / dnf / flatpak / privilege helpers
 │   ├── module.sh         # module discovery, contract, dependency resolution
 │   └── runner.sh         # the verbs, implemented on top of the above
@@ -273,7 +273,7 @@ log::error "failed to write ~/.gitconfig"
 
 Walkthrough of `atlas install`:
 
-1. **`atlas`** parses global flags (`--verbose`, `--dry-run`, …) and the verb,
+1. **`atlas`** parses global flags (`--verbose`, `--quiet`, …) and the verb,
    then calls into `internal/runner.sh`.
 2. **`runner.sh`** asks `internal/module.sh` to **discover** modules by scanning
    `modules/<category>/<name>/module.sh`.

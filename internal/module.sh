@@ -45,6 +45,12 @@ module::resolve_order() {
 
   _module_visit() {
     local id="$1" d
+    if [ ! -r "$(module::path "$id")" ]; then
+      die "$ATLAS_EXIT_DEPENDENCY" \
+        "unknown module: $id" \
+        "a requested module or a declared dependency does not exist" \
+        "check the id (category/name) and any MODULE_DEPENDS entries"
+    fi
     case "${_state[$id]:-}" in
       done) return 0 ;;
       temp) die "$ATLAS_EXIT_DEPENDENCY" \
