@@ -25,27 +25,48 @@ _git_include_present() {
 # The block we prepend. Git resolves config positionally and expands an include
 # at the position of the directive, so this must come BEFORE the user's own
 # sections: then anything they set below overrides our default (RFC-0001 §4.4).
-_git_include_block() { printf '[include]\n\tpath = %s\n\n' "$(_git_fragment)"; }
+# The path is quoted, as git's own writer would, so a `#` or `;` in it is not
+# read as a comment.
+_git_include_block() { printf '[include]\n\tpath = "%s"\n\n' "$(_git_fragment)"; }
 
 # True if the Atlas [include] is the first section of $1 (blanks/comments skipped).
 _git_include_is_first() {
   local file="$1" body first second
   [ -r "$file" ] || return 1
   body="$(grep -vE '^[[:space:]]*([#;].*)?$' "$file")" || return 1
-  first="$(printf '%s\n' "$body" | sed -n 1p)"
-  second="$(printf '%s\n' "$body" | sed -n 2p | sed 's/^[[:space:]]*//')"
+  first="$(printf '%s\n' "$body" | sed -n 1p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  second="$(printf '%s\n' "$body" | sed -n 2p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   [ "$first" = "[include]" ] || return 1
-  [ "$second" = "path = $(_git_fragment)" ] || return 1
+  [ "$second" = "path = \"$(_git_fragment)\"" ] || return 1
 }
 
-# Rewrite $1 as: include block + original content. Atomic (same-dir temp + mv),
-# mode-preserving. Caller holds the lock. Returns 1 on failure, never dies.
+# Strip any existing include line pointing at our fragment (quoted or not — an
+# older Atlas wrote it unquoted via `git config --add`). Compares the value as a
+# literal string, so a path with regex metacharacters is safe.
+_git_strip_include() {
+  awk -v frag="$(_git_fragment)" '
+    /^[[:space:]]*\[/ { insec = ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*$/) }
+    {
+      if (insec) {
+        l = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", l)
+        if (l == "path = " frag || l == "path=" frag ||
+            l == "path = \"" frag "\"" || l == "path=\"" frag "\"") next
+      }
+      print
+    }
+  ' "$1"
+}
+
+# Rewrite $1 as: include block + original content minus any stale include line.
+# ONE atomic write (same-dir temp + mv), mode-preserving, so a crash leaves the
+# old file untouched and nothing can fail after the file has been modified.
+# Caller holds the lock. Returns 1 on failure, never dies.
 _git_prepend_include() {
   local real="$1" dir tmp
   dir="$(dirname "$real")"
   tmp="$(mktemp "$dir/.atlas-gitconfig.XXXXXX")" || {
     log::error "cannot create a temp file in $dir"; return 1; }
-  if ! { _git_include_block; cat "$real"; } > "$tmp"; then
+  if ! { _git_include_block; _git_strip_include "$real"; } > "$tmp"; then
     rm -f "$tmp"; log::error "cannot write $tmp"; return 1
   fi
   chmod --reference="$real" "$tmp" 2>/dev/null || true
@@ -111,26 +132,24 @@ _git_ensure_include() {
     return 0
   fi
 
+  # 6. take git's own lock path, so we cannot race a concurrent `git config`.
+  # `set -C` makes this fail rather than clobber: we never steal another
+  # process's lock. This is the LAST thing that can fail before we write.
   lock="$real.lock"
-  if [ -e "$lock" ]; then
+  if ! (set -C; : > "$lock") 2>/dev/null; then
     die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
       "$lock exists — another git process is writing, or a crash left it behind" \
       "wait for that process, or remove $lock if it is stale, then re-run 'atlas install git'"
   fi
+  # INVARIANT: nothing between here and the `rm -f "$lock"` below may die() —
+  # die() exits and would leak the lock, wedging every later run behind the
+  # refusal above. _git_prepend_include only ever *returns* non-zero.
+  # (A `trap … RETURN` here would outlive this function and fire under `set -u`
+  # with $lock out of scope; don't.)
 
-  # 6. migration: drop a misplaced include line first (git takes its own lock)
-  if _git_include_present; then
-    git config --global --fixed-value --unset-all include.path "$frag" || {
-      log::error "cannot remove the misplaced include.path from $real"; return 1; }
-    log::info "relocating include.path to the top of $real"
-  fi
-
-  # 7. prepend, under our own lock, atomically
-  if ! (set -C; : > "$lock") 2>/dev/null; then
-    die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
-      "$lock appeared while Atlas was working — another git process is writing" \
-      "wait for that process to finish, then re-run 'atlas install git'"
-  fi
+  # 7. one atomic rewrite: prepend our block, drop any stale include line
+  # `A && B` would abort the hook under `set -e` when A is false — use `if`.
+  if _git_include_present; then log::info "relocating include.path to the top of $real"; fi
   if _git_prepend_include "$real"; then rc=0; else rc=1; fi
   rm -f "$lock"
   [ "$rc" -eq 0 ] || return 1
@@ -207,7 +226,10 @@ module::verify() {
   _git_include_present || { log::error "include.path not wired into $(_git_config_file)"; return 1; }
   _git_include_is_first "$(_git_config_file)" \
     || { log::error "include.path is not the first section — Atlas defaults would override your own settings"; return 1; }
-  [ "$(git config --global --includes --get init.defaultBranch 2>/dev/null)" = "main" ] \
-    || { log::error "managed config not effective (init.defaultBranch != main)"; return 1; }
+  # Health = "the fragment resolves", NOT "Atlas's value wins". --get-all lists
+  # every value in precedence order, so our default still appears even when the
+  # user deliberately overrides it below the include — which is the whole point.
+  git config --global --includes --get-all init.defaultBranch 2>/dev/null | grep -qxF "main" \
+    || { log::error "managed config not resolving (init.defaultBranch=main absent from $(_git_config_file))"; return 1; }
   return 0
 }

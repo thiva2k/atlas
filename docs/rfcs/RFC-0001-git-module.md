@@ -362,7 +362,14 @@ also the rationale on which §9 decision 1 selected `include.path` in the first 
 **The guarantee is normative; the `--add` sketch was an error in the example.** The
 implementation prepends the `[include]` block to the top of
 `${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}` via an atomic, mode-preserving, lock-guarded
-rewrite, and relocates an already-appended include on re-install. `module::check` and
-`module::verify` require the block to be *first*, not merely present, so an older
-mis-installed config migrates itself. No design decision changed, so no superseding RFC
-is required.
+rewrite, and relocates an already-appended include in the same single write. `module::check`
+and `module::verify` require the block to be *first*, not merely present, so an older
+mis-installed config migrates itself (the runner skips `install` whenever `check` passes).
+
+**A consequence for §4.7's `verify`.** Once the user wins, "is the module healthy?" can no
+longer be answered by "does `init.defaultBranch` resolve to `main`?" — a user who sets
+`defaultBranch = master` below the include would be told the module is broken. `verify`
+instead asserts that the fragment's value is *present* among the resolved values
+(`--includes --get-all`), i.e. that the include resolves at all.
+
+No design decision changed, so no superseding RFC is required.

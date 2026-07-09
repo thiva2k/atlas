@@ -153,3 +153,47 @@ assert_eq "git migration leaves exactly one include line" \
     git config --global --add include.path "$frag"
     module::install >/dev/null 2>&1
     git config --global --get-all include.path | wc -l | tr -d " "')" "1"
+
+assert_eq "git migration puts the include block at the very top" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    git config --global --add include.path "$frag"
+    module::install >/dev/null 2>&1
+    head -n 1 "$GIT_CONFIG_GLOBAL"')" "[include]"
+
+# health is "the fragment resolves", not "Atlas'"'"'s value wins": a user who
+# deliberately overrides a managed key must not be told the module is broken
+assert_status "git verify passes when user overrides a managed key" 0 bash -c "$PRE"'
+  printf "[init]\n\tdefaultBranch = master\n" > "$GIT_CONFIG_GLOBAL"
+  module::install >/dev/null 2>&1
+  [ "$(git config --global --includes --get init.defaultBranch)" = master ] || exit 1
+  module::verify'
+
+# --- refuse to proceed rather than damage a config we cannot safely rewrite ---
+# Each asserts BOTH the exit code and that the file was left untouched. die()
+# exits, so the hook is contained in a subshell exactly as internal/runner.sh does.
+
+assert_status "git install refuses an unparseable config" 4 bash -c "$PRE"'
+  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  module::install'
+
+assert_status "git unparseable config left unmodified" 0 bash -c "$PRE"'
+  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
+  ( module::install ) >/dev/null 2>&1 || true
+  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
+
+assert_status "git install refuses a dangling symlink config" 4 bash -c "$PRE"'
+  ln -s "$HOME/nowhere/gitconfig" "$GIT_CONFIG_GLOBAL"
+  module::install'
+
+assert_status "git install refuses a non-regular-file config" 4 bash -c "$PRE"'
+  mkdir -p "$GIT_CONFIG_GLOBAL"
+  module::install'
+
+assert_status "git install refuses an unwritable config" 4 bash -c "$PRE"'
+  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  chmod 444 "$GIT_CONFIG_GLOBAL"
+  module::install'
