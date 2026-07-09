@@ -17,6 +17,7 @@ ATLAS_VERSION="0.1.0-dev"
 source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/os.sh"
+source "$ATLAS_ROOT/internal/env.sh"
 source "$ATLAS_ROOT/internal/module.sh"
 source "$ATLAS_ROOT/internal/runner.sh"
 
