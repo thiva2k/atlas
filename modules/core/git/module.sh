@@ -40,20 +40,31 @@ _git_include_is_first() {
   [ "$second" = "path = \"$(_git_fragment)\"" ] || return 1
 }
 
-# Strip any existing include line pointing at our fragment (quoted or not — an
-# older Atlas wrote it unquoted via `git config --add`). Compares the value as a
-# literal string, so a path with regex metacharacters is safe.
+# Strip any existing include line pointing at our fragment, in every shape git
+# accepts: quoted or bare (an older Atlas wrote it bare via `git config --add`),
+# `path=x` or `path = x`, and the inline `[include] path = x` form. The value is
+# compared as a literal string, so a path with regex metacharacters is safe.
+# `[includeIf …]` is deliberately NOT matched — it is a different section.
+# Only ever called on input git has already parsed successfully (see step 4).
 _git_strip_include() {
   awk -v frag="$(_git_fragment)" '
-    /^[[:space:]]*\[/ { insec = ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*$/) }
-    {
-      if (insec) {
-        l = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", l)
-        if (l == "path = " frag || l == "path=" frag ||
-            l == "path = \"" frag "\"" || l == "path=\"" frag "\"") next
-      }
-      print
+    function value(s) {                       # "  path = \"x\" " -> x
+      sub(/^[^=]*=[[:space:]]*/, "", s)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+      if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
+      return s
     }
+    /^[[:space:]]*\[/ {                       # any section header
+      insec = ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*(path[[:space:]]*=.*)?$/)
+      if (insec) {
+        rest = $0
+        if (sub(/^[[:space:]]*\[[^]]*\][[:space:]]*/, "", rest) && rest != "" &&
+            value(rest) == frag) next         # inline: [include] path = frag
+      }
+      print; next
+    }
+    insec && $0 ~ /^[[:space:]]*path[[:space:]]*=/ { if (value($0) == frag) next }
+    { print }
   ' "$1"
 }
 
@@ -226,9 +237,14 @@ module::verify() {
   _git_include_present || { log::error "include.path not wired into $(_git_config_file)"; return 1; }
   _git_include_is_first "$(_git_config_file)" \
     || { log::error "include.path is not the first section — Atlas defaults would override your own settings"; return 1; }
-  # Health = "the fragment resolves", NOT "Atlas's value wins". --get-all lists
-  # every value in precedence order, so our default still appears even when the
-  # user deliberately overrides it below the include — which is the whole point.
+  # Health = "the fragment is intact and resolves", NOT "Atlas's value wins" — a
+  # user who overrides a managed key below the include is the point, not a fault.
+  # Read the fragment directly: an emptied fragment must fail even if the user
+  # happens to set the same key themselves.
+  [ "$(git config --file "$(_git_fragment)" --get init.defaultBranch 2>/dev/null)" = "main" ] \
+    || { log::error "managed fragment is not intact (init.defaultBranch missing from $(_git_fragment))"; return 1; }
+  # …and that git actually resolves it: --get-all lists every value in
+  # precedence order, so ours appears even when the user overrides it.
   git config --global --includes --get-all init.defaultBranch 2>/dev/null | grep -qxF "main" \
     || { log::error "managed config not resolving (init.defaultBranch=main absent from $(_git_config_file))"; return 1; }
   return 0

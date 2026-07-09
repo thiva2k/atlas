@@ -171,6 +171,40 @@ assert_status "git verify passes when user overrides a managed key" 0 bash -c "$
   [ "$(git config --global --includes --get init.defaultBranch)" = master ] || exit 1
   module::verify'
 
+# an emptied fragment is broken even if the user happens to set the same key
+assert_status "git verify fails on an emptied fragment" 1 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  : > "$ATLAS_CONFIG_HOME/git/gitconfig"
+  git config --global init.defaultBranch main
+  module::verify'
+
+# the inline `[include] path = …` form git accepts but never writes itself
+assert_eq "git migrates an inline include without duplicating it" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"
+    printf "[include] path = %s\n[pull]\n\trebase = false\n" "$frag" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
+
+# a user's own unrelated include must survive migration untouched
+assert_eq "git migration leaves a foreign include alone" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"; : > "$HOME/theirs"
+    printf "[include]\n\tpath = %s\n\tpath = %s\n" "$HOME/theirs" "$frag" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    git config --global --get-all include.path | grep -cxF "$HOME/theirs"')" "1"
+
+# `[includeIf]` is a different section and must never be stripped
+assert_eq "git migration never strips an includeIf section" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"; : > "$HOME/work"
+    printf "[includeIf \"gitdir:~/w/\"]\n\tpath = %s\n" "$HOME/work" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    grep -c "includeIf" "$GIT_CONFIG_GLOBAL"')" "1"
+
 # --- refuse to proceed rather than damage a config we cannot safely rewrite ---
 # Each asserts BOTH the exit code and that the file was left untouched. die()
 # exits, so the hook is contained in a subshell exactly as internal/runner.sh does.
