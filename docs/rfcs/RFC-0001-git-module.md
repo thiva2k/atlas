@@ -340,3 +340,61 @@ One focused change, TDD, small commits:
   package install.
 - The config, identity, and testing patterns here are documented well enough that
   the next module (GitHub CLI) can follow them without re-deriving them.
+
+## Errata
+
+*Appended 2026-07-09 during implementation. Nothing above this line is modified;
+the RFC's status and its §9 decisions stand unchanged.*
+
+**§4.4's mechanism sketch cannot satisfy §4.4's own guarantee.** The section shows
+`git config --global --add include.path …`, but `--add` *appends* — git writes the new
+`[include]` section at the **bottom** of `~/.gitconfig`. Git resolves configuration
+positionally (last value wins) and expands an include at the position of the directive.
+A bottom include is therefore read **last**, so the Atlas fragment would silently
+override any value the user had already set above it: a user with
+`[pull] rebase = false` would find `git config pull.rebase` reporting `true` after
+`atlas install`.
+
+That is the exact opposite of the guarantee stated in the same section — "the include
+is added near the top … Atlas provides defaults, **the user always wins**" — which is
+also the rationale on which §9 decision 1 selected `include.path` in the first place.
+
+**The guarantee is normative; the `--add` sketch was an error in the example.** The
+implementation prepends the `[include]` block to the top of
+`${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}` via an atomic, mode-preserving, lock-guarded
+rewrite, and relocates an already-appended include in the same single write. `module::check`
+and `module::verify` require the block to be *first*, not merely present, so an older
+mis-installed config migrates itself (the runner skips `install` whenever `check` passes).
+
+**A consequence for §4.7's `verify`.** Once the user wins, "is the module healthy?" can no
+longer be answered by "does `init.defaultBranch` resolve to `main`?" — a user who sets
+`defaultBranch = master` below the include would be told the module is broken. `verify`
+instead asserts that the fragment's value is *present* among the resolved values
+(`--includes --get-all`), i.e. that the include resolves at all.
+
+No design decision changed, so no superseding RFC is required.
+
+---
+
+**Second errata, appended 2026-07-09 at implementation review.** Nothing above is
+modified; no §9 decision changes.
+
+**§11 acceptance: `remove` is met at the hook level, but no platform verb can reach
+it.** `module::remove` is implemented and covered by the suite: it drops the include,
+deletes the fragment, restores `~/.gitconfig` byte-for-byte, is safely re-runnable,
+refuses a locked config, and leaves the Git package and the user's identity alone.
+
+However, `docs/architecture.md` §3 lists `remove` among the *module hooks* while its
+*platform verb* list (`install update verify backup restore doctor status`) omits it,
+and `_runner_hooks_for_verb` in `internal/runner.sh` has no `remove` case. So
+`atlas remove core/git` exits `2` (unknown command) and the hook is unreachable from
+the CLI. Every other optional hook has a verb; `remove` alone does not.
+
+This is an **engine gap**, not a defect in this module, and closing it is out of scope
+here: a `remove` verb would be Atlas's first *destructive* verb, and it needs decisions
+this RFC never made. Must a bare `atlas remove` be refused, rather than tearing down the
+whole workstation? Must the runner reverse its topological order, so a module is removed
+before the dependencies it was built on? Must a module with no `remove` hook report a
+visible skip instead of counting as "ok"? Per `docs/rfcs/README.md`, a change to the
+engine or to the frozen architecture starts as its own RFC, written before the code.
+Tracked by **RFC-0002 — Platform verb: `remove`**.
