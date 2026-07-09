@@ -2,9 +2,10 @@
 
 | | |
 |---|---|
-| **Status** | Proposed (awaiting approval) |
+| **Status** | Accepted (2026-07-09) |
 | **Author** | Claude Code (for thiva2k) |
 | **Created** | 2026-07-09 |
+| **Accepted** | 2026-07-09 — all four §9 decisions approved as recommended |
 | **Phase / order** | Phase 1 — Foundation · module 1 of 16 |
 | **Depends on** | Promotes `os::dnf_install` from placeholder to real (§4.6) |
 | **Reference for** | Every future Atlas module |
@@ -303,21 +304,17 @@ tests remain isolated and the single-shell `run.sh` sourcing model is respected
 - **Storing identity in a tracked repo file.** Leaks personal data into git.
   Rejected outright.
 
-## 9. Decisions requiring approval
+## 9. Decisions (approved 2026-07-09)
 
-These are the forks where your preference should be recorded before
-implementation:
+All four were approved as recommended:
 
-1. **Config strategy** — recommend the **`include.path` owned fragment** (§4.4).
-   Alternative: direct `git config --global` per key. *Which do you want?*
-2. **Identity sourcing** — recommend **env vars + `~/.config/atlas/atlas.env`,
-   non-blocking** (§4.5), and adopting `atlas.env` as the standard for all
-   future user-specific config. *Approve, or prefer another source?*
-3. **Managed default set** (§4.3) — the specific git keys/values are a taste
-   call. *Approve as-is, trim, or add? (`pull.rebase=true` in particular.)*
-4. **`os::dnf_install` promotion** (§4.6) — folding the real package primitive
-   into this module's work vs. a separate prerequisite RFC/task. Recommend
-   **folding it in** (Git is its only consumer until GitHub CLI). *OK?*
+1. **Config strategy** → **`include.path` owned fragment** (§4.4). ✅ Approved.
+2. **Identity sourcing** → **env vars + `~/.config/atlas/atlas.env`,
+   non-blocking** (§4.5), adopted as the standard for all future user-specific
+   config. ✅ Approved.
+3. **Managed default set** (§4.3) → approved **as-is**. ✅
+4. **`os::dnf_install` promotion** (§4.6) → **folded into** this module's work.
+   ✅ Approved.
 
 ## 10. Implementation plan (after acceptance)
 

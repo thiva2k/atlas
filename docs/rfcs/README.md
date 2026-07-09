@@ -28,4 +28,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 
 | RFC | Title | Status |
 |-----|-------|--------|
-| [0001](RFC-0001-git-module.md) | Git module (reference implementation) | Proposed |
+| [0001](RFC-0001-git-module.md) | Git module (reference implementation) | Accepted |
