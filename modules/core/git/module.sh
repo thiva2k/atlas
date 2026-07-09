@@ -13,10 +13,128 @@ _git_fragment_dir() {
 }
 _git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
 
+# The global config file git itself would read/write.
+_git_config_file() { printf '%s\n' "${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}"; }
+
 # True if our fragment path is already an include.path in ~/.gitconfig.
 _git_include_present() {
   git config --global --get-all include.path 2>/dev/null \
     | grep -qxF "$(_git_fragment)"
+}
+
+# The block we prepend. Git resolves config positionally and expands an include
+# at the position of the directive, so this must come BEFORE the user's own
+# sections: then anything they set below overrides our default (RFC-0001 §4.4).
+_git_include_block() { printf '[include]\n\tpath = %s\n\n' "$(_git_fragment)"; }
+
+# True if the Atlas [include] is the first section of $1 (blanks/comments skipped).
+_git_include_is_first() {
+  local file="$1" body first second
+  [ -r "$file" ] || return 1
+  body="$(grep -vE '^[[:space:]]*([#;].*)?$' "$file")" || return 1
+  first="$(printf '%s\n' "$body" | sed -n 1p)"
+  second="$(printf '%s\n' "$body" | sed -n 2p | sed 's/^[[:space:]]*//')"
+  [ "$first" = "[include]" ] || return 1
+  [ "$second" = "path = $(_git_fragment)" ] || return 1
+}
+
+# Rewrite $1 as: include block + original content. Atomic (same-dir temp + mv),
+# mode-preserving. Caller holds the lock. Returns 1 on failure, never dies.
+_git_prepend_include() {
+  local real="$1" dir tmp
+  dir="$(dirname "$real")"
+  tmp="$(mktemp "$dir/.atlas-gitconfig.XXXXXX")" || {
+    log::error "cannot create a temp file in $dir"; return 1; }
+  if ! { _git_include_block; cat "$real"; } > "$tmp"; then
+    rm -f "$tmp"; log::error "cannot write $tmp"; return 1
+  fi
+  chmod --reference="$real" "$tmp" 2>/dev/null || true
+  if ! mv -f "$tmp" "$real"; then
+    rm -f "$tmp"; log::error "cannot replace $real"; return 1
+  fi
+}
+
+# Guarantee the Atlas [include] block is the first section of the global config.
+# Dies (exit 4) rather than touch a config it cannot safely rewrite.
+_git_ensure_include() {
+  local frag target real dir lock rc
+  frag="$(_git_fragment)"
+  target="$(_git_config_file)"
+
+  # 1. resolve a symlinked config (chezmoi/stow): edit the target, keep the link
+  if [ -L "$target" ]; then
+    real="$(readlink -f "$target" 2>/dev/null || true)"
+    [ -n "$real" ] || die "$ATLAS_EXIT_MODULE" "cannot resolve $target" \
+      "it is a symlink whose target directory does not exist" \
+      "repair or remove the symlink, then re-run 'atlas install git'"
+  else
+    real="$target"
+  fi
+
+  # 2. refuse anything we cannot safely rewrite
+  if [ -e "$real" ] && [ ! -f "$real" ]; then
+    die "$ATLAS_EXIT_MODULE" "$real is not a regular file" \
+      "Atlas rewrites the global git config in place and will not touch a directory or special file" \
+      "move it aside, then re-run 'atlas install git'"
+  fi
+  dir="$(dirname "$real")"
+  [ -d "$dir" ] && [ -w "$dir" ] || die "$ATLAS_EXIT_MODULE" "$dir is not a writable directory" \
+    "Atlas writes the new config to a temp file there before renaming it into place" \
+    "fix the permissions on $dir, then re-run 'atlas install git'"
+  if [ -f "$real" ] && [ ! -w "$real" ]; then
+    die "$ATLAS_EXIT_MODULE" "$real is not writable" \
+      "Atlas must add its include directive to your global git config" \
+      "fix the permissions on $real, then re-run 'atlas install git'"
+  fi
+  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -f "$real" ] && [ ! -O "$real" ]; then
+    die "$ATLAS_EXIT_MODULE" "refusing to rewrite $real as root" \
+      "the file is not owned by root, so rewriting it would change its owner" \
+      "run 'atlas install git' as the user who owns $real, without sudo"
+  fi
+
+  # 3. missing or empty: just create it — no user content to preserve
+  if [ ! -s "$real" ]; then
+    _git_include_block > "$real" || { log::error "cannot write $real"; return 1; }
+    log::info "created $real with include -> $frag"
+    return 0
+  fi
+
+  # 4. never textually edit a file whose semantics git cannot confirm
+  git config --file "$real" --list >/dev/null 2>&1 || \
+    die "$ATLAS_EXIT_MODULE" "git cannot parse $real" \
+      "Atlas will not rewrite a config file it cannot read" \
+      "fix the syntax (try 'git config --list'), then re-run 'atlas install git'"
+
+  # 5. already correct
+  if _git_include_present && _git_include_is_first "$real"; then
+    log::info "include.path already at the top of $real"
+    return 0
+  fi
+
+  lock="$real.lock"
+  if [ -e "$lock" ]; then
+    die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
+      "$lock exists — another git process is writing, or a crash left it behind" \
+      "wait for that process, or remove $lock if it is stale, then re-run 'atlas install git'"
+  fi
+
+  # 6. migration: drop a misplaced include line first (git takes its own lock)
+  if _git_include_present; then
+    git config --global --fixed-value --unset-all include.path "$frag" || {
+      log::error "cannot remove the misplaced include.path from $real"; return 1; }
+    log::info "relocating include.path to the top of $real"
+  fi
+
+  # 7. prepend, under our own lock, atomically
+  if ! (set -C; : > "$lock") 2>/dev/null; then
+    die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
+      "$lock appeared while Atlas was working — another git process is writing" \
+      "wait for that process to finish, then re-run 'atlas install git'"
+  fi
+  if _git_prepend_include "$real"; then rc=0; else rc=1; fi
+  rm -f "$lock"
+  [ "$rc" -eq 0 ] || return 1
+  log::info "added include.path -> $frag"
 }
 
 # Set user.name / user.email from env/atlas.env, only if currently unset.
@@ -52,6 +170,10 @@ module::check() {
   os::has_cmd git || return 1
   [ -r "$(_git_fragment)" ] || return 1
   _git_include_present || return 1
+  # Not merely present — first. An include left at the bottom by an older Atlas
+  # would override the user's own settings, and `install` is skipped when check
+  # passes, so this is what lets a bad install migrate itself.
+  _git_include_is_first "$(_git_config_file)" || return 1
   return 0
 }
 
@@ -70,13 +192,8 @@ module::install() {
   cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
   log::info "wrote managed git config: $frag"
 
-  # 3. ensure exactly one include.path line
-  if _git_include_present; then
-    log::info "include.path already present"
-  else
-    git config --global --add include.path "$frag" || { log::error "cannot add include.path"; return 1; }
-    log::info "added include.path -> $frag"
-  fi
+  # 3. wire the fragment in as the FIRST section, so the user's own settings win
+  _git_ensure_include || return 1
 
   # 4. identity (optional, non-blocking, set-if-unset)
   _git_apply_identity
@@ -87,7 +204,9 @@ module::verify() {
   os::has_cmd git || { log::error "git not installed"; return 1; }
   git --version >/dev/null 2>&1 || { log::error "git --version failed"; return 1; }
   [ -r "$(_git_fragment)" ] || { log::error "managed fragment missing"; return 1; }
-  _git_include_present || { log::error "include.path not wired into ~/.gitconfig"; return 1; }
+  _git_include_present || { log::error "include.path not wired into $(_git_config_file)"; return 1; }
+  _git_include_is_first "$(_git_config_file)" \
+    || { log::error "include.path is not the first section — Atlas defaults would override your own settings"; return 1; }
   [ "$(git config --global --includes --get init.defaultBranch 2>/dev/null)" = "main" ] \
     || { log::error "managed config not effective (init.defaultBranch != main)"; return 1; }
   return 0

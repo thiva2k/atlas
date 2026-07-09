@@ -340,3 +340,29 @@ One focused change, TDD, small commits:
   package install.
 - The config, identity, and testing patterns here are documented well enough that
   the next module (GitHub CLI) can follow them without re-deriving them.
+
+## Errata
+
+*Appended 2026-07-09 during implementation. Nothing above this line is modified;
+the RFC's status and its §9 decisions stand unchanged.*
+
+**§4.4's mechanism sketch cannot satisfy §4.4's own guarantee.** The section shows
+`git config --global --add include.path …`, but `--add` *appends* — git writes the new
+`[include]` section at the **bottom** of `~/.gitconfig`. Git resolves configuration
+positionally (last value wins) and expands an include at the position of the directive.
+A bottom include is therefore read **last**, so the Atlas fragment would silently
+override any value the user had already set above it: a user with
+`[pull] rebase = false` would find `git config pull.rebase` reporting `true` after
+`atlas install`.
+
+That is the exact opposite of the guarantee stated in the same section — "the include
+is added near the top … Atlas provides defaults, **the user always wins**" — which is
+also the rationale on which §9 decision 1 selected `include.path` in the first place.
+
+**The guarantee is normative; the `--add` sketch was an error in the example.** The
+implementation prepends the `[include]` block to the top of
+`${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}` via an atomic, mode-preserving, lock-guarded
+rewrite, and relocates an already-appended include on re-install. `module::check` and
+`module::verify` require the block to be *first*, not merely present, so an older
+mis-installed config migrates itself. No design decision changed, so no superseding RFC
+is required.

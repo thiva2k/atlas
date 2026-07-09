@@ -61,3 +61,95 @@ assert_contains "git install calls dnf when git absent" \
 # verify: fails before install, passes after
 assert_status "git verify fails before install" 1 bash -c "$PRE"' module::verify'
 assert_status "git verify passes after install" 0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::verify'
+
+# --- include placement: Atlas provides defaults, the user always wins ---------
+# RFC-0001 §4.4. git resolves config positionally (last value wins) and expands
+# an include at the position of the directive, so the Atlas [include] block must
+# be the FIRST section of the global config. `git config --add` appends, which
+# would make Atlas silently override the user's own settings.
+
+# a user's pre-existing value survives; an unclaimed managed key still applies
+assert_eq "git user's pull.rebase survives install" \
+  "$(bash -c "$PRE"'
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    git config --global --includes --get pull.rebase')" "false"
+
+assert_eq "git unclaimed managed key still applies" \
+  "$(bash -c "$PRE"'
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    git config --global --includes --get init.defaultBranch')" "main"
+
+# the user's file is preserved byte-for-byte below the include block
+assert_status "git install preserves user content byte-for-byte" 0 bash -c "$PRE"'
+  printf "# my config\n[user]\n\tname = Zed\n\n[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
+  module::install >/dev/null 2>&1
+  tail -n +4 "$GIT_CONFIG_GLOBAL" > "$HOME/after"
+  cmp -s "$HOME/orig" "$HOME/after"'
+
+# idempotent against a pre-populated file: one include line, byte-stable
+assert_eq "git install idempotent on pre-populated config (one include)" \
+  "$(bash -c "$PRE"'
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1; module::install >/dev/null 2>&1
+    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
+
+assert_status "git second install leaves config byte-identical" 0 bash -c "$PRE"'
+  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  module::install >/dev/null 2>&1
+  cp "$GIT_CONFIG_GLOBAL" "$HOME/first"
+  module::install >/dev/null 2>&1
+  cmp -s "$HOME/first" "$GIT_CONFIG_GLOBAL"'
+
+# a symlinked ~/.gitconfig (chezmoi/stow) stays a symlink; the target is rewritten
+assert_status "git symlinked config preserved and target rewritten" 0 bash -c "$PRE"'
+  mkdir -p "$HOME/dots"
+  printf "[pull]\n\trebase = false\n" > "$HOME/dots/gitconfig"
+  ln -s "$HOME/dots/gitconfig" "$GIT_CONFIG_GLOBAL"
+  module::install >/dev/null 2>&1
+  [ -L "$GIT_CONFIG_GLOBAL" ] || exit 1
+  [ "$(git config --global --includes --get pull.rebase)" = false ] || exit 1
+  head -n 1 "$HOME/dots/gitconfig" | grep -qxF "[include]"'
+
+# file mode is preserved (users keep 600 on configs holding credentials)
+assert_eq "git install preserves config file mode" \
+  "$(bash -c "$PRE"'
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    chmod 600 "$GIT_CONFIG_GLOBAL"
+    module::install >/dev/null 2>&1
+    stat -c %a "$GIT_CONFIG_GLOBAL"')" "600"
+
+# a pre-existing lock means another writer: refuse, and do not touch the file
+assert_status "git install refuses when config is locked" 4 bash -c "$PRE"'
+  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  : > "$GIT_CONFIG_GLOBAL.lock"
+  module::install'
+
+# die() exits, so contain the hook in a subshell exactly as the runner does
+assert_status "git locked config left unmodified" 0 bash -c "$PRE"'
+  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
+  : > "$GIT_CONFIG_GLOBAL.lock"
+  ( module::install ) >/dev/null 2>&1 || true
+  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
+
+# migration: an include appended at the BOTTOM by an older Atlas is relocated
+assert_eq "git migrates a bottom-appended include (user wins)" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    git config --global --add include.path "$frag"
+    module::install >/dev/null 2>&1
+    git config --global --includes --get pull.rebase')" "false"
+
+assert_eq "git migration leaves exactly one include line" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    git config --global --add include.path "$frag"
+    module::install >/dev/null 2>&1
+    git config --global --get-all include.path | wc -l | tr -d " "')" "1"

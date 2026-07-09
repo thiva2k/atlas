@@ -12,4 +12,16 @@ All notable changes to Atlas are documented here. Format loosely follows
 - Zero-dependency `bootstrap.sh`.
 - Pure-Bash test harness under `tests/`.
 
+### Fixed
+- **git: Atlas defaults no longer override your own git settings.** The managed
+  config was wired into `~/.gitconfig` with `git config --add`, which appends —
+  and because git resolves configuration positionally, the Atlas fragment was
+  read last and won. Installing Atlas would silently flip a hand-set
+  `pull.rebase = false` to `true`. The include block is now prepended, so
+  anything you set below it wins, as `RFC-0001` §4.4 always intended. An
+  existing bottom-placed include is relocated on the next `atlas install git`.
+  The rewrite is atomic, preserves the file's mode, follows a symlinked
+  `~/.gitconfig` to its target, and refuses to touch a config that is locked,
+  unwritable, or unparseable.
+
 [Keep a Changelog]: https://keepachangelog.com/
