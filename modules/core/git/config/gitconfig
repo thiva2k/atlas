@@ -1,0 +1,15 @@
+# Managed by Atlas (core/git). Included from ~/.gitconfig via include.path.
+# Edit your own ~/.gitconfig to override any of these — your settings win.
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true
+[push]
+	default = simple
+	autoSetupRemote = true
+[fetch]
+	prune = true
+[rebase]
+	autostash = true
+[color]
+	ui = auto
