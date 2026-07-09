@@ -54,30 +54,61 @@ _git_strip_include() {
       if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
       return s
     }
-    /^[[:space:]]*\[/ {                       # any section header
-      insec = ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*(path[[:space:]]*=.*)?$/)
-      if (insec) {
-        rest = $0
-        if (sub(/^[[:space:]]*\[[^]]*\][[:space:]]*/, "", rest) && rest != "" &&
-            value(rest) == frag) next         # inline: [include] path = frag
+    # Close the pending section. If our line was the ONLY thing in an [include]
+    # section, the now-empty header goes too (with the blank line we wrote after
+    # it) — otherwise `remove` would not be a clean revert. A section we did not
+    # strip from is always emitted verbatim.
+    function endsec(   i, start) {
+      start = 1
+      if (hdr != "" && stripped && !kept) {
+        while (start <= nb && buf[start] ~ /^[[:space:]]*$/) start++
+      } else if (hdr != "") {
+        print hdr
       }
+      for (i = start; i <= nb; i++) print buf[i]
+      hdr = ""; nb = 0; stripped = 0; kept = 0
+    }
+    /^[[:space:]]*\[/ {                       # any section header
+      endsec()
+      if ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*(path[[:space:]]*=.*)?$/) {
+        insec = 1
+        rest = $0
+        if (sub(/^[[:space:]]*\[[^]]*\][[:space:]]*/, "", rest) && rest != "") {
+          if (value(rest) == frag) { stripped = 1; next }   # inline: [include] path = frag
+          kept = 1; print; next                             # inline, someone else s
+        }
+        hdr = $0; next                        # hold: it may end up empty
+      }
+      insec = 0; print; next                  # [includeIf …] and every other section
+    }
+    insec {
+      if ($0 ~ /^[[:space:]]*path[[:space:]]*=/ && value($0) == frag) { stripped = 1; next }
+      if ($0 ~ /^[[:space:]]*([#;].*)?$/) { buf[++nb] = $0; next }   # blank/comment: hold
+      kept = 1                                # a real key: the section survives
+      if (hdr != "") { print hdr; hdr = "" }
+      for (i = 1; i <= nb; i++) print buf[i]
+      nb = 0
       print; next
     }
-    insec && $0 ~ /^[[:space:]]*path[[:space:]]*=/ { if (value($0) == frag) next }
     { print }
+    END { endsec() }
   ' "$1"
 }
 
-# Rewrite $1 as: include block + original content minus any stale include line.
-# ONE atomic write (same-dir temp + mv), mode-preserving, so a crash leaves the
-# old file untouched and nothing can fail after the file has been modified.
+# Rewrite $1 in ONE atomic write (same-dir temp + mv), mode-preserving: the
+# include block (when $2 is `with-block`) followed by the original content minus
+# any stale include line of ours. A crash leaves the old file untouched, and
+# nothing can fail after the file has been modified.
 # Caller holds the lock. Returns 1 on failure, never dies.
-_git_prepend_include() {
-  local real="$1" dir tmp
+_git_rewrite_config() {
+  local real="$1" block="${2:-}" dir tmp
   dir="$(dirname "$real")"
   tmp="$(mktemp "$dir/.atlas-gitconfig.XXXXXX")" || {
     log::error "cannot create a temp file in $dir"; return 1; }
-  if ! { _git_include_block; _git_strip_include "$real"; } > "$tmp"; then
+  if ! {
+        if [ "$block" = "with-block" ]; then _git_include_block; fi
+        _git_strip_include "$real"
+      } > "$tmp"; then
     rm -f "$tmp"; log::error "cannot write $tmp"; return 1
   fi
   chmod --reference="$real" "$tmp" 2>/dev/null || true
@@ -86,83 +117,94 @@ _git_prepend_include() {
   fi
 }
 
-# Guarantee the Atlas [include] block is the first section of the global config.
-# Dies (exit 4) rather than touch a config it cannot safely rewrite.
-_git_ensure_include() {
-  local frag target real dir lock rc
-  frag="$(_git_fragment)"
+# Resolve the global config and refuse anything we cannot safely rewrite.
+# Sets _GIT_REAL. Dies (exit 4) rather than damage a user-owned file. `$1` is
+# the verb quoted back at the user in the "how to fix" line.
+# NOTE: this must never be called from inside `$( … )` — `die` calls `exit`,
+# which inside a command substitution would only kill the subshell.
+_git_guard_config() {
+  local verb="$1" target dir
   target="$(_git_config_file)"
 
-  # 1. resolve a symlinked config (chezmoi/stow): edit the target, keep the link
+  # a symlinked config (chezmoi/stow): edit the target, keep the link
   if [ -L "$target" ]; then
-    real="$(readlink -f "$target" 2>/dev/null || true)"
-    [ -n "$real" ] || die "$ATLAS_EXIT_MODULE" "cannot resolve $target" \
+    _GIT_REAL="$(readlink -f "$target" 2>/dev/null || true)"
+    [ -n "$_GIT_REAL" ] || die "$ATLAS_EXIT_MODULE" "cannot resolve $target" \
       "it is a symlink whose target directory does not exist" \
-      "repair or remove the symlink, then re-run 'atlas install git'"
+      "repair or remove the symlink, then re-run 'atlas $verb git'"
   else
-    real="$target"
+    _GIT_REAL="$target"
   fi
 
-  # 2. refuse anything we cannot safely rewrite
-  if [ -e "$real" ] && [ ! -f "$real" ]; then
-    die "$ATLAS_EXIT_MODULE" "$real is not a regular file" \
+  if [ -e "$_GIT_REAL" ] && [ ! -f "$_GIT_REAL" ]; then
+    die "$ATLAS_EXIT_MODULE" "$_GIT_REAL is not a regular file" \
       "Atlas rewrites the global git config in place and will not touch a directory or special file" \
-      "move it aside, then re-run 'atlas install git'"
+      "move it aside, then re-run 'atlas $verb git'"
   fi
-  dir="$(dirname "$real")"
+  dir="$(dirname "$_GIT_REAL")"
   [ -d "$dir" ] && [ -w "$dir" ] || die "$ATLAS_EXIT_MODULE" "$dir is not a writable directory" \
     "Atlas writes the new config to a temp file there before renaming it into place" \
-    "fix the permissions on $dir, then re-run 'atlas install git'"
-  if [ -f "$real" ] && [ ! -w "$real" ]; then
-    die "$ATLAS_EXIT_MODULE" "$real is not writable" \
-      "Atlas must add its include directive to your global git config" \
-      "fix the permissions on $real, then re-run 'atlas install git'"
+    "fix the permissions on $dir, then re-run 'atlas $verb git'"
+  if [ -f "$_GIT_REAL" ] && [ ! -w "$_GIT_REAL" ]; then
+    die "$ATLAS_EXIT_MODULE" "$_GIT_REAL is not writable" \
+      "Atlas must edit the include directive in your global git config" \
+      "fix the permissions on $_GIT_REAL, then re-run 'atlas $verb git'"
   fi
-  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -f "$real" ] && [ ! -O "$real" ]; then
-    die "$ATLAS_EXIT_MODULE" "refusing to rewrite $real as root" \
+  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -f "$_GIT_REAL" ] && [ ! -O "$_GIT_REAL" ]; then
+    die "$ATLAS_EXIT_MODULE" "refusing to rewrite $_GIT_REAL as root" \
       "the file is not owned by root, so rewriting it would change its owner" \
-      "run 'atlas install git' as the user who owns $real, without sudo"
+      "run 'atlas $verb git' as the user who owns $_GIT_REAL, without sudo"
   fi
+  # never textually edit a file whose semantics git cannot confirm
+  if [ -s "$_GIT_REAL" ]; then
+    git config --file "$_GIT_REAL" --list >/dev/null 2>&1 || \
+      die "$ATLAS_EXIT_MODULE" "git cannot parse $_GIT_REAL" \
+        "Atlas will not rewrite a config file it cannot read" \
+        "fix the syntax (try 'git config --list'), then re-run 'atlas $verb git'"
+  fi
+}
 
-  # 3. missing or empty: just create it — no user content to preserve
+# Take git's own lock path, so we cannot race a concurrent `git config`.
+# `set -C` makes this fail rather than clobber: we never steal another process's
+# lock. Callers must treat this as the LAST thing that may fail before writing.
+_git_lock() {
+  local verb="$1" lock="$2"
+  if ! (set -C; : > "$lock") 2>/dev/null; then
+    die "$ATLAS_EXIT_MODULE" "cannot lock ${lock%.lock}" \
+      "$lock exists — another git process is writing, or a crash left it behind" \
+      "wait for that process, or remove $lock if it is stale, then re-run 'atlas $verb git'"
+  fi
+}
+
+# Guarantee the Atlas [include] block is the first section of the global config.
+_git_ensure_include() {
+  local frag real rc
+  frag="$(_git_fragment)"
+  _git_guard_config install
+  real="$_GIT_REAL"
+
+  # missing or empty: just create it — no user content to preserve
   if [ ! -s "$real" ]; then
     _git_include_block > "$real" || { log::error "cannot write $real"; return 1; }
     log::info "created $real with include -> $frag"
     return 0
   fi
 
-  # 4. never textually edit a file whose semantics git cannot confirm
-  git config --file "$real" --list >/dev/null 2>&1 || \
-    die "$ATLAS_EXIT_MODULE" "git cannot parse $real" \
-      "Atlas will not rewrite a config file it cannot read" \
-      "fix the syntax (try 'git config --list'), then re-run 'atlas install git'"
-
-  # 5. already correct
   if _git_include_present && _git_include_is_first "$real"; then
     log::info "include.path already at the top of $real"
     return 0
   fi
 
-  # 6. take git's own lock path, so we cannot race a concurrent `git config`.
-  # `set -C` makes this fail rather than clobber: we never steal another
-  # process's lock. This is the LAST thing that can fail before we write.
-  lock="$real.lock"
-  if ! (set -C; : > "$lock") 2>/dev/null; then
-    die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
-      "$lock exists — another git process is writing, or a crash left it behind" \
-      "wait for that process, or remove $lock if it is stale, then re-run 'atlas install git'"
-  fi
-  # INVARIANT: nothing between here and the `rm -f "$lock"` below may die() —
-  # die() exits and would leak the lock, wedging every later run behind the
-  # refusal above. _git_prepend_include only ever *returns* non-zero.
-  # (A `trap … RETURN` here would outlive this function and fire under `set -u`
-  # with $lock out of scope; don't.)
+  _git_lock install "$real.lock"
+  # INVARIANT: nothing between here and the `rm -f` below may die() — die() exits
+  # and would leak the lock, wedging every later run behind the refusal above.
+  # _git_rewrite_config only ever *returns* non-zero. (A `trap … RETURN` here
+  # would outlive this function and fire under `set -u` with $lock out of scope.)
 
-  # 7. one atomic rewrite: prepend our block, drop any stale include line
   # `A && B` would abort the hook under `set -e` when A is false — use `if`.
   if _git_include_present; then log::info "relocating include.path to the top of $real"; fi
-  if _git_prepend_include "$real"; then rc=0; else rc=1; fi
-  rm -f "$lock"
+  if _git_rewrite_config "$real" with-block; then rc=0; else rc=1; fi
+  rm -f "$real.lock"
   [ "$rc" -eq 0 ] || return 1
   log::info "added include.path -> $frag"
 }
@@ -227,6 +269,49 @@ module::install() {
 
   # 4. identity (optional, non-blocking, set-if-unset)
   _git_apply_identity
+  return 0
+}
+
+# --- optional hooks ----------------------------------------------------------
+
+# Re-apply the latest managed fragment and re-check the include line, so a change
+# to Atlas's default set reaches an existing machine. Per RFC-0001 §4.7 this
+# deliberately does NOT touch identity and does NOT upgrade the git package.
+module::update() {
+  os::has_cmd git || { log::error "git is not installed — run 'atlas install git'"; return 1; }
+  local frag; frag="$(_git_fragment)"
+  mkdir -p "$(_git_fragment_dir)" || { log::error "cannot create $(_git_fragment_dir)"; return 1; }
+  cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
+  log::info "refreshed managed git config: $frag"
+  _git_ensure_include || return 1
+  return 0
+}
+
+# Drop the include line and delete the Atlas fragment. Per RFC-0001 §4.7 this
+# deliberately does NOT uninstall the git package (shared, high blast radius) and
+# does NOT touch the user's identity. Safely re-runnable.
+module::remove() {
+  local frag real rc; frag="$(_git_fragment)"
+
+  if _git_include_present; then
+    _git_guard_config remove
+    real="$_GIT_REAL"
+    _git_lock remove "$real.lock"
+    # INVARIANT: no die() between here and the `rm -f` below (see _git_ensure_include).
+    if _git_rewrite_config "$real"; then rc=0; else rc=1; fi
+    rm -f "$real.lock"
+    [ "$rc" -eq 0 ] || return 1
+    log::info "removed include.path from $real"
+  else
+    log::info "no include.path to remove"
+  fi
+
+  if [ -e "$frag" ]; then
+    rm -f "$frag" || { log::error "cannot delete $frag"; return 1; }
+    log::info "deleted managed fragment: $frag"
+    rmdir "$(_git_fragment_dir)" 2>/dev/null || true
+  fi
+  log::info "left the git package and your identity untouched"
   return 0
 }
 

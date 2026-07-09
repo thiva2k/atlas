@@ -6,6 +6,15 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `git` module** — the first real module, and the reference implementation
+  for every module after it (see `RFC-0001`). Installs Git, layers Atlas's
+  defaults *underneath* your own `~/.gitconfig` via an owned config fragment, and
+  fills in `user.name` / `user.email` only when they are missing. Supports
+  `check` / `install` / `verify` / `update` / `remove`; `remove` restores your
+  config byte-for-byte and leaves the Git package and your identity alone.
+- `env::get` (`internal/env.sh`): resolves user-specific settings from the
+  environment, then `~/.config/atlas/atlas.env`. Never prompts, never blocks.
+- `os::dnf_install`: a real, idempotent package primitive.
 - v1 skeleton: architecture, `atlas` CLI, module runner, and the `internal/`
   engine (logging, errors, OS helpers, module contract, dependency resolution).
 - Eight placeholder modules across core / development / apps / desktop.

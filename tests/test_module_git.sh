@@ -205,6 +205,80 @@ assert_eq "git migration never strips an includeIf section" \
     module::install >/dev/null 2>&1
     grep -c "includeIf" "$GIT_CONFIG_GLOBAL"')" "1"
 
+# migrating must not leave the old, now-empty [include] header behind
+assert_eq "git migration leaves no orphan include header" \
+  "$(bash -c "$PRE"'
+    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
+    mkdir -p "$(dirname "$frag")"; : > "$frag"
+    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+    git config --global --add include.path "$frag"
+    module::install >/dev/null 2>&1
+    grep -cxF "[include]" "$GIT_CONFIG_GLOBAL"')" "1"
+
+# --- optional hooks: update / remove (RFC-0001 §4.7) --------------------------
+
+# update re-applies the managed fragment (picks up changes to Atlas's defaults)
+assert_status "git update restores a tampered fragment" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  : > "$ATLAS_CONFIG_HOME/git/gitconfig"
+  module::update >/dev/null 2>&1
+  module::verify'
+
+# update never sets identity and never installs a package
+assert_eq "git update does not touch identity" \
+  "$(bash -c "$PRE"'
+    module::install >/dev/null 2>&1
+    export ATLAS_GIT_USER_NAME="Ada"
+    module::update >/dev/null 2>&1
+    git config --global --get user.name')" ""
+
+# remove: the include goes, the fragment goes, the user's file survives intact
+assert_status "git remove restores the config byte-for-byte" 0 bash -c "$PRE"'
+  printf "# mine\n[user]\n\tname = Zed\n[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
+  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
+
+assert_status "git remove deletes the managed fragment" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  [ ! -e "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
+
+assert_status "git check is unsatisfied after remove" 1 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  module::check'
+
+# remove is safely re-runnable and never touches the user's identity
+assert_status "git remove is idempotent" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  module::remove'
+
+assert_eq "git remove leaves identity alone" \
+  "$(bash -c "$PRE"'
+    git config --global user.name "Zed"
+    module::install >/dev/null 2>&1
+    module::remove  >/dev/null 2>&1
+    git config --global --get user.name')" "Zed"
+
+# remove on a machine Atlas never touched is a clean no-op
+assert_status "git remove is a no-op when nothing is installed" 0 bash -c "$PRE"' module::remove'
+
+# install after remove restores everything (full lifecycle round-trip)
+assert_status "git install -> remove -> install round-trips" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  module::install >/dev/null 2>&1
+  module::verify'
+
+# remove refuses a locked config rather than half-editing it
+assert_status "git remove refuses when config is locked" 4 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  : > "$GIT_CONFIG_GLOBAL.lock"
+  module::remove'
+
 # --- refuse to proceed rather than damage a config we cannot safely rewrite ---
 # Each asserts BOTH the exit code and that the file was left untouched. die()
 # exits, so the hook is contained in a subshell exactly as internal/runner.sh does.
