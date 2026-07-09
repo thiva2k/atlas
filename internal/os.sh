@@ -18,6 +18,19 @@ os::is_fedora() {
 
 os::is_root() { [ "$(id -u)" -eq 0 ]; }
 
-# --- placeholder installers (real logic lands with the modules that need them) ---
-os::dnf_install()     { log::info "would dnf install: $*"; }
+# Install one or more packages via dnf. Idempotent (dnf is a no-op for
+# already-installed packages). Uses sudo only when not already root.
+os::dnf_install() {
+  [ "$#" -gt 0 ] || return 0
+  os::require_cmd dnf
+  local sudo=""
+  os::is_root || sudo="sudo"
+  log::info "installing packages: $*"
+  if ! $sudo dnf install -y "$@"; then
+    log::error "dnf install failed: $*"
+    return 1
+  fi
+}
+
+# flatpak install placeholder (promoted when the first flatpak module lands).
 os::flatpak_install() { log::info "would flatpak install: $*"; }
