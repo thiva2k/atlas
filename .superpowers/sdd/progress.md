@@ -126,3 +126,92 @@ original content (when that task lands).
 - The EUID-0/non-root-owned guard is the one refuse-condition still untested (needs
   root/fakeroot).
 - CONTRIBUTING should say the suite is verified on Linux/WSL, not Git Bash.
+
+---
+
+# Phase 1, module 2 — `development/github-cli` (RFC-0003) — MERGED
+
+Merged to `main` as `a08590f`, pushed (`6e029ef..a08590f`). Suite: **218 passed, 0 failed**
+(was 111 at the end of RFC-0001).
+
+## What shipped
+- `modules/development/github-cli/` — installs `gh`; authenticates only from a token the
+  user supplied out of band; **owns no `gh` configuration at all**.
+- `internal/env.sh::env::get_secret` — the credential-grade resolver; the precedent every
+  later credentialed module inherits.
+- `tests/test_secret_discipline.sh` — repo-wide static + behavioural enforcement of the
+  secret rules.
+- `docs/conventions.md` §Secrets; `CHANGELOG.md` entries; `.gitignore` now really ignores
+  `atlas.env`.
+
+## Decisions of record
+- **D3 (owner, 2026-07-10): Atlas manages no `gh` configuration.** Decided against the
+  drafted `git_protocol=ssh`, because under SSH *every* `gh repo clone` needs a registered
+  key — including public repos that stock `gh` clones anonymously over HTTPS. A no-token
+  user would be left worse off than an untouched `gh`.
+- Owner ruling: Atlas configures `gh` only when initialising a fresh config; existing user
+  configuration is immutable absent an explicit migration/reset. (Moot after D3, but it is
+  the standing rule for future modules.)
+- Owner ruling: keep the generic `backup`/`restore` verbs; `core/ssh` is the first real
+  implementation (locally encrypted, module-owned state only); the runner stays generic;
+  stateless modules ship no-op hooks. RFC-0003 §9.4 extends this to *user-owned or
+  cheaply-regenerable* state, which is why `github-cli`'s are no-ops.
+- Phase-1 order **Git → GitHub CLI → SSH** was reviewed and stands: `gh` needs Git, and
+  registering an SSH key with GitHub needs an authenticated `gh`.
+- No `remove` hook (nothing Atlas owns to revert). `gh auth setup-git` is never run — it
+  would edit `core/git`'s owned file. The "unnecessary under SSH" argument was **withdrawn**
+  with D3; the module-boundary argument stands alone.
+
+## Empirical facts about `gh` (probed 2026-07-09/10; gh 2.45.0 WSL, 2.93.0 Windows)
+- `gh config get <key>` prints the **default** and returns 0 for an unset key → "unset" is
+  not observable; set-if-unset is unimplementable.
+- `gh config get` does not create `config.yml`; `gh config set` does.
+- `gh --version` and `gh auth token` create **nothing** in a fresh config dir.
+- `gh auth token` **prints the token on stdout**; usable only as `>/dev/null 2>&1`.
+- `gh auth status` exit code is **not stable across versions** (0 logged-out on 2.45, 1 on 2.93).
+- `gh auth login --with-token` **refuses** when `GH_TOKEN` *or* `GITHUB_TOKEN` is exported;
+  in that state `gh auth token` returns 0 and echoes the env value.
+
+## The security bug this branch found (existed on `main`)
+`env::get` walks *every* line of `atlas.env` to find one key. Under `bash -x`, `core/git`
+looking up `ATLAS_GIT_USER_NAME` traced `+ line=ATLAS_GH_TOKEN=ghp_…` — one module leaking
+another module's credential during an unrelated lookup. Separately, the first version of
+this module did `token="$(env::get_secret …)"`, which traces `+ token=ghp_…`: a resolver
+can only guard its own body, so **the guard is defeated at the call site**.
+
+Standing rules now enforced by `tests/test_secret_discipline.sh`:
+- **Never assign a secret to a variable.** Pipe the resolver into the consuming tool:
+  `env::get_secret KEY >/dev/null || { warn; return 0; }` then `env::get_secret KEY | tool`.
+- Both resolvers disable xtrace for their bodies and restore it.
+- No module enables xtrace; `gh auth token` only ever appears as a discarded predicate.
+
+Neither bug was findable by unit test — the second was found by running
+`bash -x ./atlas install development/github-cli` end to end. **Run the CLI under `bash -x`
+as part of every future credentialed module's verification.**
+
+## Verified adversarially (all clean)
+`$-` detects xtrace from `set -x`, `set -o xtrace`, and inherited `SHELLOPTS`; no canary in
+a `BASH_XTRACEFD` file; nested guards compose; a DEBUG trap sees nothing; TOCTOU on
+`atlas.env` between the two resolver calls fails **safe** (install exits 1, error names the
+cause); a planted module-scope leak trips both the xtrace test and the static rule.
+
+## Latent test defect fixed in passing
+Runner-level tests ran under the caller's `set -e`, so `runner::run` died at the first
+failing module **before its failure tally ran**. `test_module_git.sh`'s "exit 4" assertion
+passed only because `die`'s code is also 4. Both suites now use the entrypoint's real flags
+(`set +e; set -uo pipefail`); hook-level tests keep `set -euo pipefail`.
+
+## Still owed (carried forward)
+- **RFC-0004 `core/ssh`** — next. Must implement **real, locally-encrypted `backup`/`restore`**
+  (the reference for all stateful modules) and attempt best-effort `gh ssh-key add`. Also
+  fold in `core/git`'s no-op `backup`/`restore` hooks for consistency.
+- **Engine gap:** the runner has only `ok`/`skip`/`fail`. "Installed but unauthenticated" is
+  invisible in the summary. Needs its own RFC.
+- **Follow-up gate before the v1.1 tag:** one manual pass of
+  `atlas install development/github-cli` against **real `gh`** on the clean Fedora box. The
+  mock proves Atlas's logic, not `gh`'s contract.
+- 7 module dirs still do not exist: `ssh, python, node, uv, spotify, discord, whatsapp`.
+- `os::flatpak_install` is still a logging placeholder; needed before Phase 4/5.
+- RFC-0002 (platform verb `remove`) is a Proposed stub.
+- The EUID-0/non-root-owned guard in `core/git` is still untested (needs root/fakeroot).
+- CONTRIBUTING should say the suite is verified on Linux/WSL, not Git Bash.
