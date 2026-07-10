@@ -1,0 +1,409 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index d08caf0..4e3edd9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -12,4 +12,21 @@ All notable changes to Atlas are documented here. Format loosely follows
+ - Zero-dependency `bootstrap.sh`.
+ - Pure-Bash test harness under `tests/`.
+ 
++### Fixed
++- **git: Atlas defaults no longer override your own git settings.** The managed
++  config was wired into `~/.gitconfig` with `git config --add`, which appends —
++  and because git resolves configuration positionally, the Atlas fragment was
++  read last and won. Installing Atlas would silently flip a hand-set
++  `pull.rebase = false` to `true`. The include block is now prepended, so
++  anything you set below it wins, as `RFC-0001` §4.4 always intended. An
++  existing bottom-placed include is relocated on the next `atlas install git`.
++  The rewrite is a single atomic write, preserves the file's mode, follows a
++  symlinked `~/.gitconfig` to its target, and refuses to touch a config that is
++  locked, unwritable, not a regular file, or unparseable — always before
++  modifying anything.
++- **git: `atlas verify git` no longer reports a healthy module as broken** when
++  you override one of Atlas's managed defaults. It now checks that the managed
++  fragment *resolves*, not that Atlas's value is the winning one — which, after
++  the fix above, it deliberately is not.
++
+ [Keep a Changelog]: https://keepachangelog.com/
+diff --git a/docs/rfcs/RFC-0001-git-module.md b/docs/rfcs/RFC-0001-git-module.md
+index 03688f6..b0e3631 100644
+--- a/docs/rfcs/RFC-0001-git-module.md
++++ b/docs/rfcs/RFC-0001-git-module.md
+@@ -340,3 +340,36 @@ One focused change, TDD, small commits:
+   package install.
+ - The config, identity, and testing patterns here are documented well enough that
+   the next module (GitHub CLI) can follow them without re-deriving them.
++
++## Errata
++
++*Appended 2026-07-09 during implementation. Nothing above this line is modified;
++the RFC's status and its §9 decisions stand unchanged.*
++
++**§4.4's mechanism sketch cannot satisfy §4.4's own guarantee.** The section shows
++`git config --global --add include.path …`, but `--add` *appends* — git writes the new
++`[include]` section at the **bottom** of `~/.gitconfig`. Git resolves configuration
++positionally (last value wins) and expands an include at the position of the directive.
++A bottom include is therefore read **last**, so the Atlas fragment would silently
++override any value the user had already set above it: a user with
++`[pull] rebase = false` would find `git config pull.rebase` reporting `true` after
++`atlas install`.
++
++That is the exact opposite of the guarantee stated in the same section — "the include
++is added near the top … Atlas provides defaults, **the user always wins**" — which is
++also the rationale on which §9 decision 1 selected `include.path` in the first place.
++
++**The guarantee is normative; the `--add` sketch was an error in the example.** The
++implementation prepends the `[include]` block to the top of
++`${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}` via an atomic, mode-preserving, lock-guarded
++rewrite, and relocates an already-appended include in the same single write. `module::check`
++and `module::verify` require the block to be *first*, not merely present, so an older
++mis-installed config migrates itself (the runner skips `install` whenever `check` passes).
++
++**A consequence for §4.7's `verify`.** Once the user wins, "is the module healthy?" can no
++longer be answered by "does `init.defaultBranch` resolve to `main`?" — a user who sets
++`defaultBranch = master` below the include would be told the module is broken. `verify`
++instead asserts that the fragment's value is *present* among the resolved values
++(`--includes --get-all`), i.e. that the include resolves at all.
++
++No design decision changed, so no superseding RFC is required.
+diff --git a/modules/core/git/module.sh b/modules/core/git/module.sh
+index 6f9fb71..3d61743 100644
+--- a/modules/core/git/module.sh
++++ b/modules/core/git/module.sh
+@@ -13,12 +13,149 @@ _git_fragment_dir() {
+ }
+ _git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
+ 
++# The global config file git itself would read/write.
++_git_config_file() { printf '%s\n' "${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}"; }
++
+ # True if our fragment path is already an include.path in ~/.gitconfig.
+ _git_include_present() {
+   git config --global --get-all include.path 2>/dev/null \
+     | grep -qxF "$(_git_fragment)"
+ }
+ 
++# The block we prepend. Git resolves config positionally and expands an include
++# at the position of the directive, so this must come BEFORE the user's own
++# sections: then anything they set below overrides our default (RFC-0001 §4.4).
++# The path is quoted, as git's own writer would, so a `#` or `;` in it is not
++# read as a comment.
++_git_include_block() { printf '[include]\n\tpath = "%s"\n\n' "$(_git_fragment)"; }
++
++# True if the Atlas [include] is the first section of $1 (blanks/comments skipped).
++_git_include_is_first() {
++  local file="$1" body first second
++  [ -r "$file" ] || return 1
++  body="$(grep -vE '^[[:space:]]*([#;].*)?$' "$file")" || return 1
++  first="$(printf '%s\n' "$body" | sed -n 1p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++  second="$(printf '%s\n' "$body" | sed -n 2p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++  [ "$first" = "[include]" ] || return 1
++  [ "$second" = "path = \"$(_git_fragment)\"" ] || return 1
++}
++
++# Strip any existing include line pointing at our fragment (quoted or not — an
++# older Atlas wrote it unquoted via `git config --add`). Compares the value as a
++# literal string, so a path with regex metacharacters is safe.
++_git_strip_include() {
++  awk -v frag="$(_git_fragment)" '
++    /^[[:space:]]*\[/ { insec = ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*$/) }
++    {
++      if (insec) {
++        l = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", l)
++        if (l == "path = " frag || l == "path=" frag ||
++            l == "path = \"" frag "\"" || l == "path=\"" frag "\"") next
++      }
++      print
++    }
++  ' "$1"
++}
++
++# Rewrite $1 as: include block + original content minus any stale include line.
++# ONE atomic write (same-dir temp + mv), mode-preserving, so a crash leaves the
++# old file untouched and nothing can fail after the file has been modified.
++# Caller holds the lock. Returns 1 on failure, never dies.
++_git_prepend_include() {
++  local real="$1" dir tmp
++  dir="$(dirname "$real")"
++  tmp="$(mktemp "$dir/.atlas-gitconfig.XXXXXX")" || {
++    log::error "cannot create a temp file in $dir"; return 1; }
++  if ! { _git_include_block; _git_strip_include "$real"; } > "$tmp"; then
++    rm -f "$tmp"; log::error "cannot write $tmp"; return 1
++  fi
++  chmod --reference="$real" "$tmp" 2>/dev/null || true
++  if ! mv -f "$tmp" "$real"; then
++    rm -f "$tmp"; log::error "cannot replace $real"; return 1
++  fi
++}
++
++# Guarantee the Atlas [include] block is the first section of the global config.
++# Dies (exit 4) rather than touch a config it cannot safely rewrite.
++_git_ensure_include() {
++  local frag target real dir lock rc
++  frag="$(_git_fragment)"
++  target="$(_git_config_file)"
++
++  # 1. resolve a symlinked config (chezmoi/stow): edit the target, keep the link
++  if [ -L "$target" ]; then
++    real="$(readlink -f "$target" 2>/dev/null || true)"
++    [ -n "$real" ] || die "$ATLAS_EXIT_MODULE" "cannot resolve $target" \
++      "it is a symlink whose target directory does not exist" \
++      "repair or remove the symlink, then re-run 'atlas install git'"
++  else
++    real="$target"
++  fi
++
++  # 2. refuse anything we cannot safely rewrite
++  if [ -e "$real" ] && [ ! -f "$real" ]; then
++    die "$ATLAS_EXIT_MODULE" "$real is not a regular file" \
++      "Atlas rewrites the global git config in place and will not touch a directory or special file" \
++      "move it aside, then re-run 'atlas install git'"
++  fi
++  dir="$(dirname "$real")"
++  [ -d "$dir" ] && [ -w "$dir" ] || die "$ATLAS_EXIT_MODULE" "$dir is not a writable directory" \
++    "Atlas writes the new config to a temp file there before renaming it into place" \
++    "fix the permissions on $dir, then re-run 'atlas install git'"
++  if [ -f "$real" ] && [ ! -w "$real" ]; then
++    die "$ATLAS_EXIT_MODULE" "$real is not writable" \
++      "Atlas must add its include directive to your global git config" \
++      "fix the permissions on $real, then re-run 'atlas install git'"
++  fi
++  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -f "$real" ] && [ ! -O "$real" ]; then
++    die "$ATLAS_EXIT_MODULE" "refusing to rewrite $real as root" \
++      "the file is not owned by root, so rewriting it would change its owner" \
++      "run 'atlas install git' as the user who owns $real, without sudo"
++  fi
++
++  # 3. missing or empty: just create it — no user content to preserve
++  if [ ! -s "$real" ]; then
++    _git_include_block > "$real" || { log::error "cannot write $real"; return 1; }
++    log::info "created $real with include -> $frag"
++    return 0
++  fi
++
++  # 4. never textually edit a file whose semantics git cannot confirm
++  git config --file "$real" --list >/dev/null 2>&1 || \
++    die "$ATLAS_EXIT_MODULE" "git cannot parse $real" \
++      "Atlas will not rewrite a config file it cannot read" \
++      "fix the syntax (try 'git config --list'), then re-run 'atlas install git'"
++
++  # 5. already correct
++  if _git_include_present && _git_include_is_first "$real"; then
++    log::info "include.path already at the top of $real"
++    return 0
++  fi
++
++  # 6. take git's own lock path, so we cannot race a concurrent `git config`.
++  # `set -C` makes this fail rather than clobber: we never steal another
++  # process's lock. This is the LAST thing that can fail before we write.
++  lock="$real.lock"
++  if ! (set -C; : > "$lock") 2>/dev/null; then
++    die "$ATLAS_EXIT_MODULE" "cannot lock $real" \
++      "$lock exists — another git process is writing, or a crash left it behind" \
++      "wait for that process, or remove $lock if it is stale, then re-run 'atlas install git'"
++  fi
++  # INVARIANT: nothing between here and the `rm -f "$lock"` below may die() —
++  # die() exits and would leak the lock, wedging every later run behind the
++  # refusal above. _git_prepend_include only ever *returns* non-zero.
++  # (A `trap … RETURN` here would outlive this function and fire under `set -u`
++  # with $lock out of scope; don't.)
++
++  # 7. one atomic rewrite: prepend our block, drop any stale include line
++  # `A && B` would abort the hook under `set -e` when A is false — use `if`.
++  if _git_include_present; then log::info "relocating include.path to the top of $real"; fi
++  if _git_prepend_include "$real"; then rc=0; else rc=1; fi
++  rm -f "$lock"
++  [ "$rc" -eq 0 ] || return 1
++  log::info "added include.path -> $frag"
++}
++
+ # Set user.name / user.email from env/atlas.env, only if currently unset.
+ # Never fails the install; always returns 0.
+ _git_apply_identity() {
+@@ -52,6 +189,10 @@ module::check() {
+   os::has_cmd git || return 1
+   [ -r "$(_git_fragment)" ] || return 1
+   _git_include_present || return 1
++  # Not merely present — first. An include left at the bottom by an older Atlas
++  # would override the user's own settings, and `install` is skipped when check
++  # passes, so this is what lets a bad install migrate itself.
++  _git_include_is_first "$(_git_config_file)" || return 1
+   return 0
+ }
+ 
+@@ -70,13 +211,8 @@ module::install() {
+   cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
+   log::info "wrote managed git config: $frag"
+ 
+-  # 3. ensure exactly one include.path line
+-  if _git_include_present; then
+-    log::info "include.path already present"
+-  else
+-    git config --global --add include.path "$frag" || { log::error "cannot add include.path"; return 1; }
+-    log::info "added include.path -> $frag"
+-  fi
++  # 3. wire the fragment in as the FIRST section, so the user's own settings win
++  _git_ensure_include || return 1
+ 
+   # 4. identity (optional, non-blocking, set-if-unset)
+   _git_apply_identity
+@@ -87,8 +223,13 @@ module::verify() {
+   os::has_cmd git || { log::error "git not installed"; return 1; }
+   git --version >/dev/null 2>&1 || { log::error "git --version failed"; return 1; }
+   [ -r "$(_git_fragment)" ] || { log::error "managed fragment missing"; return 1; }
+-  _git_include_present || { log::error "include.path not wired into ~/.gitconfig"; return 1; }
+-  [ "$(git config --global --includes --get init.defaultBranch 2>/dev/null)" = "main" ] \
+-    || { log::error "managed config not effective (init.defaultBranch != main)"; return 1; }
++  _git_include_present || { log::error "include.path not wired into $(_git_config_file)"; return 1; }
++  _git_include_is_first "$(_git_config_file)" \
++    || { log::error "include.path is not the first section — Atlas defaults would override your own settings"; return 1; }
++  # Health = "the fragment resolves", NOT "Atlas's value wins". --get-all lists
++  # every value in precedence order, so our default still appears even when the
++  # user deliberately overrides it below the include — which is the whole point.
++  git config --global --includes --get-all init.defaultBranch 2>/dev/null | grep -qxF "main" \
++    || { log::error "managed config not resolving (init.defaultBranch=main absent from $(_git_config_file))"; return 1; }
+   return 0
+ }
+diff --git a/tests/test_module_git.sh b/tests/test_module_git.sh
+index 5e8567b..31f6881 100644
+--- a/tests/test_module_git.sh
++++ b/tests/test_module_git.sh
+@@ -61,3 +61,139 @@ assert_contains "git install calls dnf when git absent" \
+ # verify: fails before install, passes after
+ assert_status "git verify fails before install" 1 bash -c "$PRE"' module::verify'
+ assert_status "git verify passes after install" 0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::verify'
++
++# --- include placement: Atlas provides defaults, the user always wins ---------
++# RFC-0001 §4.4. git resolves config positionally (last value wins) and expands
++# an include at the position of the directive, so the Atlas [include] block must
++# be the FIRST section of the global config. `git config --add` appends, which
++# would make Atlas silently override the user's own settings.
++
++# a user's pre-existing value survives; an unclaimed managed key still applies
++assert_eq "git user's pull.rebase survives install" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get pull.rebase')" "false"
++
++assert_eq "git unclaimed managed key still applies" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get init.defaultBranch')" "main"
++
++# the user's file is preserved byte-for-byte below the include block
++assert_status "git install preserves user content byte-for-byte" 0 bash -c "$PRE"'
++  printf "# my config\n[user]\n\tname = Zed\n\n[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  module::install >/dev/null 2>&1
++  tail -n +4 "$GIT_CONFIG_GLOBAL" > "$HOME/after"
++  cmp -s "$HOME/orig" "$HOME/after"'
++
++# idempotent against a pre-populated file: one include line, byte-stable
++assert_eq "git install idempotent on pre-populated config (one include)" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1; module::install >/dev/null 2>&1
++    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++assert_status "git second install leaves config byte-identical" 0 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/first"
++  module::install >/dev/null 2>&1
++  cmp -s "$HOME/first" "$GIT_CONFIG_GLOBAL"'
++
++# a symlinked ~/.gitconfig (chezmoi/stow) stays a symlink; the target is rewritten
++assert_status "git symlinked config preserved and target rewritten" 0 bash -c "$PRE"'
++  mkdir -p "$HOME/dots"
++  printf "[pull]\n\trebase = false\n" > "$HOME/dots/gitconfig"
++  ln -s "$HOME/dots/gitconfig" "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  [ -L "$GIT_CONFIG_GLOBAL" ] || exit 1
++  [ "$(git config --global --includes --get pull.rebase)" = false ] || exit 1
++  head -n 1 "$HOME/dots/gitconfig" | grep -qxF "[include]"'
++
++# file mode is preserved (users keep 600 on configs holding credentials)
++assert_eq "git install preserves config file mode" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    chmod 600 "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    stat -c %a "$GIT_CONFIG_GLOBAL"')" "600"
++
++# a pre-existing lock means another writer: refuse, and do not touch the file
++assert_status "git install refuses when config is locked" 4 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  : > "$GIT_CONFIG_GLOBAL.lock"
++  module::install'
++
++# die() exits, so contain the hook in a subshell exactly as the runner does
++assert_status "git locked config left unmodified" 0 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  : > "$GIT_CONFIG_GLOBAL.lock"
++  ( module::install ) >/dev/null 2>&1 || true
++  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
++
++# migration: an include appended at the BOTTOM by an older Atlas is relocated
++assert_eq "git migrates a bottom-appended include (user wins)" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get pull.rebase')" "false"
++
++assert_eq "git migration leaves exactly one include line" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++assert_eq "git migration puts the include block at the very top" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    head -n 1 "$GIT_CONFIG_GLOBAL"')" "[include]"
++
++# health is "the fragment resolves", not "Atlas'"'"'s value wins": a user who
++# deliberately overrides a managed key must not be told the module is broken
++assert_status "git verify passes when user overrides a managed key" 0 bash -c "$PRE"'
++  printf "[init]\n\tdefaultBranch = master\n" > "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  [ "$(git config --global --includes --get init.defaultBranch)" = master ] || exit 1
++  module::verify'
++
++# --- refuse to proceed rather than damage a config we cannot safely rewrite ---
++# Each asserts BOTH the exit code and that the file was left untouched. die()
++# exits, so the hook is contained in a subshell exactly as internal/runner.sh does.
++
++assert_status "git install refuses an unparseable config" 4 bash -c "$PRE"'
++  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git unparseable config left unmodified" 0 bash -c "$PRE"'
++  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  ( module::install ) >/dev/null 2>&1 || true
++  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
++
++assert_status "git install refuses a dangling symlink config" 4 bash -c "$PRE"'
++  ln -s "$HOME/nowhere/gitconfig" "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git install refuses a non-regular-file config" 4 bash -c "$PRE"'
++  mkdir -p "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git install refuses an unwritable config" 4 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  chmod 444 "$GIT_CONFIG_GLOBAL"
++  module::install'

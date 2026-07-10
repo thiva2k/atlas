@@ -1,0 +1,58 @@
+# Review package: 372f1a2..9b40cc4
+
+## Commits
+9b40cc4 feat(internal): add OS detection and install placeholder helpers
+
+## Files changed
+ internal/os.sh   | 23 +++++++++++++++++++++++
+ tests/test_os.sh | 12 ++++++++++++
+ 2 files changed, 35 insertions(+)
+
+## Diff
+diff --git a/internal/os.sh b/internal/os.sh
+new file mode 100644
+index 0000000..dbdf175
+--- /dev/null
++++ b/internal/os.sh
+@@ -0,0 +1,23 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_OS_SH:-}" ] && return 0; ATLAS_OS_SH=1
++
++os::has_cmd() { command -v "$1" >/dev/null 2>&1; }
++
++os::require_cmd() {
++  os::has_cmd "$1" && return 0
++  die "$ATLAS_EXIT_UNSUPPORTED" \
++    "required command not found: $1" \
++    "Atlas needs '$1' on PATH to continue" \
++    "install '$1' and re-run"
++}
++
++os::is_fedora() {
++  [ -r /etc/os-release ] || return 1
++  grep -qi '^ID=fedora$' /etc/os-release
++}
++
++os::is_root() { [ "$(id -u)" -eq 0 ]; }
++
++# --- placeholder installers (real logic lands with the modules that need them) ---
++os::dnf_install()     { log::info "would dnf install: $*"; }
++os::flatpak_install() { log::info "would flatpak install: $*"; }
+diff --git a/tests/test_os.sh b/tests/test_os.sh
+new file mode 100644
+index 0000000..2b3838e
+--- /dev/null
++++ b/tests/test_os.sh
+@@ -0,0 +1,12 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++
++assert_status "has_cmd true for bash"      0 os::has_cmd bash
++assert_status "has_cmd false for nonesuch" 1 os::has_cmd this_command_does_not_exist_xyz
++assert_status "require_cmd dies on missing" 5 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; os::require_cmd nope_xyz'
++
++out="$(os::dnf_install git curl 2>&1 || true)"
++assert_contains "dnf_install logs intent" "$out" "git curl"

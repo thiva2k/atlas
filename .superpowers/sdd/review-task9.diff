@@ -1,0 +1,310 @@
+# Review package: 3f162ca..058cb5e
+
+## Commits
+058cb5e feat(modules): add eight placeholder modules across four categories
+
+## Files changed
+ modules/apps/brave/README.md               | 10 ++++++++++
+ modules/apps/brave/module.sh               |  8 ++++++++
+ modules/apps/ghostty/README.md             |  9 +++++++++
+ modules/apps/ghostty/module.sh             |  8 ++++++++
+ modules/core/git/README.md                 | 10 ++++++++++
+ modules/core/git/config/gitconfig.template |  5 +++++
+ modules/core/git/module.sh                 |  8 ++++++++
+ modules/desktop/fonts/README.md            | 10 ++++++++++
+ modules/desktop/fonts/module.sh            |  8 ++++++++
+ modules/desktop/kde/README.md              | 10 ++++++++++
+ modules/desktop/kde/module.sh              |  8 ++++++++
+ modules/development/claude/README.md       | 10 ++++++++++
+ modules/development/claude/module.sh       |  8 ++++++++
+ modules/development/codex/README.md        | 10 ++++++++++
+ modules/development/codex/module.sh        |  8 ++++++++
+ modules/development/docker/README.md       | 10 ++++++++++
+ modules/development/docker/module.sh       |  8 ++++++++
+ tests/test_modules.sh                      | 27 +++++++++++++++++++++++++++
+ 18 files changed, 175 insertions(+)
+
+## Diff
+diff --git a/modules/apps/brave/README.md b/modules/apps/brave/README.md
+new file mode 100644
+index 0000000..4e6fced
+--- /dev/null
++++ b/modules/apps/brave/README.md
+@@ -0,0 +1,10 @@
++# brave
++
++**What it does:** Installs the Brave browser via its official repository.
++
++**Installs / configures:** adds the Brave official package repository; installs
++the `brave-browser` package.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/apps/brave/module.sh b/modules/apps/brave/module.sh
+new file mode 100644
+index 0000000..55c0881
+--- /dev/null
++++ b/modules/apps/brave/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="brave"
++MODULE_DESCRIPTION="Brave browser: installs Brave via its official repository."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "brave install"; }
++module::verify()  { not_implemented "brave verify"; }
+diff --git a/modules/apps/ghostty/README.md b/modules/apps/ghostty/README.md
+new file mode 100644
+index 0000000..f22a606
+--- /dev/null
++++ b/modules/apps/ghostty/README.md
+@@ -0,0 +1,9 @@
++# ghostty
++
++**What it does:** Installs the Ghostty terminal emulator.
++
++**Installs / configures:** the `ghostty` package.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/apps/ghostty/module.sh b/modules/apps/ghostty/module.sh
+new file mode 100644
+index 0000000..14c3fd5
+--- /dev/null
++++ b/modules/apps/ghostty/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="ghostty"
++MODULE_DESCRIPTION="Ghostty terminal: installs the Ghostty terminal emulator."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "ghostty install"; }
++module::verify()  { not_implemented "ghostty verify"; }
+diff --git a/modules/core/git/README.md b/modules/core/git/README.md
+new file mode 100644
+index 0000000..4e48cc6
+--- /dev/null
++++ b/modules/core/git/README.md
+@@ -0,0 +1,10 @@
++# git
++
++**What it does:** Installs Git and applies a global configuration.
++
++**Installs / configures:** the `git` package; a global `~/.gitconfig` derived
++from `config/gitconfig.template`.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/core/git/config/gitconfig.template b/modules/core/git/config/gitconfig.template
+new file mode 100644
+index 0000000..c5fced6
+--- /dev/null
++++ b/modules/core/git/config/gitconfig.template
+@@ -0,0 +1,5 @@
++# Applied by the git module (placeholder — not yet wired up).
++[init]
++	defaultBranch = main
++[pull]
++	rebase = true
+diff --git a/modules/core/git/module.sh b/modules/core/git/module.sh
+new file mode 100644
+index 0000000..23576f5
+--- /dev/null
++++ b/modules/core/git/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="git"
++MODULE_DESCRIPTION="Distributed version control: installs git and applies global config."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }               # TODO: os::has_cmd git && gitconfig applied
++module::install() { not_implemented "git: dnf install git + apply config/gitconfig.template"; }
++module::verify()  { not_implemented "git: git --version and config sanity"; }
+diff --git a/modules/desktop/fonts/README.md b/modules/desktop/fonts/README.md
+new file mode 100644
+index 0000000..1a1d493
+--- /dev/null
++++ b/modules/desktop/fonts/README.md
+@@ -0,0 +1,10 @@
++# fonts
++
++**What it does:** Installs Nerd Fonts and common developer typefaces.
++
++**Installs / configures:** Nerd Fonts and other common developer typefaces
++into the system/user font directories.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/desktop/fonts/module.sh b/modules/desktop/fonts/module.sh
+new file mode 100644
+index 0000000..bdeeb0c
+--- /dev/null
++++ b/modules/desktop/fonts/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="fonts"
++MODULE_DESCRIPTION="Developer fonts: installs Nerd Fonts and common typefaces."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "fonts install"; }
++module::verify()  { not_implemented "fonts verify"; }
+diff --git a/modules/desktop/kde/README.md b/modules/desktop/kde/README.md
+new file mode 100644
+index 0000000..10a6fca
+--- /dev/null
++++ b/modules/desktop/kde/README.md
+@@ -0,0 +1,10 @@
++# kde
++
++**What it does:** Installs and configures the KDE Plasma desktop.
++
++**Installs / configures:** the KDE Plasma desktop environment packages and its
++baseline configuration.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/desktop/kde/module.sh b/modules/desktop/kde/module.sh
+new file mode 100644
+index 0000000..0dc0002
+--- /dev/null
++++ b/modules/desktop/kde/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="kde"
++MODULE_DESCRIPTION="KDE Plasma: installs and configures the KDE Plasma desktop."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "kde install"; }
++module::verify()  { not_implemented "kde verify"; }
+diff --git a/modules/development/claude/README.md b/modules/development/claude/README.md
+new file mode 100644
+index 0000000..136b044
+--- /dev/null
++++ b/modules/development/claude/README.md
+@@ -0,0 +1,10 @@
++# claude
++
++**What it does:** Installs the Claude Code CLI and restores its configuration.
++
++**Installs / configures:** the `claude` CLI; restores its saved
++configuration/settings.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/claude/module.sh b/modules/development/claude/module.sh
+new file mode 100644
+index 0000000..7cf4d95
+--- /dev/null
++++ b/modules/development/claude/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="claude"
++MODULE_DESCRIPTION="Claude Code CLI: installs the CLI and restores its configuration."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "claude install"; }
++module::verify()  { not_implemented "claude verify"; }
+diff --git a/modules/development/codex/README.md b/modules/development/codex/README.md
+new file mode 100644
+index 0000000..22efca6
+--- /dev/null
++++ b/modules/development/codex/README.md
+@@ -0,0 +1,10 @@
++# codex
++
++**What it does:** Installs the Codex CLI and restores its configuration.
++
++**Installs / configures:** the `codex` CLI; restores its saved
++configuration/settings.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/codex/module.sh b/modules/development/codex/module.sh
+new file mode 100644
+index 0000000..1751840
+--- /dev/null
++++ b/modules/development/codex/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="codex"
++MODULE_DESCRIPTION="Codex CLI: installs the CLI and restores its configuration."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "codex install"; }
++module::verify()  { not_implemented "codex verify"; }
+diff --git a/modules/development/docker/README.md b/modules/development/docker/README.md
+new file mode 100644
+index 0000000..f235c3b
+--- /dev/null
++++ b/modules/development/docker/README.md
+@@ -0,0 +1,10 @@
++# docker
++
++**What it does:** Installs the Docker Engine and enables the Docker service.
++
++**Installs / configures:** the Docker Engine packages; enables and starts the
++`docker` system service.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/docker/module.sh b/modules/development/docker/module.sh
+new file mode 100644
+index 0000000..70f7ea0
+--- /dev/null
++++ b/modules/development/docker/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="docker"
++MODULE_DESCRIPTION="Container runtime: installs Docker Engine and enables the service."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "docker install"; }
++module::verify()  { not_implemented "docker verify"; }
+diff --git a/tests/test_modules.sh b/tests/test_modules.sh
+new file mode 100644
+index 0000000..592d4b2
+--- /dev/null
++++ b/tests/test_modules.sh
+@@ -0,0 +1,27 @@
++#!/usr/bin/env bash
++# earlier tests export ATLAS_MODULES_DIR to point at fixtures, and internal/module.sh
++# guards itself against being sourced twice (so a bare unset won't restore its
++# default here) since tests/run.sh sources every test file in one shell. Pin it
++# back to the real modules dir explicitly.
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/modules"
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/module.sh"   # uses real ATLAS_MODULES_DIR ($ATLAS_ROOT/modules)
++
++expected="apps/brave apps/ghostty core/git desktop/fonts desktop/kde development/claude development/codex development/docker"
++got="$(module::discover | tr '\n' ' ' | sed 's/ *$//')"
++assert_eq "all eight modules discovered" "$got" "$expected"
++
++# every module satisfies the contract: metadata + three required hooks + README
++fail=0
++while IFS= read -r id; do
++  p="$(module::path "$id")"
++  ( source "$p"
++    [ -n "${MODULE_NAME:-}" ]        || exit 1
++    [ -n "${MODULE_DESCRIPTION:-}" ] || exit 1
++    declare -F module::check   >/dev/null || exit 1
++    declare -F module::install >/dev/null || exit 1
++    declare -F module::verify  >/dev/null || exit 1 ) || { fail=1; printf 'contract miss: %s\n' "$id"; }
++  [ -r "${p%/module.sh}/README.md" ] || { fail=1; printf 'missing README: %s\n' "$id"; }
++done < <(module::discover)
++assert_eq "every module satisfies the contract + has a README" "$fail" "0"

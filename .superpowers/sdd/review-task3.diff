@@ -1,0 +1,57 @@
+# Review package: 36b7c19..372f1a2
+
+## Commits
+372f1a2 feat(internal): add exit codes and die() error helper
+
+## Files changed
+ internal/error.sh   | 18 ++++++++++++++++++
+ tests/test_error.sh | 16 ++++++++++++++++
+ 2 files changed, 34 insertions(+)
+
+## Diff
+diff --git a/internal/error.sh b/internal/error.sh
+new file mode 100644
+index 0000000..aef4e48
+--- /dev/null
++++ b/internal/error.sh
+@@ -0,0 +1,18 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_ERROR_SH:-}" ] && return 0; ATLAS_ERROR_SH=1
++
++readonly ATLAS_EXIT_OK=0
++readonly ATLAS_EXIT_GENERAL=1
++readonly ATLAS_EXIT_USAGE=2
++readonly ATLAS_EXIT_DEPENDENCY=3
++readonly ATLAS_EXIT_MODULE=4
++readonly ATLAS_EXIT_UNSUPPORTED=5
++
++# die <code> <what> [why] [how] — every fatal error answers what/why/how.
++die() {
++  local code="$1" what="$2" why="${3:-}" how="${4:-}"
++  log::error "$what"
++  [ -n "$why" ] && log::error "  why: $why"
++  [ -n "$how" ] && log::error "  fix: $how"
++  exit "$code"
++}
+diff --git a/tests/test_error.sh b/tests/test_error.sh
+new file mode 100644
+index 0000000..b23fb9c
+--- /dev/null
++++ b/tests/test_error.sh
+@@ -0,0 +1,16 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++
++assert_eq "usage exit code constant" "$ATLAS_EXIT_USAGE" "2"
++assert_eq "module exit code constant" "$ATLAS_EXIT_MODULE" "4"
++
++# die exits with the given code (run in a subshell so it doesn't kill the test)
++assert_status "die uses the provided code" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; die 3 "boom"'
++
++# die surfaces what / why / how
++out="$(bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; die 1 "what-x" "why-y" "how-z"' 2>&1 || true)"
++assert_contains "die prints what" "$out" "what-x"
++assert_contains "die prints why"  "$out" "why-y"
++assert_contains "die prints how"  "$out" "how-z"

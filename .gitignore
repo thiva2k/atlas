@@ -2,6 +2,13 @@
 .local/
 *.log
 
+# Secrets. atlas.env normally lives in $ATLAS_CONFIG_HOME (outside the repo), but
+# a developer pointing ATLAS_CONFIG_HOME at a checkout must never commit one.
+atlas.env
+**/atlas.env
+.env
+.env.*
+
 # OS / editor noise
 .DS_Store
 __MACOSX/

@@ -221,7 +221,15 @@ assert_eq "git migration leaves no orphan include header" \
 # Every assertion above calls the hooks directly. These drive the module the way
 # `atlas` actually does: runner::run sources it into its own `set -euo pipefail`
 # subshell and fans the verb out. Nothing else exercises that seam.
+#
+# `set +e; set -uo pipefail` mirrors the `atlas` entrypoint (note `set -uo pipefail`
+# alone would NOT clear the `-e` PRE turned on).
+# It matters: runner::run tallies failures via `out="$(_runner_run_module …)"`, so
+# under a caller's `set -e` the shell would die on the first failing module and
+# never reach the tally. Hooks still get `set -euo pipefail` from runner::run's
+# own subshell.
 RUN="$PRE"'
+set +e; set -uo pipefail
 source "$ATLAS_ROOT/internal/module.sh"
 source "$ATLAS_ROOT/internal/runner.sh"
 '
