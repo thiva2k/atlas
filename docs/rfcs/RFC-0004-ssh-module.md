@@ -5,7 +5,7 @@
 | **Status** | Proposed |
 | **Author** | Claude Code (for thiva2k) |
 | **Created** | 2026-07-10 |
-| **Revised** | 2026-07-10 — architecture review (Sol/Fable): 9 blocking findings, 8 adopted, 1 refuted by probe |
+| **Revised** | 2026-07-10 — architecture review r1: 9 blocking, 8 adopted, 1 refuted by probe. Gate review r2: 6 blocking edits, all confirmed by probe and applied |
 | **Phase / order** | Phase 1 — Foundation · module 3 of 16 |
 | **Depends on** | *nothing.* `MODULE_DEPENDS=()` — see Decision 1 |
 | **Establishes** | **Ownership of persistent state**, the **backup/restore contract**, and one **engine fact** about `errexit` |
@@ -171,9 +171,10 @@ backup tool. Both are near-certainly present already; `install` no-ops when they
 `docs/conventions.md` says "never add a runtime dependency", a rule written against
 *convenience* dependencies. Local encryption was mandated by the owner. GPG is not
 the only tool on a Fedora box that can encrypt symmetrically — `openssl enc
--aes-256-cbc -pbkdf2` would also work — but GPG gives authenticated encryption and a
-standard, self-describing artifact format, and it is what the ruling names. The
-convention is amended in the open (§8), not quietly broken.
+-aes-256-cbc -pbkdf2` would also work — but GPG gives *integrity-protected*
+encryption (SEIPD/MDC: modification **detection**, not modern AEAD — do not overstate
+this) and a standard, self-describing artifact format, and it is what the ruling
+names. The convention is amended in the open (§8), not quietly broken.
 
 ### 4.4 Ownership — the manifest
 
@@ -244,8 +245,25 @@ the restore conflict scan use `[ -L ]` and refuse; none follow links.
 An owned path must lie under `$HOME`, and must contain no whitespace, newline, or
 control character. `ATLAS_SSH_IMPORT_KEY` is user-supplied; such paths are
 **refused, not escaped** — safety over convenience, and it keeps the manifest a
-line-oriented file that cannot be spoofed by a crafted filename. Duplicate paths,
-unknown record types, and an unrecognised version header all fail closed.
+line-oriented file that cannot be spoofed by a crafted filename.
+
+#### The parser fails closed, because the user may edit this file
+
+§4.14 makes the manifest officially user-editable, so its parser is a trust boundary,
+not a convenience. It rejects — rather than repairs or ignores — every one of:
+
+- an unrecognised or missing `# atlas-ssh-manifest v1` header;
+- an unknown record type; a `key` record without exactly five fields, or a `github`
+  record without exactly two;
+- a `mode` field that is not three octal digits;
+- a duplicate `path`, or a duplicate/orphan `github` record (one naming a `pubfp` no
+  `key` record has);
+- a path that is absent, is not a regular file, is a symlink, is a directory, or is
+  unreadable — all of these are `divergent`, never a crash and never "assume it's fine".
+
+Trailing `\r` is stripped before parsing, exactly as `env::get` does for `atlas.env`
+(`internal/env.sh:29`): a manifest edited on Windows, or copied through one, must not
+silently mismatch every hash.
 
 #### Three classes of key
 
@@ -272,6 +290,11 @@ Generation is requested by supplying a passphrase:
 Supplying a passphrase *is* the opt-in. There is deliberately no separate
 `ATLAS_SSH_GENERATE=1` knob, because a knob that can be set without deciding about
 the passphrase is a knob that produces unencrypted keys by accident.
+
+Setting **both** is a contradictory instruction and Atlas refuses it — it does not pick
+a winner. "Encrypt this key with `hunter2`" and "make this key unencrypted" cannot both
+be honoured, and guessing which the user meant is exactly the class of decision this
+module does not make.
 
 Generation never overwrites. If `~/.ssh/id_ed25519` exists — owned or not — Atlas
 does not run `ssh-keygen` at all.
@@ -322,7 +345,14 @@ The user resolves it deliberately (§4.14).
 
 Atlas ships `config/known_hosts` containing GitHub's **published** ed25519 host key
 and installs it to `$ATLAS_CONFIG_HOME/ssh/known_hosts`. Atlas uses that file, and
-only that file, for its own connectivity check:
+only that file, for its own connectivity check.
+
+> **Sourcing rule for the pinned key.** At implementation, the key is copied verbatim
+> from GitHub's published SSH key fingerprints documentation / `https://api.github.com/meta`,
+> with the source URL and retrieval date in a comment at the top of `config/known_hosts`.
+> It is **not** taken from `ssh-keyscan`, and not from anyone's memory — including a
+> reviewer's, an author's, or a model's. A pinned key transcribed from recall is a pinned
+> key nobody verified.
 
 ```sh
 ssh -o UserKnownHostsFile="$atlas_known_hosts" -o StrictHostKeyChecking=yes \
@@ -399,13 +429,19 @@ its own behaviour is not one. So the following is the **contract**, and belongs 
 
 1. **One secret per platform verb.** `atlas backup` fans out to every module; it must
    not demand N passphrases. The passphrase is `ATLAS_BACKUP_PASSPHRASE`, resolved with
-   `env::get_secret`. A module *may* honour a `ATLAS_<MODULE>_BACKUP_PASSPHRASE`
-   override, tried first; `core/ssh` does. (Decision 5.)
+   `env::get_secret`. There is deliberately **no per-module override** — one secret, one
+   verb, until a second stateful module demonstrates a need. (Decision 5.)
 2. **Artifact path:** `$ATLAS_STATE_DIR/backup/<category>-<name>.tar.gpg` —
    `$ATLAS_STATE_DIR` is the engine variable already defined at `internal/log.sh:5`
-   (default `~/.local/state/atlas`), beside `logs/`. Directory `700`, file `600`.
-   Fixed name, overwritten each run.
-3. **Archive layout** is flat and self-describing, so a restore onto a machine with a
+   (default `~/.local/state/atlas`); `backup/` sits alongside the `logs/` directory
+   *inside* it. Directory `700`, file `600`. Fixed name.
+3. **Never overwrite a good artifact with an unverified one.** Write to
+   `<artifact>.tmp` in the same directory, read it back (item 6), and only then
+   `mv -f` it into place. `gpg --yes -o "$artifact"` truncates the target *before* the
+   new artifact is verified — probed — so a failed backup would otherwise leave the
+   user with **zero** backups. A backup verb whose failure mode is "you now have none"
+   is the hazard this module exists to prevent.
+4. **Archive layout** is flat and self-describing, so a restore onto a machine with a
    different `$HOME` works:
 
    ```
@@ -417,13 +453,15 @@ its own behaviour is not one. So the following is the **contract**, and belongs 
 
    Only `home/` and `config/` roots are legal. No absolute paths, no `..`, no symlink
    members, no device nodes.
-4. **Only module-owned state.** Never `$HOME`. Never a file the module did not create
+5. **Only module-owned state.** Never `$HOME`. Never a file the module did not create
    or explicitly import.
-5. **Encrypt locally, never upload.** Print the path; moving it off-box is the user's job.
-6. **Read the artifact back** before reporting success.
-7. **A module with no persistent state implements no-op `backup`/`restore`** (or omits
-   them — the runner treats an absent optional hook identically). `core/git` and
-   `development/github-cli` are no-ops.
+6. **Encrypt locally, never upload.** Print the path; moving it off-box is the user's job.
+7. **Read the artifact back** before reporting success — and assert it does **not**
+   decrypt with an empty passphrase (§4.11).
+8. **A module with no persistent state implements no-op `backup`/`restore`** (or omits
+   them — the runner treats an absent optional hook identically). `development/github-cli`
+   already ships no-ops; `core/git` currently defines neither hook and gains them here
+   (§10 step 7).
 
 ### 4.11 `backup` — the implementation
 
@@ -435,13 +473,28 @@ its own behaviour is not one. So the following is the **contract**, and belongs 
 exists only as a pipe:
 
 ```sh
-env::get_secret "$pass_var" >/dev/null || die 4 "no backup passphrase"   # discard-probe first
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
-    -cf - -C "$staging" . \
-  | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
-        --symmetric --cipher-algo AES256 -o "$artifact" \
-        3< <(env::get_secret "$pass_var")
+# 1. discard-probe: separate "no usable secret" from "the tool rejected it"
+env::get_secret ATLAS_BACKUP_PASSPHRASE >/dev/null || {
+  log::error "no usable ATLAS_BACKUP_PASSPHRASE — refusing to write an unencrypted backup"
+  return 1
+}
+
+# 2. write to a TEMP artifact; never truncate the last good one (contract item 3)
+if ! tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
+         -cf - -C "$staging" . \
+     | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+           --symmetric --cipher-algo AES256 -o "$artifact.tmp" \
+           3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE)
+then
+  log::error "backup pipeline failed"; rm -f "$artifact.tmp"; return 1
+fi
 ```
+
+The explicit `if !` around the pipeline is **not optional**. `-e` is suspended inside
+every hook (§4.0), and this pipeline is not the hook's last statement — the read-back
+follows it. Probed: without the check, a failing `tar | gpg` is silently swallowed and
+the hook returns 0. This snippet is the one every future stateful module will copy, so
+it carries the discipline it preaches.
 
 The passphrase reaches GPG on fd 3 from a process substitution: never assigned, never
 an argument, never logged.
@@ -458,10 +511,36 @@ The discard-probe on the first line is not redundant. If the resolver fails mid-
 (the mode on `atlas.env` flipped between `check` and `backup`), the process
 substitution delivers *empty input*. Probed: GnuPG 2.4.4 then refuses — `error creating
 passphrase: Invalid passphrase`, exit 2, **no artifact**. So gpg fails closed today.
-Atlas does not rely on that: the probe converts a silent dependency on gpg's policy
-into an explicit, well-messaged refusal, and §6 pins gpg's behaviour with a test so a
-future gpg that accepts an empty passphrase turns the suite red instead of turning a
-backup into plaintext.
+
+Atlas does not rely on that, and the discard-probe alone does not close it either.
+There is a residual window: the probe passes, the resolver then breaks *persistently*,
+a future `gpg` accepts the empty passphrase — and the read-back, using the same broken
+resolver, decrypts it happily. Atlas would report success for an artifact the user
+believes is protected and then copies off-box.
+
+So the read-back carries a second assertion, borrowed from §4.5's treatment of
+`ssh-keygen`: **the artifact must fail to decrypt with an empty passphrase.**
+
+```sh
+# 3. read back the TEMP artifact: it must decrypt with the passphrase …
+gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$artifact.tmp" \
+      3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null | tar -t > "$listing" \
+  || { log::error "backup did not read back"; rm -f "$artifact.tmp"; return 1; }
+
+# … and must NOT decrypt without one (probed: rc=2 today; assert it, do not assume it)
+if gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$artifact.tmp" \
+       3< /dev/null >/dev/null 2>&1; then
+  log::error "the artifact decrypts with an empty passphrase — refusing to keep it"
+  rm -f "$artifact.tmp"; return 1
+fi
+
+# 4. every intended member present? then, and only then, replace the good artifact
+mv -f "$artifact.tmp" "$artifact"
+```
+
+That closes the hole at **runtime, on the user's gpg**, not merely in Atlas's CI. §6
+additionally pins gpg's empty-passphrase refusal with a test, so a change in gpg's
+policy turns the suite red rather than turning a backup into plaintext.
 
 **Determinism.** The flags above make identical inputs produce a byte-identical *tar*
 (verified). **`--format=posix` must not be added**: pax writes `atime`/`ctime`
@@ -473,9 +552,15 @@ draws a fresh salt and session key. That is correct and required: a deterministi
 ciphertext would let an observer prove two backups are equal. Stated here so nobody
 later "fixes" it.
 
-**Verification is part of the hook.** After writing, Atlas decrypts the artifact and
-lists it (`gpg -d … | tar -t`), asserting every intended member is present. A backup
-that has not been read back is a hypothesis.
+**Verification is part of the hook.** A backup that has not been read back is a
+hypothesis.
+
+**A known TOCTOU, fail-closed.** The symlink farm archives whatever its targets point
+at *when `tar` runs*. A user who swaps a key between the manifest read and the `tar`
+gets an archive whose bytes disagree with its archived manifest. Nothing here detects
+that; `restore` step 4 does, because it re-checks `privhash` against the manifest
+inside the archive. Late, but closed. Removing the window would mean copying the keys
+into staging — a plaintext copy on disk, which is worse.
 
 **Failure modes:**
 
@@ -483,10 +568,11 @@ that has not been read back is a hypothesis.
 |---|---|
 | no owned state, no stale artifact | log "nothing to back up", **exit 0** |
 | no owned state, **stale artifact present** | **warn** that it describes state Atlas no longer owns; exit 0 |
-| owned state, no passphrase | **exit 4**, guidance |
-| owned state, `gpg` absent | **exit 4**, guidance |
-| owned key missing / `pubfp` or `privhash` mismatch / symlink | **exit 4**, name the key |
-| read-back fails | **exit 4**, artifact left for inspection |
+| owned state, no passphrase | **exit 4**, guidance, **previous artifact intact** |
+| owned state, `gpg` absent | **exit 4**, guidance, **previous artifact intact** |
+| **any** owned key missing / mismatched / symlinked | **exit 4**, name the key; back up nothing |
+| pipeline fails | **exit 4**, `.tmp` removed, **previous artifact intact** |
+| read-back fails, or decrypts with an empty passphrase | **exit 4**, `.tmp` removed, **previous artifact intact** |
 
 "Owned state, no passphrase → exit 4" is a deliberate, narrow **exception** to the
 standing convention *"absent credentials degrade to a warning, never a failed install"*
@@ -497,13 +583,17 @@ only when they need it. See Decision 4.
 ### 4.12 `restore` — validate everything, then write, or write nothing
 
 1. Require the artifact and the passphrase; either absent → exit 4.
-2. **List before extracting.** `gpg -d … | tar -t` and reject any member that is not a
-   plain file under `home/` or `config/`: absolute paths, `..`, symlinks, hardlinks,
-   device nodes. The artifact is Atlas's own, but restore is exactly where a tampered
-   or corrupted archive meets the user's `$HOME`.
-3. Extract into `mktemp -d` under `/dev/shm` when available, else `$TMPDIR` — with
-   `--no-same-owner`. Mode `700`, removed by an `EXIT` trap registered **once**, that
-   fires on every path including failure. (`/dev/shm` is tmpfs: it avoids the
+2. **List before extracting** — with `tar -tv`, **not `tar -t`**. Probed: `tar -t`
+   prints member *names only*; a symlink member and a regular file are indistinguishable
+   in its output, so the obvious implementation cannot enforce the rule it claims to.
+   `tar -tv` prints the type flag as the first character. Accept a member only if its
+   type is `-` (regular file) or `d` (directory), its path begins with `home/` or
+   `config/`, and it contains no `..` and no leading `/`. Reject symlinks, hardlinks,
+   device nodes, everything else. Then extract with `--no-same-owner`.
+   The artifact is Atlas's own, but restore is exactly where a tampered or corrupted
+   archive meets the user's `$HOME`.
+3. Extract into `mktemp -d` under `/dev/shm` when available, else `$TMPDIR`. Mode `700`,
+   removed by the module's single cleanup trap (§5). (`/dev/shm` is tmpfs: it avoids the
    filesystem, but tmpfs pages *can* reach swap, and Fedora does not encrypt swap by
    default. When falling back to a disk-backed `$TMPDIR`, Atlas says so in a log line.)
 4. Validate: the manifest parses; every file it names is present; `pubfp` and
@@ -540,9 +630,11 @@ registered on GitHub, on servers, in a signing config. `remove` would be
 
 ### 4.14 Divergence, and how the user recovers
 
-If the manifest names a key whose files are missing, or whose `pubfp`/`privhash` no
-longer match, or whose path became a symlink, the module is **divergent**. Atlas will
-not touch that key; `install` and `verify` fail loudly; `backup` and `restore` refuse.
+The module is **divergent** when the manifest does not parse, or when it names a key
+that is missing, unreadable, no longer a regular file (a directory, a device), has
+become a symlink, or whose `pubfp` or `privhash` no longer matches. Atlas will not
+touch that key; `install` and `verify` fail loudly; `backup` and `restore` refuse
+**for every key**, not just the divergent one (§4.15).
 
 The manifest is plain text, mode `600`. **Atlas writes it; the user may edit it.**
 That is the documented recovery, and the error message says so:
@@ -560,6 +652,11 @@ A rotated passphrase (`ssh-keygen -p`) changes `privhash` and therefore reads as
 divergence. That is a false positive Atlas cannot distinguish from a swapped key, and
 it resolves the same way: re-import. Documented in the README.
 
+`ssh-keygen -p` is the *only* ordinary operation that rewrites a private key file.
+Loading a key into the agent — `ssh-add`, including `ssh-add -K` — reads it and never
+writes it, so agent use never triggers a false divergence. The README says so, because
+a user who sees "divergent" after an `ssh-add` will otherwise assume Atlas is broken.
+
 ### 4.15 Hook contracts
 
 The runner maps `install → check install verify` and **skips `install` (and therefore
@@ -570,27 +667,48 @@ RFC broke both:
 > **`check` performs no network I/O and no mutation.** (`atlas status` must be fast and
 > must work on a plane.)
 
-Let
+The manifest may name **several** keys, so the predicate is quantified over them. `K` is
+the set of `key` records. Let
 
 - `bin` — `ssh` and `ssh-keygen` on `PATH`
-- `divergent` — the manifest names a key that is missing / mismatched / symlinked (§4.14)
-- `owned` — the manifest names a key and it is intact
+- `intact(k)` — `k`'s files exist, `k` is a regular file (not a symlink, not a
+  directory), and both `pubfp` and `privhash` match
+- `divergent` — `∃k ∈ K : ¬intact(k)`, **or** the manifest does not parse (§4.14)
+- `owned` — `∃k ∈ K` (`K` is non-empty)
 - `want` — a passphrase is resolvable, **or** `ATLAS_SSH_ALLOW_EMPTY_PASSPHRASE=1`
 - `free` — `~/.ssh/id_ed25519` does not exist
 - `import` — `ATLAS_SSH_IMPORT_KEY` is set and its record is not already in the manifest
 - `ghauth` — `gh` on `PATH` **and** `gh auth token >/dev/null 2>&1` (local, no network)
-- `reg` — the manifest has `github <pubfp>` for the owned key
+- `reg(k)` — the manifest has a `github <pubfp(k)>` record
 
 ```
 check passes  ⟺  bin
-              ∧ ¬divergent                   # install reports it and fails
-              ∧ ¬(want ∧ ¬owned ∧ free)      # install generates
-              ∧ ¬import                      # install imports
-              ∧ ¬(owned ∧ ghauth ∧ ¬reg)     # install registers
+              ∧ ¬divergent                              # install reports it and fails
+              ∧ ¬(want ∧ ¬owned ∧ free)                 # install generates
+              ∧ ¬import                                 # install imports
+              ∧ ¬(ghauth ∧ ∃k: intact(k) ∧ ¬reg(k))     # install registers
 ```
 
 Every failing clause names work `install` performs. `divergent` is the one clause whose
 "work" is *to fail loudly* — see row 10.
+
+**Multi-key semantics, stated rather than left to the implementation.** These follow
+from the quantifiers and are deliberate:
+
+- **One divergent key poisons the module.** `backup` and `restore` refuse *entirely* —
+  they do not back up the intact keys and skip the bad one. Atlas cannot know whether
+  the divergence means a compromised machine, and a partial artifact silently missing a
+  key is worse than none. Fail closed.
+- **Divergence blocks import.** `install` refuses at step 2, before step 4, so an
+  unrelated divergent record must be resolved (§4.14) before a new key can be adopted.
+- **Registration is per-key.** Each intact key gets its own `github <pubfp>` record, and
+  `check` fails while *any* intact key is unregistered and `gh` is authenticated.
+
+**A known limit of row 5.** `ghauth` tests that a token *exists* in `hosts.yml`, not
+that it is valid — `gh auth token` validates nothing (RFC-0003 §6.1). With a revoked or
+expired token, `check` fails on every run, `install` warns and returns 0 on every run,
+and `atlas status` reports `core/ssh` as "not installed" until the user re-authenticates.
+That is loud and honest, but it never converges on its own. Documented in the README.
 
 | # | State | `check` | `install` | Why |
 |---|---|---|---|---|
@@ -650,14 +768,20 @@ by a commit). Touches nothing else. Mirrors `core/git`'s fragment refresh.
 goes to stderr. A hook that prints to stdout corrupts the control channel. Atlas prints
 the backup artifact path with `log::info`.
 
-#### The connectivity check cannot test an encrypted key that is not in the agent
+#### The connectivity check cannot test an encrypted key
 
 `ssh -o BatchMode=yes` will not prompt for a passphrase, so a passphrase-protected key
-that is not loaded into `ssh-agent` **cannot be tested**. Atlas determines cheaply and
-locally whether the key is encrypted (`ssh-keygen -y -f "$key" -P ''` succeeds ⟺ it is
-not), and if it is, looks for its `pubfp` in `ssh-add -l`. Not loaded → report "cannot
-test connectivity: key is encrypted and not loaded in ssh-agent". Atlas never decrypts a
-key to test it.
+**cannot be tested** without an agent. Atlas determines cheaply and locally whether the
+key is encrypted (`ssh-keygen -y -f "$key" -P ''` succeeds ⟺ it is not):
+
+- **unencrypted** → run the live check below;
+- **encrypted** → report `cannot test connectivity: the key is encrypted`, and stop.
+
+Atlas never decrypts a key to test it. It would be possible to look the key's `pubfp`
+up in `ssh-add -l` and test it when an agent already holds it — the architecture review
+recommended cutting that twice, and it is cut: connectivity is *reported, never fatal*,
+so the branch buys a nicer message on the fiddliest code path in the module. It is
+recorded as deferred, not overlooked (§11).
 
 The check uses `-o IdentitiesOnly=yes -i <owned key>`: without it a *different* key in
 the agent produces a false pass.
@@ -679,11 +803,44 @@ registered; anything else is a network or host-key fault.
 - No hook relies on `set -e` (§4.0). Every fallible command is explicitly checked,
   `mktemp` above all.
 - The plaintext tar exists only as a pipe; backup staging is a symlink farm; restore
-  staging is on tmpfs where available and removed by a single `EXIT` trap.
+  staging is on tmpfs where available.
+- A good backup artifact is never truncated by an unverified one (§4.10 item 3).
 - The manifest is written last in `restore` and atomically (same-dir temp + `mv`)
   everywhere else.
 - `install` is skipped when `check` passes, so `check` never asserts anything `install`
   cannot perform (§4.15).
+
+### 5.1 Temp-directory cleanup: exactly one trap, over a global
+
+Two hooks in this module create temp directories that may contain key material — the
+askpass tmpdir (§4.5) and the restore staging dir (§4.12). The obvious pattern is
+wrong, in two ways that were probed against the real runner:
+
+1. **A later `trap … EXIT` silently replaces an earlier one**, and for `atlas install`
+   the `check`, `install` and `verify` hooks share **one subshell**. A trap registered
+   in `install` therefore discards a trap registered in `check`, and that `check` temp
+   dir — possibly holding a private key — is never removed.
+2. **A trap body that names a hook `local` fires after the local is gone.** Under the
+   subshell's `set -u` the trap itself errors (`staging: unbound variable`) and the
+   subshell exits **1** — turning a module whose hook body *succeeded* into a reported
+   failure. Verified: hook body ran to completion, `return 0`, subshell `rc=1`.
+
+Traps are subshell-global and fire once, at subshell exit — not at hook return. So the
+module keeps **one** module-scope array and registers **one** idempotent trap:
+
+```sh
+_SSH_CLEANUP=()                       # module scope, not a hook local
+_ssh_cleanup() { local p; for p in "${_SSH_CLEANUP[@]:-}"; do [ -n "$p" ] && rm -rf -- "$p"; done; }
+_ssh_track()   {                      # register the trap at most once
+  [ -n "${_SSH_TRAP_SET:-}" ] || { trap _ssh_cleanup EXIT; _SSH_TRAP_SET=1; }
+  _SSH_CLEANUP+=("$1")
+}
+```
+
+`"${_SSH_CLEANUP[@]:-}"` and `${_SSH_TRAP_SET:-}` are `-u`-safe; the trap body touches
+only globals; `rm -rf --` never runs on an empty string. Cleanup is deferred to subshell
+exit rather than hook return, which is acceptable: the subshell is per-module and
+short-lived. This is the pattern every future module with a temp dir must copy.
 
 ---
 
@@ -719,15 +876,20 @@ proving "the artifact has the property we claim".
 | backup, no owned state, stale artifact | exit 0, warning |
 | backup, no passphrase | exit 4, no artifact |
 | **backup, resolver fails mid-run** | exit 4; **no artifact decryptable with an empty passphrase** |
+| **failed backup over a good artifact** | exit 4; **the previous artifact is byte-identical** |
 | backup | artifact mode 600; decrypts; contains **exactly** the owned files |
 | backup determinism | two runs → identical *tar*; **different ciphertext** |
+| **two owned keys, one divergent** | `backup` refuses both; neither key touched |
 | restore into empty `$HOME` | files created, modes correct, idempotent on rerun |
 | restore, byte-identical target | skipped, exit 0 |
 | restore, conflicting target | exit 4; **target unchanged**; nothing else written |
-| restore, artifact with `../` or symlink member | refused before extraction |
+| restore, target is a symlink | exit 4; **never written through** |
+| restore, artifact with `../`, absolute, or **symlink** member | refused before extraction |
+| **malformed / CRLF / orphan-`github` manifest** | fails closed as divergent |
 | repeated install / backup / restore | converge, exit 0 |
 | `verify` / `doctor` / `status` | correct on each state above |
 | `verify` offline | passes |
+| **trap discipline** | a hook that creates a temp dir and succeeds returns **0**, not 1 |
 | secret discipline | no passphrase in any `bash -x` trace; no secret assigned |
 
 New static rules in `tests/test_secret_discipline.sh`, each verified to fire on a planted
@@ -761,8 +923,13 @@ re-checked on the Fedora acceptance box.
 | 9 | GPG symmetric output is **not** byte-deterministic | probed (fresh salt) |
 | 10 | `tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner` **is** byte-deterministic — **and adding `--format=posix` breaks it** (pax `atime`/`ctime` headers) | both probed, with the exact pipeline flags |
 | 11 | a process substitution inherits `xtrace`; `<(printf …)` leaks, `<(env::get_secret …)` does not | probed both ways |
-| 12 | `gpg --passphrase-fd` with **empty** input refuses (`Invalid passphrase`, exit 2, no artifact) | probed |
+| 12 | `gpg --passphrase-fd` with **empty** input refuses (`Invalid passphrase`, exit 2, no artifact) — encrypt *and* decrypt | probed |
 | 13 | `errexit` is suspended inside a hook invoked as `if ! module::x`, recursively; `-u` and `pipefail` are not | probed (§4.0) |
+| 14 | `pipefail` shapes a pipeline's own `$?` but nothing consumes it: a failing `tar \| gpg` **mid-hook** is silently swallowed | probed (§4.11) |
+| 15 | `gpg --batch --yes -o F` truncates an existing `F` before writing | probed (§4.10 item 3) |
+| 16 | **`tar -t` prints member names only**; it cannot distinguish a symlink member from a regular file. `tar -tv` prints the type flag | probed (§4.12) |
+| 17 | a `trap … EXIT` set in a hook is **subshell-global**, fires at subshell exit, and a later one **replaces** it | probed (§5.1) |
+| 18 | a trap body naming a hook `local` errors under `-u` after the local dies, flipping a **successful** module to `rc=1` | probed (§5.1) |
 
 Assumptions 2 and 3 are load-bearing. If Fedora's `ssh-keygen` ever declines `SSH_ASKPASS`
 at generation, Atlas must **refuse to generate** rather than fall back to `-N` (argv) or an
@@ -817,6 +984,14 @@ if it does not.
     before `development/github-cli`'s `install` in the same pass.
 14. **A soft `MODULE_AFTER` ordering array.** An engine change; the sprint freezes the
     architecture and requires an RFC instead. Not on the table here.
+15. **`gpg -o "$artifact"` directly, verifying afterwards.** Rejected: `--yes` truncates
+    the previous good artifact *before* the new one is verified. Write `.tmp`, verify,
+    `mv`.
+16. **`tar -t` for the restore allow-list.** Rejected: it prints names only and cannot
+    see member types, so it silently permits the symlink members it purports to reject.
+17. **A `trap … EXIT` per hook, over a `local`.** Rejected twice over: a later hook's trap
+    replaces it, and the trap body errors under `-u` once the local is gone — turning a
+    healthy module into a reported failure (§5.1).
 
 ---
 
@@ -874,8 +1049,14 @@ success and needs no passphrase. *Recommend: accept.*
 
 `atlas backup` fans out to every module. If each stateful module minted its own
 `ATLAS_<MODULE>_BACKUP_PASSPHRASE`, one verb would eventually demand N secrets. So:
-**`ATLAS_BACKUP_PASSPHRASE` is the platform-wide secret**, with an optional per-module
-override (`ATLAS_SSH_BACKUP_PASSPHRASE`) tried first.
+**`ATLAS_BACKUP_PASSPHRASE` is the platform-wide secret**, and there is no per-module
+override until a second stateful module proves it needs one.
+
+The trade-off is real and belongs to the owner: **one passphrase protects every
+artifact.** Compromise it and every module's backup opens. Per-module *scoping* would be
+theatre — modules are unsandboxed repo code running as the same user, and any module's
+`backup` hook can already read `~/.ssh` directly — so the choice is genuinely between one
+secret and N secrets for one verb, not between one blast radius and N.
 
 This is a cross-cutting convention rather than an engine change (no code in `internal/`
 moves), but it is a decision the *first* stateful module makes on behalf of every later one,
@@ -930,10 +1111,16 @@ than quietly contradicted. *Recommend: accept.*
 
 ### Follow-up work this RFC surfaces (not blocking)
 
-- **Engine:** the runner has `ok`/`skip`/`fail` but no `warn`. Rows 9 and 4 are invisible in
+- **Engine:** the runner has `ok`/`skip`/`fail` but no `warn`. Rows 4 and 9 are invisible in
   an `atlas install` summary. Needs its own RFC.
 - **Engine/audit:** `set -e` is suspended inside every hook (§4.0). `core/git` and
   `development/github-cli` were written without knowing this and must be audited for any
-  fallible command that relies on it.
+  fallible command that relies on it — and for any `trap … EXIT` set inside a hook (§5.1),
+  which can both leak a temp dir and flip a healthy module to `rc=1`.
+- **Deferred, not overlooked:** `verify` could test connectivity for an *encrypted* key
+  already loaded in `ssh-agent` by matching its `pubfp` against `ssh-add -l`. Cut from v1.1
+  on the architecture review's recommendation — connectivity is reported, never fatal.
+- **Deferred:** a per-module backup passphrase override, if a second stateful module ever
+  needs one (Decision 5).
 - **Docs:** `CONTRIBUTING.md` should record that the suite is verified on Linux/WSL, not Git
   Bash.
