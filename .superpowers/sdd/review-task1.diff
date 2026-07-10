@@ -1,0 +1,110 @@
+# Review package: 0c200e0..0f58379
+
+## Commits
+0f58379 test: add pure-Bash test harness and repo hygiene
+
+## Files changed
+ .gitattributes        |  5 +++++
+ .gitignore            |  8 ++++++++
+ tests/lib/assert.sh   | 25 +++++++++++++++++++++++++
+ tests/run.sh          | 22 ++++++++++++++++++++++
+ tests/test_harness.sh |  6 ++++++
+ 5 files changed, 66 insertions(+)
+
+## Diff
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..2ba2c92
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,5 @@
++* text=auto eol=lf
++*.sh text eol=lf
++atlas text eol=lf
++bootstrap.sh text eol=lf
++*.md text eol=lf
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a6a567
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,8 @@
++# Atlas runtime state (never committed)
++.local/
++*.log
++
++# OS / editor noise
++.DS_Store
++__MACOSX/
++*.swp
+diff --git a/tests/lib/assert.sh b/tests/lib/assert.sh
+new file mode 100644
+index 0000000..6e61d41
+--- /dev/null
++++ b/tests/lib/assert.sh
+@@ -0,0 +1,25 @@
++#!/usr/bin/env bash
++# Tiny pure-Bash assertion library. No external framework.
++# Each test file increments ATLAS_TESTS_PASS / ATLAS_TESTS_FAIL via these.
++
++_t_ok()   { ATLAS_TESTS_PASS=$((ATLAS_TESTS_PASS + 1)); printf '  ok   %s\n' "$1"; }
++_t_fail() { ATLAS_TESTS_FAIL=$((ATLAS_TESTS_FAIL + 1)); printf '  FAIL %s\n' "$1"; }
++
++assert_eq() { # <name> <actual> <expected>
++  if [ "$2" = "$3" ]; then _t_ok "$1"
++  else _t_fail "$1"; printf '       expected [%s] got [%s]\n' "$3" "$2"; fi
++}
++
++assert_contains() { # <name> <haystack> <needle>
++  case "$2" in
++    *"$3"*) _t_ok "$1" ;;
++    *) _t_fail "$1"; printf '       [%s] does not contain [%s]\n' "$2" "$3" ;;
++  esac
++}
++
++assert_status() { # <name> <expected_code> <cmd...>
++  local name="$1" want="$2"; shift 2
++  "$@" >/dev/null 2>&1; local got=$?
++  if [ "$got" -eq "$want" ]; then _t_ok "$name"
++  else _t_fail "$name"; printf '       exit %s, wanted %s\n' "$got" "$want"; fi
++}
+diff --git a/tests/run.sh b/tests/run.sh
+new file mode 100644
+index 0000000..5a4d573
+--- /dev/null
++++ b/tests/run.sh
+@@ -0,0 +1,22 @@
++#!/usr/bin/env bash
++set -uo pipefail
++ATLAS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++export ATLAS_ROOT
++# keep test state out of the real state dir
++export ATLAS_STATE_DIR="$ATLAS_ROOT/.local/state/atlas"
++
++source "$ATLAS_ROOT/tests/lib/assert.sh"
++
++total_pass=0 total_fail=0
++for t in "$ATLAS_ROOT"/tests/test_*.sh; do
++  [ -e "$t" ] || continue
++  printf '\n%s\n' "$(basename "$t")"
++  ATLAS_TESTS_PASS=0 ATLAS_TESTS_FAIL=0
++  # shellcheck source=/dev/null
++  source "$t"
++  total_pass=$((total_pass + ATLAS_TESTS_PASS))
++  total_fail=$((total_fail + ATLAS_TESTS_FAIL))
++done
++
++printf '\n== %d passed, %d failed ==\n' "$total_pass" "$total_fail"
++[ "$total_fail" -eq 0 ]
+diff --git a/tests/test_harness.sh b/tests/test_harness.sh
+new file mode 100644
+index 0000000..ff32938
+--- /dev/null
++++ b/tests/test_harness.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++# Proves the assertion library itself works.
++assert_eq       "assert_eq matches equal strings"      "abc" "abc"
++assert_contains "assert_contains finds a substring"    "hello world" "world"
++assert_status   "assert_status reads true's exit code" 0 true
++assert_status   "assert_status reads false's exit code" 1 false

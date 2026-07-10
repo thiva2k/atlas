@@ -1,0 +1,1430 @@
+# Review package: 0c200e0..2e4e60d
+
+## Commits
+2e4e60d docs: add README, license, contributing, changelog, and guides
+aeebefc fix(bootstrap): fail loudly if dnf install or git clone fails
+6f02d3b feat(bootstrap): add zero-dependency bootstrap entrypoint
+348fbb3 fix(runner): status reports installed/not-installed instead of failing
+058cb5e feat(modules): add eight placeholder modules across four categories
+3f162ca chore: mark atlas entrypoint executable in git tree
+452c816 feat(cli): add atlas entrypoint dispatching platform verbs
+4d142ce test(runner): cover the module-failure -> exit 4 contract
+b86256a feat(internal): add runner that fans verbs across modules
+c1ac19f feat(internal): resolve module dependencies with cycle detection
+41257c9 fix(test): count has_hook assertions in the suite total (subshell dropped them)
+4bde4b3 feat(internal): add module discovery and contract helpers
+9b40cc4 feat(internal): add OS detection and install placeholder helpers
+372f1a2 feat(internal): add exit codes and die() error helper
+36b7c19 feat(internal): add reusable logging engine
+0f58379 test: add pure-Bash test harness and repo hygiene
+
+## Files changed
+ .gitattributes                                     |  5 ++
+ .gitignore                                         |  8 +++
+ CHANGELOG.md                                       | 15 ++++
+ CONTRIBUTING.md                                    | 35 +++++++++
+ LICENSE                                            | 21 ++++++
+ README.md                                          | 52 ++++++++++++++
+ atlas                                              | 72 +++++++++++++++++++
+ bootstrap.sh                                       | 53 ++++++++++++++
+ docs/architecture.md                               |  7 +-
+ docs/conventions.md                                | 33 +++++++++
+ docs/module-authoring.md                           | 63 ++++++++++++++++
+ internal/error.sh                                  | 18 +++++
+ internal/log.sh                                    | 39 ++++++++++
+ internal/module.sh                                 | 66 +++++++++++++++++
+ internal/os.sh                                     | 23 ++++++
+ internal/runner.sh                                 | 84 ++++++++++++++++++++++
+ modules/apps/brave/README.md                       | 10 +++
+ modules/apps/brave/module.sh                       |  8 +++
+ modules/apps/ghostty/README.md                     |  9 +++
+ modules/apps/ghostty/module.sh                     |  8 +++
+ modules/core/git/README.md                         | 10 +++
+ modules/core/git/config/gitconfig.template         |  5 ++
+ modules/core/git/module.sh                         |  8 +++
+ modules/desktop/fonts/README.md                    | 10 +++
+ modules/desktop/fonts/module.sh                    |  8 +++
+ modules/desktop/kde/README.md                      | 10 +++
+ modules/desktop/kde/module.sh                      |  8 +++
+ modules/development/claude/README.md               | 10 +++
+ modules/development/claude/module.sh               |  8 +++
+ modules/development/codex/README.md                | 10 +++
+ modules/development/codex/module.sh                |  8 +++
+ modules/development/docker/README.md               | 10 +++
+ modules/development/docker/module.sh               |  8 +++
+ tests/fixtures/modules/apps/beta/module.sh         |  7 ++
+ tests/fixtures/modules/core/alpha/module.sh        |  7 ++
+ tests/fixtures/modules/core/cyc_a/module.sh        |  7 ++
+ tests/fixtures/modules/core/cyc_b/module.sh        |  7 ++
+ tests/fixtures/modules_failing/core/fail/module.sh |  7 ++
+ .../fixtures/modules_satisfied/core/sat/module.sh  |  7 ++
+ tests/lib/assert.sh                                | 25 +++++++
+ tests/run.sh                                       | 22 ++++++
+ tests/test_bootstrap.sh                            |  8 +++
+ tests/test_cli.sh                                  | 17 +++++
+ tests/test_error.sh                                | 16 +++++
+ tests/test_harness.sh                              |  6 ++
+ tests/test_log.sh                                  | 21 ++++++
+ tests/test_module_discovery.sh                     | 22 ++++++
+ tests/test_module_order.sh                         | 15 ++++
+ tests/test_modules.sh                              | 27 +++++++
+ tests/test_os.sh                                   | 12 ++++
+ tests/test_runner.sh                               | 34 +++++++++
+ 51 files changed, 1006 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..2ba2c92
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,5 @@
++* text=auto eol=lf
++*.sh text eol=lf
++atlas text eol=lf
++bootstrap.sh text eol=lf
++*.md text eol=lf
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a6a567
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,8 @@
++# Atlas runtime state (never committed)
++.local/
++*.log
++
++# OS / editor noise
++.DS_Store
++__MACOSX/
++*.swp
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+new file mode 100644
+index 0000000..d08caf0
+--- /dev/null
++++ b/CHANGELOG.md
+@@ -0,0 +1,15 @@
++# Changelog
++
++All notable changes to Atlas are documented here. Format loosely follows
++[Keep a Changelog]; Atlas uses semantic versioning once it hits 1.0.
++
++## [Unreleased]
++
++### Added
++- v1 skeleton: architecture, `atlas` CLI, module runner, and the `internal/`
++  engine (logging, errors, OS helpers, module contract, dependency resolution).
++- Eight placeholder modules across core / development / apps / desktop.
++- Zero-dependency `bootstrap.sh`.
++- Pure-Bash test harness under `tests/`.
++
++[Keep a Changelog]: https://keepachangelog.com/
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+new file mode 100644
+index 0000000..f7f0e5a
+--- /dev/null
++++ b/CONTRIBUTING.md
+@@ -0,0 +1,35 @@
++# Contributing to Atlas
++
++## Principles
++
++Simplicity over cleverness. One responsibility per file. Explicit over implicit.
++Zero runtime dependencies beyond Bash + coreutils + Git. Documentation is part
++of the change, not an afterthought.
++
++## Ground rules
++
++- Every shell file starts with `#!/usr/bin/env bash`.
++- User-facing output goes through the `log::*` API — never bare `echo`.
++- Shared helpers live in `internal/`; capabilities live in `modules/`.
++- The runner must never reach inside a module — only call contract hooks.
++- Line endings are LF (enforced by `.gitattributes`).
++
++## Adding a module
++
++See [`docs/module-authoring.md`](docs/module-authoring.md).
++
++## Tests
++
++Run the whole suite with:
++
++```bash
++bash tests/run.sh
++```
++
++Tests are pure Bash (no framework). Add `tests/test_<area>.sh` and use the
++assertions in `tests/lib/assert.sh`. Every behavioural change ships with a test.
++
++## Commits
++
++Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, …). Keep them small and
++focused.
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..caf7510
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 thiva2k
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..27681dd
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,52 @@
++# Atlas
++
++**Atlas is a workstation lifecycle manager.** It takes a fresh Fedora machine to
++a fully configured engineering workstation — and keeps it that way: installing
++and configuring tooling, verifying health, and backing up and restoring the
++irreplaceable bits.
++
++Atlas is not a migration script, a dotfiles repo, or a package installer.
++Those are *capabilities*, expressed as modules.
++
++## Quick start
++
++```bash
++# on a fresh machine
++curl -fsSL https://raw.githubusercontent.com/thiva2k/atlas/main/bootstrap.sh | bash
++cd ~/atlas
++./atlas install
++```
++
++## Commands
++
++| Command | Does |
++|---|---|
++| `atlas install` | ensure modules are present & configured |
++| `atlas update`  | bring modules to their latest desired state |
++| `atlas verify`  | check modules are healthy |
++| `atlas backup`  | capture irreplaceable module state |
++| `atlas restore` | re-apply captured state |
++| `atlas doctor`  | diagnose the workstation |
++| `atlas status`  | show what is / isn't installed |
++
++## How it works
++
++Everything is a **module** under `modules/<category>/<name>/`, and every module
++implements the same lifecycle hooks. The `atlas` CLI dispatches a **platform
++verb** to those modules through a small engine in `internal/`. Read
++[`docs/architecture.md`](docs/architecture.md) for the full picture and
++[`docs/module-authoring.md`](docs/module-authoring.md) to add one.
++
++## Requirements
++
++Bash, GNU coreutils, Git, and a Fedora base system. Nothing else.
++
++## Status
++
++v1 is the **skeleton**: the architecture, CLI, runner, and placeholder modules
++are in place; real installation logic lands module by module. See
++[`CHANGELOG.md`](CHANGELOG.md).
++
++## License
++
++MIT — see [`LICENSE`](LICENSE).
+diff --git a/atlas b/atlas
+new file mode 100755
+index 0000000..472d731
+--- /dev/null
++++ b/atlas
+@@ -0,0 +1,72 @@
++#!/usr/bin/env bash
++# Atlas — workstation lifecycle manager. CLI entrypoint.
++set -uo pipefail
++
++# Resolve ATLAS_ROOT = directory of this script, following symlinks.
++_src="${BASH_SOURCE[0]}"
++while [ -h "$_src" ]; do
++  _dir="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
++  _src="$(readlink "$_src")"
++  case "$_src" in /*) ;; *) _src="$_dir/$_src" ;; esac
++done
++ATLAS_ROOT="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
++export ATLAS_ROOT
++
++ATLAS_VERSION="0.1.0-dev"
++
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/module.sh"
++source "$ATLAS_ROOT/internal/runner.sh"
++
++usage() {
++  cat <<EOF
++Atlas — workstation lifecycle manager (v$ATLAS_VERSION)
++
++Usage: atlas <command> [modules...] [options]
++
++Commands:
++  install    ensure modules are present & configured
++  update     bring modules to their latest desired state
++  verify     check that modules are healthy
++  backup     capture irreplaceable module state
++  restore    re-apply previously captured state
++  doctor     diagnose the workstation
++  status     show what is / isn't installed
++  help       show this help
++  version    show the version
++
++Options:
++  -v, --verbose   more output (debug level)
++  -q, --quiet     less output (errors only)
++      --version   print version and exit
++  -h, --help      print this help and exit
++EOF
++}
++
++main() {
++  local verb="" ; local -a rest=()
++  while [ "$#" -gt 0 ]; do
++    case "$1" in
++      -v|--verbose) ATLAS_LOG_LEVEL=debug ;;
++      -q|--quiet)   ATLAS_LOG_LEVEL=error ;;
++      --version)    echo "$ATLAS_VERSION"; return 0 ;;
++      -h|--help)    usage; return 0 ;;
++      -*)           die "$ATLAS_EXIT_USAGE" "unknown option: $1" "" "run 'atlas --help'" ;;
++      *)            if [ -z "$verb" ]; then verb="$1"; else rest+=("$1"); fi ;;
++    esac
++    shift
++  done
++  export ATLAS_LOG_LEVEL
++
++  case "${verb:-help}" in
++    help)    usage ;;
++    version) echo "$ATLAS_VERSION" ;;
++    install|update|verify|backup|restore|doctor|status)
++      runner::run "$verb" "${rest[@]}" ;;
++    *) die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'" ;;
++  esac
++}
++
++main "$@"
+diff --git a/bootstrap.sh b/bootstrap.sh
+new file mode 100755
+index 0000000..9e451b7
+--- /dev/null
++++ b/bootstrap.sh
+@@ -0,0 +1,53 @@
++#!/usr/bin/env bash
++# Atlas bootstrap — the only thing you run on a truly fresh machine.
++# Ensures Git, fetches Atlas, and hands off to `atlas install`.
++set -uo pipefail
++
++ATLAS_REPO="${ATLAS_REPO:-https://github.com/thiva2k/atlas.git}"
++ATLAS_HOME="${ATLAS_HOME:-$HOME/atlas}"
++
++usage() {
++  cat <<EOF
++Atlas bootstrap
++
++Prepares a fresh machine, then hands off to Atlas:
++  1. ensure Git is installed
++  2. clone Atlas into $ATLAS_HOME (if not already there)
++  3. run:  cd $ATLAS_HOME && ./atlas install
++
++Usage: bootstrap.sh [--help]
++EOF
++}
++
++main() {
++  case "${1:-}" in -h|--help) usage; return 0 ;; esac
++
++  if ! command -v git >/dev/null 2>&1; then
++    echo "git not found — installing (requires sudo)…"
++    if command -v dnf >/dev/null 2>&1; then
++      if ! sudo dnf install -y git; then
++        echo "failed to install git via dnf; install it manually and re-run" >&2
++        return 1
++      fi
++    else
++      echo "no dnf available; install git manually and re-run" >&2
++      return 1
++    fi
++  fi
++
++  if [ ! -d "$ATLAS_HOME/.git" ]; then
++    echo "cloning Atlas into $ATLAS_HOME…"
++    if ! git clone "$ATLAS_REPO" "$ATLAS_HOME"; then
++      echo "failed to clone Atlas from $ATLAS_REPO into $ATLAS_HOME" >&2
++      return 1
++    fi
++  else
++    echo "Atlas already present at $ATLAS_HOME — leaving it as is."
++  fi
++
++  echo
++  echo "Bootstrap complete. Next:"
++  echo "  cd $ATLAS_HOME && ./atlas install"
++}
++
++main "$@"
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 17a768b..1a5b8ef 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -112,21 +112,21 @@ atlas/
+ │   ├── error.sh          # error handling, traps, exit codes (§8)
+ │   ├── os.sh             # Fedora / dnf / flatpak / privilege helpers
+ │   ├── module.sh         # module discovery, contract, dependency resolution
+ │   └── runner.sh         # the verbs, implemented on top of the above
+ ├── modules/              # every capability lives here, grouped by category
+ │   ├── core/             #   fundamentals (git, base packages, shell)
+ │   ├── development/      #   dev tooling (docker, language runtimes, claude, codex)
+ │   ├── apps/             #   applications (brave, ghostty)
+ │   └── desktop/          #   desktop environment (kde, fonts)
+ ├── docs/                 # architecture, conventions, module-authoring guide
+-├── tests/                # contributor test suite (dev-only dependency)
++├── tests/                # pure-Bash test harness (no external framework)
+ ├── assets/               # static, non-code assets
+ ├── README.md  LICENSE  CONTRIBUTING.md  CHANGELOG.md
+ ```
+ 
+ Notes:
+ 
+ - **`internal/` vs `modules/`.** `internal/` is the engine and is shared by every
+   module. `modules/` is where capabilities live. The engine must not know the
+   name of any specific module.
+ - **Categories are directories.** A module's category is simply the directory it
+@@ -209,22 +209,23 @@ module::restore() { ... }
+ 
+ Modules communicate **only** through this contract. If the runner ever needs to
+ reach inside a module, the contract is wrong and should be extended instead.
+ 
+ ---
+ 
+ ## 8. Error handling
+ 
+ Failure behaviour is predictable and loud.
+ 
+-- Every entry point runs under `set -euo pipefail` plus an `ERR` trap installed
+-  by `internal/error.sh`.
++- The `atlas` entrypoint runs under `set -uo pipefail` and propagates exit
++  codes explicitly; each **module hook subshell** runs under `set -euo
++  pipefail`. Fatal paths go through `die`.
+ - **Module isolation.** Each module hook runs in its own subshell, so one
+   module's failure cannot poison the runner or sibling modules.
+ - **Fatal vs recoverable.** The runner distinguishes a *fatal* failure (stop
+   safely, report, non-zero exit) from a *recoverable* one (log, skip that
+   module, continue, summarize at the end). A module signals fatality via its
+   exit code and a `die` helper.
+ - **No silent failures.** Every failure is logged and surfaced in the final
+   summary.
+ - **Meaningful exit codes** (defined once in `internal/error.sh`):
+ 
+diff --git a/docs/conventions.md b/docs/conventions.md
+new file mode 100644
+index 0000000..3cdbf32
+--- /dev/null
++++ b/docs/conventions.md
+@@ -0,0 +1,33 @@
++# Coding Conventions
++
++These keep Atlas readable enough to understand in ten minutes.
++
++## Bash
++
++- `#!/usr/bin/env bash` on every script.
++- Entry points: `set -uo pipefail`. Module hook subshells: `set -euo pipefail`.
++- Quote expansions: `"$var"`, `"${array[@]}"`.
++- Small functions, one job each. If a function needs a comment to explain a
++  second responsibility, split it.
++- No global mutable state beyond documented `ATLAS_*` variables.
++- Prefer Bash builtins and coreutils; never add a runtime dependency.
++
++## Naming
++
++- Modules: `lower-kebab` directory names under a category.
++- Functions: `snake_case`; namespaced APIs use `::` (`log::info`, `module::path`,
++  `os::has_cmd`, `runner::run`). Module hooks are `module::<hook>`.
++- Environment / globals: `UPPER_SNAKE`, prefixed `ATLAS_`.
++- Private helpers: leading underscore (`_log_emit`, `_runner_run_module`).
++
++## Output & errors
++
++- All user output via `log::*`. Machine output (`--version`) may use `echo`.
++- Fatal failures go through `die <code> <what> [why] [how]`.
++- Exit codes are defined once in `internal/error.sh`.
++
++## Files
++
++- `internal/` = the engine, shared, module-agnostic.
++- `modules/<category>/<name>/` = one capability, self-contained.
++- Files that change together live together.
+diff --git a/docs/module-authoring.md b/docs/module-authoring.md
+new file mode 100644
+index 0000000..1b8e196
+--- /dev/null
++++ b/docs/module-authoring.md
+@@ -0,0 +1,63 @@
++# Authoring a Module
++
++A module is a self-contained capability. Adding one needs **no** change to the
++runner — discovery is automatic.
++
++## 1. Create the directory
++
++```
++modules/<category>/<name>/
++```
++
++Categories in v1: `core`, `development`, `apps`, `desktop`. The category is the
++directory — nothing declares it.
++
++## 2. Write `module.sh`
++
++```bash
++#!/usr/bin/env bash
++MODULE_NAME="example"
++MODULE_DESCRIPTION="One line: what this capability is."
++MODULE_DEPENDS=()            # e.g. ("core/git"); ids are "category/name"
++
++# Required hooks --------------------------------------------------------------
++
++# 0 = already present & configured (install is skipped); non-0 = work needed.
++module::check() {
++  os::has_cmd example
++}
++
++# Make it so. Safe to run repeatedly.
++module::install() {
++  os::dnf_install example
++}
++
++# 0 = healthy; non-0 = broken (surfaced by `atlas verify` / `doctor`).
++module::verify() {
++  os::has_cmd example
++}
++
++# Optional hooks: module::update, module::remove, module::backup, module::restore
++```
++
++## 3. Add `config/` (optional)
++
++Any files the module owns live in `config/` beside it — never in a shared
++top-level directory.
++
++## 4. Write `README.md`
++
++Answer three questions: what it does, what it installs/configures, what it
++depends on.
++
++## 5. Test it
++
++```bash
++bash atlas status <category>/<name>
++bash atlas install <category>/<name>
++bash tests/run.sh
++```
++
++That's the whole contract. If you ever feel the need to reach into another
++module's internals, the contract is missing something — extend the contract
++instead.
+diff --git a/internal/error.sh b/internal/error.sh
+new file mode 100644
+index 0000000..aef4e48
+--- /dev/null
++++ b/internal/error.sh
+@@ -0,0 +1,18 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_ERROR_SH:-}" ] && return 0; ATLAS_ERROR_SH=1
++
++readonly ATLAS_EXIT_OK=0
++readonly ATLAS_EXIT_GENERAL=1
++readonly ATLAS_EXIT_USAGE=2
++readonly ATLAS_EXIT_DEPENDENCY=3
++readonly ATLAS_EXIT_MODULE=4
++readonly ATLAS_EXIT_UNSUPPORTED=5
++
++# die <code> <what> [why] [how] — every fatal error answers what/why/how.
++die() {
++  local code="$1" what="$2" why="${3:-}" how="${4:-}"
++  log::error "$what"
++  [ -n "$why" ] && log::error "  why: $why"
++  [ -n "$how" ] && log::error "  fix: $how"
++  exit "$code"
++}
+diff --git a/internal/log.sh b/internal/log.sh
+new file mode 100644
+index 0000000..5a1cec9
+--- /dev/null
++++ b/internal/log.sh
+@@ -0,0 +1,39 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_LOG_SH:-}" ] && return 0; ATLAS_LOG_SH=1
++
++: "${ATLAS_LOG_LEVEL:=info}"
++: "${ATLAS_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/atlas}"
++
++_log_level_num() {
++  case "$1" in
++    debug) echo 0 ;; info) echo 1 ;; warn) echo 2 ;; error) echo 3 ;; *) echo 1 ;;
++  esac
++}
++
++_log_file() {
++  local dir="$ATLAS_STATE_DIR/logs"
++  mkdir -p "$dir" 2>/dev/null || true
++  printf '%s/atlas-%s.log' "$dir" "$(date +%Y%m%d)"
++}
++
++_log_emit() { # <level> <color> <msg>
++  local level="$1" color="$2" msg="$3"
++  local ts scope line
++  ts="$(date +%Y-%m-%dT%H:%M:%S)"
++  scope="${ATLAS_LOG_SCOPE:-atlas}"
++  line="$ts  $(printf '%s' "$level" | tr '[:lower:]' '[:upper:]')  [$scope]  $msg"
++  printf '%s\n' "$line" >> "$(_log_file)" 2>/dev/null || true
++  if [ "$(_log_level_num "$level")" -ge "$(_log_level_num "$ATLAS_LOG_LEVEL")" ]; then
++    if [ -t 2 ] && [ -n "$color" ]; then
++      printf '%b%s%b\n' "$color" "$line" '\033[0m' >&2
++    else
++      printf '%s\n' "$line" >&2
++    fi
++  fi
++}
++
++log::debug() { _log_emit debug '\033[2m'    "$*"; }
++log::info()  { _log_emit info  ''           "$*"; }
++log::warn()  { _log_emit warn  '\033[33m'   "$*"; }
++log::error() { _log_emit error '\033[31m'   "$*"; }
++log::step()  { _log_emit info  '\033[1;36m' "== $* =="; }
+diff --git a/internal/module.sh b/internal/module.sh
+new file mode 100644
+index 0000000..83dffce
+--- /dev/null
++++ b/internal/module.sh
+@@ -0,0 +1,66 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_MODULE_SH:-}" ] && return 0; ATLAS_MODULE_SH=1
++
++: "${ATLAS_MODULES_DIR:=${ATLAS_ROOT:-.}/modules}"
++
++# Placeholder-hook helper, available to modules once this file is sourced.
++not_implemented() { log::warn "not yet implemented: $*"; return 0; }
++
++# Print every module id ("category/name"), one per line, sorted.
++module::discover() {
++  local f id
++  for f in "$ATLAS_MODULES_DIR"/*/*/module.sh; do
++    [ -e "$f" ] || continue
++    id="${f#"$ATLAS_MODULES_DIR"/}"
++    id="${id%/module.sh}"
++    printf '%s\n' "$id"
++  done | sort
++}
++
++module::path() { printf '%s\n' "$ATLAS_MODULES_DIR/$1/module.sh"; }
++
++module::has_hook() { declare -F "module::$1" >/dev/null 2>&1; }
++
++# --- dependency resolution -------------------------------------------------
++
++# Print a module's declared dependencies (one per line), read in isolation.
++module::deps_of() {
++  local id="$1" p; p="$(module::path "$id")"
++  [ -r "$p" ] || return 0
++  ( set +u
++    MODULE_DEPENDS=()
++    # shellcheck source=/dev/null
++    source "$p"
++    local d
++    for d in "${MODULE_DEPENDS[@]}"; do
++      [ -n "$d" ] && printf '%s\n' "$d"
++    done )
++}
++
++# Print ids + transitive deps in dependency-first order. Cycle => exit 3.
++module::resolve_order() {
++  local -a input=("$@")
++  local -A _state=()          # unset | temp | done
++  local -a _order=()
++
++  _module_visit() {
++    local id="$1" d
++    case "${_state[$id]:-}" in
++      done) return 0 ;;
++      temp) die "$ATLAS_EXIT_DEPENDENCY" \
++              "dependency cycle detected at '$id'" \
++              "two or more modules depend on each other in a loop" \
++              "break the loop by editing a module's MODULE_DEPENDS" ;;
++    esac
++    _state[$id]=temp
++    while IFS= read -r d; do
++      [ -n "$d" ] && _module_visit "$d"
++    done < <(module::deps_of "$id")
++    _state[$id]=done
++    _order+=("$id")
++  }
++
++  local id
++  for id in "${input[@]}"; do _module_visit "$id"; done
++  printf '%s\n' "${_order[@]}"
++}
+diff --git a/internal/os.sh b/internal/os.sh
+new file mode 100644
+index 0000000..dbdf175
+--- /dev/null
++++ b/internal/os.sh
+@@ -0,0 +1,23 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_OS_SH:-}" ] && return 0; ATLAS_OS_SH=1
++
++os::has_cmd() { command -v "$1" >/dev/null 2>&1; }
++
++os::require_cmd() {
++  os::has_cmd "$1" && return 0
++  die "$ATLAS_EXIT_UNSUPPORTED" \
++    "required command not found: $1" \
++    "Atlas needs '$1' on PATH to continue" \
++    "install '$1' and re-run"
++}
++
++os::is_fedora() {
++  [ -r /etc/os-release ] || return 1
++  grep -qi '^ID=fedora$' /etc/os-release
++}
++
++os::is_root() { [ "$(id -u)" -eq 0 ]; }
++
++# --- placeholder installers (real logic lands with the modules that need them) ---
++os::dnf_install()     { log::info "would dnf install: $*"; }
++os::flatpak_install() { log::info "would flatpak install: $*"; }
+diff --git a/internal/runner.sh b/internal/runner.sh
+new file mode 100644
+index 0000000..859ac0a
+--- /dev/null
++++ b/internal/runner.sh
+@@ -0,0 +1,84 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_RUNNER_SH:-}" ] && return 0; ATLAS_RUNNER_SH=1
++
++# Ordered hook sequence for a verb (empty + return 1 => unknown verb).
++_runner_hooks_for_verb() {
++  case "$1" in
++    install) echo "check install verify" ;;
++    update)  echo "update"  ;;
++    verify)  echo "verify"  ;;
++    backup)  echo "backup"  ;;
++    restore) echo "restore" ;;
++    status)  echo "check"   ;;
++    doctor)  echo "verify"  ;;
++    *) return 1 ;;
++  esac
++}
++
++# Run one module's part of a verb in an isolated subshell.
++# stdout carries a control token (__SKIP__) only; logs go to stderr.
++# Returns 0 on success/skip, non-zero on hook failure.
++_runner_run_module() {
++  local verb="$1" id="$2" hooks
++  hooks="$(_runner_hooks_for_verb "$verb")" || return "$ATLAS_EXIT_USAGE"
++  (
++    set -euo pipefail
++    ATLAS_LOG_SCOPE="$id"
++    # shellcheck source=/dev/null
++    source "$(module::path "$id")"
++    local hook
++    for hook in $hooks; do
++      if [ "$verb" = "install" ] && [ "$hook" = "check" ]; then
++        if module::has_hook check && module::check; then
++          log::info "already satisfied — skipping"
++          printf '__SKIP__'
++          exit 0
++        fi
++        continue
++      fi
++      # status: report installed/not-installed via check; never a failure
++      if [ "$verb" = "status" ] && [ "$hook" = "check" ]; then
++        if module::has_hook check && module::check; then
++          log::info "installed"
++        else
++          log::info "not installed"
++          printf '__SKIP__'
++        fi
++        exit 0
++      fi
++      module::has_hook "$hook" || { log::debug "no $hook hook"; continue; }
++      if ! "module::$hook"; then
++        log::error "$hook failed"
++        exit 1
++      fi
++    done
++  )
++}
++
++# runner::run <verb> [id...]
++runner::run() {
++  local verb="${1:-}"; shift || true
++  _runner_hooks_for_verb "$verb" >/dev/null 2>&1 || \
++    die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'"
++
++  local -a ids
++  if [ "$#" -gt 0 ]; then ids=("$@"); else mapfile -t ids < <(module::discover); fi
++  if [ "${#ids[@]}" -eq 0 ]; then log::warn "no modules found"; return 0; fi
++  mapfile -t ids < <(module::resolve_order "${ids[@]}")
++
++  log::step "atlas $verb (${#ids[@]} modules)"
++  local id out rc ok=0 skip=0 fail=0
++  for id in "${ids[@]}"; do
++    out="$(_runner_run_module "$verb" "$id")"; rc=$?
++    if [ "$rc" -ne 0 ]; then
++      fail=$((fail + 1)); log::error "[$id] failed"
++    elif [ "$out" = "__SKIP__" ]; then
++      skip=$((skip + 1))
++    else
++      ok=$((ok + 1))
++    fi
++  done
++  log::step "done: $ok ok, $skip skipped, $fail failed"
++  [ "$fail" -eq 0 ] || return "$ATLAS_EXIT_MODULE"
++  return 0
++}
+diff --git a/modules/apps/brave/README.md b/modules/apps/brave/README.md
+new file mode 100644
+index 0000000..4e6fced
+--- /dev/null
++++ b/modules/apps/brave/README.md
+@@ -0,0 +1,10 @@
++# brave
++
++**What it does:** Installs the Brave browser via its official repository.
++
++**Installs / configures:** adds the Brave official package repository; installs
++the `brave-browser` package.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/apps/brave/module.sh b/modules/apps/brave/module.sh
+new file mode 100644
+index 0000000..55c0881
+--- /dev/null
++++ b/modules/apps/brave/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="brave"
++MODULE_DESCRIPTION="Brave browser: installs Brave via its official repository."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "brave install"; }
++module::verify()  { not_implemented "brave verify"; }
+diff --git a/modules/apps/ghostty/README.md b/modules/apps/ghostty/README.md
+new file mode 100644
+index 0000000..f22a606
+--- /dev/null
++++ b/modules/apps/ghostty/README.md
+@@ -0,0 +1,9 @@
++# ghostty
++
++**What it does:** Installs the Ghostty terminal emulator.
++
++**Installs / configures:** the `ghostty` package.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/apps/ghostty/module.sh b/modules/apps/ghostty/module.sh
+new file mode 100644
+index 0000000..14c3fd5
+--- /dev/null
++++ b/modules/apps/ghostty/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="ghostty"
++MODULE_DESCRIPTION="Ghostty terminal: installs the Ghostty terminal emulator."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "ghostty install"; }
++module::verify()  { not_implemented "ghostty verify"; }
+diff --git a/modules/core/git/README.md b/modules/core/git/README.md
+new file mode 100644
+index 0000000..4e48cc6
+--- /dev/null
++++ b/modules/core/git/README.md
+@@ -0,0 +1,10 @@
++# git
++
++**What it does:** Installs Git and applies a global configuration.
++
++**Installs / configures:** the `git` package; a global `~/.gitconfig` derived
++from `config/gitconfig.template`.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/core/git/config/gitconfig.template b/modules/core/git/config/gitconfig.template
+new file mode 100644
+index 0000000..c5fced6
+--- /dev/null
++++ b/modules/core/git/config/gitconfig.template
+@@ -0,0 +1,5 @@
++# Applied by the git module (placeholder — not yet wired up).
++[init]
++	defaultBranch = main
++[pull]
++	rebase = true
+diff --git a/modules/core/git/module.sh b/modules/core/git/module.sh
+new file mode 100644
+index 0000000..23576f5
+--- /dev/null
++++ b/modules/core/git/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="git"
++MODULE_DESCRIPTION="Distributed version control: installs git and applies global config."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }               # TODO: os::has_cmd git && gitconfig applied
++module::install() { not_implemented "git: dnf install git + apply config/gitconfig.template"; }
++module::verify()  { not_implemented "git: git --version and config sanity"; }
+diff --git a/modules/desktop/fonts/README.md b/modules/desktop/fonts/README.md
+new file mode 100644
+index 0000000..1a1d493
+--- /dev/null
++++ b/modules/desktop/fonts/README.md
+@@ -0,0 +1,10 @@
++# fonts
++
++**What it does:** Installs Nerd Fonts and common developer typefaces.
++
++**Installs / configures:** Nerd Fonts and other common developer typefaces
++into the system/user font directories.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/desktop/fonts/module.sh b/modules/desktop/fonts/module.sh
+new file mode 100644
+index 0000000..bdeeb0c
+--- /dev/null
++++ b/modules/desktop/fonts/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="fonts"
++MODULE_DESCRIPTION="Developer fonts: installs Nerd Fonts and common typefaces."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "fonts install"; }
++module::verify()  { not_implemented "fonts verify"; }
+diff --git a/modules/desktop/kde/README.md b/modules/desktop/kde/README.md
+new file mode 100644
+index 0000000..10a6fca
+--- /dev/null
++++ b/modules/desktop/kde/README.md
+@@ -0,0 +1,10 @@
++# kde
++
++**What it does:** Installs and configures the KDE Plasma desktop.
++
++**Installs / configures:** the KDE Plasma desktop environment packages and its
++baseline configuration.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/desktop/kde/module.sh b/modules/desktop/kde/module.sh
+new file mode 100644
+index 0000000..0dc0002
+--- /dev/null
++++ b/modules/desktop/kde/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="kde"
++MODULE_DESCRIPTION="KDE Plasma: installs and configures the KDE Plasma desktop."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "kde install"; }
++module::verify()  { not_implemented "kde verify"; }
+diff --git a/modules/development/claude/README.md b/modules/development/claude/README.md
+new file mode 100644
+index 0000000..136b044
+--- /dev/null
++++ b/modules/development/claude/README.md
+@@ -0,0 +1,10 @@
++# claude
++
++**What it does:** Installs the Claude Code CLI and restores its configuration.
++
++**Installs / configures:** the `claude` CLI; restores its saved
++configuration/settings.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/claude/module.sh b/modules/development/claude/module.sh
+new file mode 100644
+index 0000000..7cf4d95
+--- /dev/null
++++ b/modules/development/claude/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="claude"
++MODULE_DESCRIPTION="Claude Code CLI: installs the CLI and restores its configuration."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "claude install"; }
++module::verify()  { not_implemented "claude verify"; }
+diff --git a/modules/development/codex/README.md b/modules/development/codex/README.md
+new file mode 100644
+index 0000000..22efca6
+--- /dev/null
++++ b/modules/development/codex/README.md
+@@ -0,0 +1,10 @@
++# codex
++
++**What it does:** Installs the Codex CLI and restores its configuration.
++
++**Installs / configures:** the `codex` CLI; restores its saved
++configuration/settings.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/codex/module.sh b/modules/development/codex/module.sh
+new file mode 100644
+index 0000000..1751840
+--- /dev/null
++++ b/modules/development/codex/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="codex"
++MODULE_DESCRIPTION="Codex CLI: installs the CLI and restores its configuration."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "codex install"; }
++module::verify()  { not_implemented "codex verify"; }
+diff --git a/modules/development/docker/README.md b/modules/development/docker/README.md
+new file mode 100644
+index 0000000..f235c3b
+--- /dev/null
++++ b/modules/development/docker/README.md
+@@ -0,0 +1,10 @@
++# docker
++
++**What it does:** Installs the Docker Engine and enables the Docker service.
++
++**Installs / configures:** the Docker Engine packages; enables and starts the
++`docker` system service.
++
++**Depends on:** nothing.
++
++> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
+diff --git a/modules/development/docker/module.sh b/modules/development/docker/module.sh
+new file mode 100644
+index 0000000..70f7ea0
+--- /dev/null
++++ b/modules/development/docker/module.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++MODULE_NAME="docker"
++MODULE_DESCRIPTION="Container runtime: installs Docker Engine and enables the service."
++MODULE_DEPENDS=()
++
++module::check()   { return 1; }
++module::install() { not_implemented "docker install"; }
++module::verify()  { not_implemented "docker verify"; }
+diff --git a/tests/fixtures/modules/apps/beta/module.sh b/tests/fixtures/modules/apps/beta/module.sh
+new file mode 100644
+index 0000000..8aaaa4e
+--- /dev/null
++++ b/tests/fixtures/modules/apps/beta/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="beta"
++MODULE_DESCRIPTION="fixture module beta (depends on alpha)"
++MODULE_DEPENDS=("core/alpha")
++module::check()   { return 1; }
++module::install() { not_implemented "beta install"; }
++module::verify()  { not_implemented "beta verify"; }
+diff --git a/tests/fixtures/modules/core/alpha/module.sh b/tests/fixtures/modules/core/alpha/module.sh
+new file mode 100644
+index 0000000..93a52c9
+--- /dev/null
++++ b/tests/fixtures/modules/core/alpha/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="alpha"
++MODULE_DESCRIPTION="fixture module alpha"
++MODULE_DEPENDS=()
++module::check()   { return 1; }
++module::install() { not_implemented "alpha install"; }
++module::verify()  { not_implemented "alpha verify"; }
+diff --git a/tests/fixtures/modules/core/cyc_a/module.sh b/tests/fixtures/modules/core/cyc_a/module.sh
+new file mode 100644
+index 0000000..0ce5809
+--- /dev/null
++++ b/tests/fixtures/modules/core/cyc_a/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="cyc_a"
++MODULE_DESCRIPTION="cycle fixture a"
++MODULE_DEPENDS=("core/cyc_b")
++module::check()   { return 1; }
++module::install() { not_implemented "cyc_a"; }
++module::verify()  { not_implemented "cyc_a"; }
+diff --git a/tests/fixtures/modules/core/cyc_b/module.sh b/tests/fixtures/modules/core/cyc_b/module.sh
+new file mode 100644
+index 0000000..0e130b5
+--- /dev/null
++++ b/tests/fixtures/modules/core/cyc_b/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="cyc_b"
++MODULE_DESCRIPTION="cycle fixture b"
++MODULE_DEPENDS=("core/cyc_a")
++module::check()   { return 1; }
++module::install() { not_implemented "cyc_b"; }
++module::verify()  { not_implemented "cyc_b"; }
+diff --git a/tests/fixtures/modules_failing/core/fail/module.sh b/tests/fixtures/modules_failing/core/fail/module.sh
+new file mode 100644
+index 0000000..81e0511
+--- /dev/null
++++ b/tests/fixtures/modules_failing/core/fail/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="fail"
++MODULE_DESCRIPTION="fixture whose install hook fails"
++MODULE_DEPENDS=()
++module::check()   { return 1; }
++module::install() { log::error "deliberate failure"; return 1; }
++module::verify()  { not_implemented "fail verify"; }
+diff --git a/tests/fixtures/modules_satisfied/core/sat/module.sh b/tests/fixtures/modules_satisfied/core/sat/module.sh
+new file mode 100644
+index 0000000..3b289a1
+--- /dev/null
++++ b/tests/fixtures/modules_satisfied/core/sat/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="sat"
++MODULE_DESCRIPTION="fixture whose check passes"
++MODULE_DEPENDS=()
++module::check()   { return 0; }
++module::install() { not_implemented "sat install"; }
++module::verify()  { not_implemented "sat verify"; }
+diff --git a/tests/lib/assert.sh b/tests/lib/assert.sh
+new file mode 100644
+index 0000000..6e61d41
+--- /dev/null
++++ b/tests/lib/assert.sh
+@@ -0,0 +1,25 @@
++#!/usr/bin/env bash
++# Tiny pure-Bash assertion library. No external framework.
++# Each test file increments ATLAS_TESTS_PASS / ATLAS_TESTS_FAIL via these.
++
++_t_ok()   { ATLAS_TESTS_PASS=$((ATLAS_TESTS_PASS + 1)); printf '  ok   %s\n' "$1"; }
++_t_fail() { ATLAS_TESTS_FAIL=$((ATLAS_TESTS_FAIL + 1)); printf '  FAIL %s\n' "$1"; }
++
++assert_eq() { # <name> <actual> <expected>
++  if [ "$2" = "$3" ]; then _t_ok "$1"
++  else _t_fail "$1"; printf '       expected [%s] got [%s]\n' "$3" "$2"; fi
++}
++
++assert_contains() { # <name> <haystack> <needle>
++  case "$2" in
++    *"$3"*) _t_ok "$1" ;;
++    *) _t_fail "$1"; printf '       [%s] does not contain [%s]\n' "$2" "$3" ;;
++  esac
++}
++
++assert_status() { # <name> <expected_code> <cmd...>
++  local name="$1" want="$2"; shift 2
++  "$@" >/dev/null 2>&1; local got=$?
++  if [ "$got" -eq "$want" ]; then _t_ok "$name"
++  else _t_fail "$name"; printf '       exit %s, wanted %s\n' "$got" "$want"; fi
++}
+diff --git a/tests/run.sh b/tests/run.sh
+new file mode 100644
+index 0000000..5a4d573
+--- /dev/null
++++ b/tests/run.sh
+@@ -0,0 +1,22 @@
++#!/usr/bin/env bash
++set -uo pipefail
++ATLAS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++export ATLAS_ROOT
++# keep test state out of the real state dir
++export ATLAS_STATE_DIR="$ATLAS_ROOT/.local/state/atlas"
++
++source "$ATLAS_ROOT/tests/lib/assert.sh"
++
++total_pass=0 total_fail=0
++for t in "$ATLAS_ROOT"/tests/test_*.sh; do
++  [ -e "$t" ] || continue
++  printf '\n%s\n' "$(basename "$t")"
++  ATLAS_TESTS_PASS=0 ATLAS_TESTS_FAIL=0
++  # shellcheck source=/dev/null
++  source "$t"
++  total_pass=$((total_pass + ATLAS_TESTS_PASS))
++  total_fail=$((total_fail + ATLAS_TESTS_FAIL))
++done
++
++printf '\n== %d passed, %d failed ==\n' "$total_pass" "$total_fail"
++[ "$total_fail" -eq 0 ]
+diff --git a/tests/test_bootstrap.sh b/tests/test_bootstrap.sh
+new file mode 100644
+index 0000000..46759da
+--- /dev/null
++++ b/tests/test_bootstrap.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++BOOT="$ATLAS_ROOT/bootstrap.sh"
++
++assert_status "bootstrap parses (bash -n)" 0 bash -n "$BOOT"
++assert_status "bootstrap --help exits 0"   0 bash "$BOOT" --help
++
++out="$(bash "$BOOT" --help 2>&1)"
++assert_contains "help mentions atlas install" "$out" "atlas install"
+diff --git a/tests/test_cli.sh b/tests/test_cli.sh
+new file mode 100644
+index 0000000..56cc7fd
+--- /dev/null
++++ b/tests/test_cli.sh
+@@ -0,0 +1,17 @@
++#!/usr/bin/env bash
++ATLAS="$ATLAS_ROOT/atlas"
++# point the CLI at the fixture modules so it runs without real ones
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
++
++assert_status "help exits 0"          0 bash "$ATLAS" --help
++assert_status "version exits 0"       0 bash "$ATLAS" --version
++assert_status "unknown verb exits 2"  2 bash "$ATLAS" frobnicate
++assert_status "unknown option exits 2" 2 bash "$ATLAS" --nope
++assert_status "install on fixtures 0" 0 bash "$ATLAS" install core/alpha apps/beta
++
++out="$(bash "$ATLAS" --help 2>&1)"
++assert_contains "help shows usage"    "$out" "Usage: atlas"
++assert_contains "help lists install"  "$out" "install"
++
++out="$(bash "$ATLAS" --version 2>&1)"
++assert_contains "version prints a number" "$out" "0.1.0"
+diff --git a/tests/test_error.sh b/tests/test_error.sh
+new file mode 100644
+index 0000000..b23fb9c
+--- /dev/null
++++ b/tests/test_error.sh
+@@ -0,0 +1,16 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++
++assert_eq "usage exit code constant" "$ATLAS_EXIT_USAGE" "2"
++assert_eq "module exit code constant" "$ATLAS_EXIT_MODULE" "4"
++
++# die exits with the given code (run in a subshell so it doesn't kill the test)
++assert_status "die uses the provided code" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; die 3 "boom"'
++
++# die surfaces what / why / how
++out="$(bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; die 1 "what-x" "why-y" "how-z"' 2>&1 || true)"
++assert_contains "die prints what" "$out" "what-x"
++assert_contains "die prints why"  "$out" "why-y"
++assert_contains "die prints how"  "$out" "how-z"
+diff --git a/tests/test_harness.sh b/tests/test_harness.sh
+new file mode 100644
+index 0000000..ff32938
+--- /dev/null
++++ b/tests/test_harness.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++# Proves the assertion library itself works.
++assert_eq       "assert_eq matches equal strings"      "abc" "abc"
++assert_contains "assert_contains finds a substring"    "hello world" "world"
++assert_status   "assert_status reads true's exit code" 0 true
++assert_status   "assert_status reads false's exit code" 1 false
+diff --git a/tests/test_log.sh b/tests/test_log.sh
+new file mode 100644
+index 0000000..9c0d054
+--- /dev/null
++++ b/tests/test_log.sh
+@@ -0,0 +1,21 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++
++# info is emitted at default level
++out="$(ATLAS_LOG_LEVEL=info log::info "hello" 2>&1 1>/dev/null)"
++assert_contains "info line has level"   "$out" "INFO"
++assert_contains "info line has message" "$out" "hello"
++assert_contains "info line has scope"   "$out" "[atlas]"
++
++# debug is suppressed when the floor is info
++out="$(ATLAS_LOG_LEVEL=info log::debug "quiet" 2>&1 1>/dev/null)"
++assert_eq "debug suppressed at info level" "$out" ""
++
++# scope override is honored
++out="$(ATLAS_LOG_SCOPE=git log::info "scoped" 2>&1 1>/dev/null)"
++assert_contains "scope override applies" "$out" "[git]"
++
++# every call persists to the logfile
++logf="$ATLAS_STATE_DIR/logs/atlas-$(date +%Y%m%d).log"
++log::warn "persist-me" 2>/dev/null
++assert_contains "logfile captured the line" "$(cat "$logf")" "persist-me"
+diff --git a/tests/test_module_discovery.sh b/tests/test_module_discovery.sh
+new file mode 100644
+index 0000000..a493710
+--- /dev/null
++++ b/tests/test_module_discovery.sh
+@@ -0,0 +1,22 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
++source "$ATLAS_ROOT/internal/module.sh"
++
++found="$(module::discover | tr '\n' ' ')"
++assert_contains "discovers alpha" "$found" "core/alpha"
++assert_contains "discovers beta"  "$found" "apps/beta"
++
++assert_eq "path points at module.sh" \
++  "$(module::path core/alpha)" "$ATLAS_MODULES_DIR/core/alpha/module.sh"
++
++# has_hook works after sourcing a module. Assert in the OUTER scope so the
++# suite counters see the result; source the module inside a child bash -c so
++# its hook definitions don't leak into the test runner.
++_hh='source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_MODULES_DIR/core/alpha/module.sh";'
++assert_status "alpha defines install hook" 0 bash -c "$_hh"' module::has_hook install'
++assert_status "alpha lacks backup hook"    1 bash -c "$_hh"' module::has_hook backup'
++
++out="$(not_implemented "x" 2>&1 || true)"
++assert_contains "not_implemented warns" "$out" "not yet implemented"
+diff --git a/tests/test_module_order.sh b/tests/test_module_order.sh
+new file mode 100644
+index 0000000..1bcc8b9
+--- /dev/null
++++ b/tests/test_module_order.sh
+@@ -0,0 +1,15 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
++source "$ATLAS_ROOT/internal/module.sh"
++
++assert_eq "beta declares its dep" "$(module::deps_of apps/beta)" "core/alpha"
++
++# resolving beta pulls in alpha first
++order="$(module::resolve_order apps/beta | tr '\n' ' ')"
++assert_eq "dependency comes before dependent" "$order" "core/alpha apps/beta "
++
++# a cycle is a fatal dependency error (exit 3)
++assert_status "cycle detected as exit 3" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"; source "$ATLAS_ROOT/internal/module.sh"; module::resolve_order core/cyc_a'
+diff --git a/tests/test_modules.sh b/tests/test_modules.sh
+new file mode 100644
+index 0000000..592d4b2
+--- /dev/null
++++ b/tests/test_modules.sh
+@@ -0,0 +1,27 @@
++#!/usr/bin/env bash
++# earlier tests export ATLAS_MODULES_DIR to point at fixtures, and internal/module.sh
++# guards itself against being sourced twice (so a bare unset won't restore its
++# default here) since tests/run.sh sources every test file in one shell. Pin it
++# back to the real modules dir explicitly.
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/modules"
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/module.sh"   # uses real ATLAS_MODULES_DIR ($ATLAS_ROOT/modules)
++
++expected="apps/brave apps/ghostty core/git desktop/fonts desktop/kde development/claude development/codex development/docker"
++got="$(module::discover | tr '\n' ' ' | sed 's/ *$//')"
++assert_eq "all eight modules discovered" "$got" "$expected"
++
++# every module satisfies the contract: metadata + three required hooks + README
++fail=0
++while IFS= read -r id; do
++  p="$(module::path "$id")"
++  ( source "$p"
++    [ -n "${MODULE_NAME:-}" ]        || exit 1
++    [ -n "${MODULE_DESCRIPTION:-}" ] || exit 1
++    declare -F module::check   >/dev/null || exit 1
++    declare -F module::install >/dev/null || exit 1
++    declare -F module::verify  >/dev/null || exit 1 ) || { fail=1; printf 'contract miss: %s\n' "$id"; }
++  [ -r "${p%/module.sh}/README.md" ] || { fail=1; printf 'missing README: %s\n' "$id"; }
++done < <(module::discover)
++assert_eq "every module satisfies the contract + has a README" "$fail" "0"
+diff --git a/tests/test_os.sh b/tests/test_os.sh
+new file mode 100644
+index 0000000..2b3838e
+--- /dev/null
++++ b/tests/test_os.sh
+@@ -0,0 +1,12 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++
++assert_status "has_cmd true for bash"      0 os::has_cmd bash
++assert_status "has_cmd false for nonesuch" 1 os::has_cmd this_command_does_not_exist_xyz
++assert_status "require_cmd dies on missing" 5 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; os::require_cmd nope_xyz'
++
++out="$(os::dnf_install git curl 2>&1 || true)"
++assert_contains "dnf_install logs intent" "$out" "git curl"
+diff --git a/tests/test_runner.sh b/tests/test_runner.sh
+new file mode 100644
+index 0000000..09dae8b
+--- /dev/null
++++ b/tests/test_runner.sh
+@@ -0,0 +1,34 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
++source "$ATLAS_ROOT/internal/module.sh"
++source "$ATLAS_ROOT/internal/runner.sh"
++
++# install across the two happy fixtures runs end-to-end (exit 0)
++assert_status "runner install succeeds on fixtures" 0 \
++  runner::run install core/alpha apps/beta
++
++# unknown verb is a usage error (run in a subshell so die's exit doesn't kill the suite)
++assert_status "runner rejects unknown verb" 2 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run frobnicate'
++
++# placeholder install path emits the not-implemented notice
++out="$(runner::run install core/alpha 2>&1 || true)"
++assert_contains "install reaches placeholder hook" "$out" "not yet implemented"
++
++# a module whose check passes is skipped
++out="$(ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_satisfied" \
++       bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/sat' 2>&1 || true)"
++assert_contains "satisfied module is skipped" "$out" "already satisfied"
++
++# a module whose install hook fails makes runner::run return ATLAS_EXIT_MODULE (4)
++assert_status "failing module install returns exit 4" 4 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_failing"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/fail'
++
++# status reports installed/not-installed and NEVER fails on a not-installed module
++assert_status "status exits 0 on not-installed modules" 0 \
++  runner::run status core/alpha apps/beta
++out="$(runner::run status core/alpha apps/beta 2>&1 || true)"
++assert_contains "status reports 'not installed'" "$out" "not installed"

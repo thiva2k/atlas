@@ -1,0 +1,324 @@
+# Review package: aeebefc..2e4e60d
+
+## Commits
+2e4e60d docs: add README, license, contributing, changelog, and guides
+
+## Files changed
+ CHANGELOG.md             | 15 ++++++++++++
+ CONTRIBUTING.md          | 35 +++++++++++++++++++++++++++
+ LICENSE                  | 21 ++++++++++++++++
+ README.md                | 52 +++++++++++++++++++++++++++++++++++++++
+ docs/architecture.md     |  7 +++---
+ docs/conventions.md      | 33 +++++++++++++++++++++++++
+ docs/module-authoring.md | 63 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 7 files changed, 223 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+new file mode 100644
+index 0000000..d08caf0
+--- /dev/null
++++ b/CHANGELOG.md
+@@ -0,0 +1,15 @@
++# Changelog
++
++All notable changes to Atlas are documented here. Format loosely follows
++[Keep a Changelog]; Atlas uses semantic versioning once it hits 1.0.
++
++## [Unreleased]
++
++### Added
++- v1 skeleton: architecture, `atlas` CLI, module runner, and the `internal/`
++  engine (logging, errors, OS helpers, module contract, dependency resolution).
++- Eight placeholder modules across core / development / apps / desktop.
++- Zero-dependency `bootstrap.sh`.
++- Pure-Bash test harness under `tests/`.
++
++[Keep a Changelog]: https://keepachangelog.com/
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+new file mode 100644
+index 0000000..f7f0e5a
+--- /dev/null
++++ b/CONTRIBUTING.md
+@@ -0,0 +1,35 @@
++# Contributing to Atlas
++
++## Principles
++
++Simplicity over cleverness. One responsibility per file. Explicit over implicit.
++Zero runtime dependencies beyond Bash + coreutils + Git. Documentation is part
++of the change, not an afterthought.
++
++## Ground rules
++
++- Every shell file starts with `#!/usr/bin/env bash`.
++- User-facing output goes through the `log::*` API — never bare `echo`.
++- Shared helpers live in `internal/`; capabilities live in `modules/`.
++- The runner must never reach inside a module — only call contract hooks.
++- Line endings are LF (enforced by `.gitattributes`).
++
++## Adding a module
++
++See [`docs/module-authoring.md`](docs/module-authoring.md).
++
++## Tests
++
++Run the whole suite with:
++
++```bash
++bash tests/run.sh
++```
++
++Tests are pure Bash (no framework). Add `tests/test_<area>.sh` and use the
++assertions in `tests/lib/assert.sh`. Every behavioural change ships with a test.
++
++## Commits
++
++Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, …). Keep them small and
++focused.
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..caf7510
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 thiva2k
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..27681dd
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,52 @@
++# Atlas
++
++**Atlas is a workstation lifecycle manager.** It takes a fresh Fedora machine to
++a fully configured engineering workstation — and keeps it that way: installing
++and configuring tooling, verifying health, and backing up and restoring the
++irreplaceable bits.
++
++Atlas is not a migration script, a dotfiles repo, or a package installer.
++Those are *capabilities*, expressed as modules.
++
++## Quick start
++
++```bash
++# on a fresh machine
++curl -fsSL https://raw.githubusercontent.com/thiva2k/atlas/main/bootstrap.sh | bash
++cd ~/atlas
++./atlas install
++```
++
++## Commands
++
++| Command | Does |
++|---|---|
++| `atlas install` | ensure modules are present & configured |
++| `atlas update`  | bring modules to their latest desired state |
++| `atlas verify`  | check modules are healthy |
++| `atlas backup`  | capture irreplaceable module state |
++| `atlas restore` | re-apply captured state |
++| `atlas doctor`  | diagnose the workstation |
++| `atlas status`  | show what is / isn't installed |
++
++## How it works
++
++Everything is a **module** under `modules/<category>/<name>/`, and every module
++implements the same lifecycle hooks. The `atlas` CLI dispatches a **platform
++verb** to those modules through a small engine in `internal/`. Read
++[`docs/architecture.md`](docs/architecture.md) for the full picture and
++[`docs/module-authoring.md`](docs/module-authoring.md) to add one.
++
++## Requirements
++
++Bash, GNU coreutils, Git, and a Fedora base system. Nothing else.
++
++## Status
++
++v1 is the **skeleton**: the architecture, CLI, runner, and placeholder modules
++are in place; real installation logic lands module by module. See
++[`CHANGELOG.md`](CHANGELOG.md).
++
++## License
++
++MIT — see [`LICENSE`](LICENSE).
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 17a768b..1a5b8ef 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -112,21 +112,21 @@ atlas/
+ │   ├── error.sh          # error handling, traps, exit codes (§8)
+ │   ├── os.sh             # Fedora / dnf / flatpak / privilege helpers
+ │   ├── module.sh         # module discovery, contract, dependency resolution
+ │   └── runner.sh         # the verbs, implemented on top of the above
+ ├── modules/              # every capability lives here, grouped by category
+ │   ├── core/             #   fundamentals (git, base packages, shell)
+ │   ├── development/      #   dev tooling (docker, language runtimes, claude, codex)
+ │   ├── apps/             #   applications (brave, ghostty)
+ │   └── desktop/          #   desktop environment (kde, fonts)
+ ├── docs/                 # architecture, conventions, module-authoring guide
+-├── tests/                # contributor test suite (dev-only dependency)
++├── tests/                # pure-Bash test harness (no external framework)
+ ├── assets/               # static, non-code assets
+ ├── README.md  LICENSE  CONTRIBUTING.md  CHANGELOG.md
+ ```
+ 
+ Notes:
+ 
+ - **`internal/` vs `modules/`.** `internal/` is the engine and is shared by every
+   module. `modules/` is where capabilities live. The engine must not know the
+   name of any specific module.
+ - **Categories are directories.** A module's category is simply the directory it
+@@ -209,22 +209,23 @@ module::restore() { ... }
+ 
+ Modules communicate **only** through this contract. If the runner ever needs to
+ reach inside a module, the contract is wrong and should be extended instead.
+ 
+ ---
+ 
+ ## 8. Error handling
+ 
+ Failure behaviour is predictable and loud.
+ 
+-- Every entry point runs under `set -euo pipefail` plus an `ERR` trap installed
+-  by `internal/error.sh`.
++- The `atlas` entrypoint runs under `set -uo pipefail` and propagates exit
++  codes explicitly; each **module hook subshell** runs under `set -euo
++  pipefail`. Fatal paths go through `die`.
+ - **Module isolation.** Each module hook runs in its own subshell, so one
+   module's failure cannot poison the runner or sibling modules.
+ - **Fatal vs recoverable.** The runner distinguishes a *fatal* failure (stop
+   safely, report, non-zero exit) from a *recoverable* one (log, skip that
+   module, continue, summarize at the end). A module signals fatality via its
+   exit code and a `die` helper.
+ - **No silent failures.** Every failure is logged and surfaced in the final
+   summary.
+ - **Meaningful exit codes** (defined once in `internal/error.sh`):
+ 
+diff --git a/docs/conventions.md b/docs/conventions.md
+new file mode 100644
+index 0000000..3cdbf32
+--- /dev/null
++++ b/docs/conventions.md
+@@ -0,0 +1,33 @@
++# Coding Conventions
++
++These keep Atlas readable enough to understand in ten minutes.
++
++## Bash
++
++- `#!/usr/bin/env bash` on every script.
++- Entry points: `set -uo pipefail`. Module hook subshells: `set -euo pipefail`.
++- Quote expansions: `"$var"`, `"${array[@]}"`.
++- Small functions, one job each. If a function needs a comment to explain a
++  second responsibility, split it.
++- No global mutable state beyond documented `ATLAS_*` variables.
++- Prefer Bash builtins and coreutils; never add a runtime dependency.
++
++## Naming
++
++- Modules: `lower-kebab` directory names under a category.
++- Functions: `snake_case`; namespaced APIs use `::` (`log::info`, `module::path`,
++  `os::has_cmd`, `runner::run`). Module hooks are `module::<hook>`.
++- Environment / globals: `UPPER_SNAKE`, prefixed `ATLAS_`.
++- Private helpers: leading underscore (`_log_emit`, `_runner_run_module`).
++
++## Output & errors
++
++- All user output via `log::*`. Machine output (`--version`) may use `echo`.
++- Fatal failures go through `die <code> <what> [why] [how]`.
++- Exit codes are defined once in `internal/error.sh`.
++
++## Files
++
++- `internal/` = the engine, shared, module-agnostic.
++- `modules/<category>/<name>/` = one capability, self-contained.
++- Files that change together live together.
+diff --git a/docs/module-authoring.md b/docs/module-authoring.md
+new file mode 100644
+index 0000000..1b8e196
+--- /dev/null
++++ b/docs/module-authoring.md
+@@ -0,0 +1,63 @@
++# Authoring a Module
++
++A module is a self-contained capability. Adding one needs **no** change to the
++runner — discovery is automatic.
++
++## 1. Create the directory
++
++```
++modules/<category>/<name>/
++```
++
++Categories in v1: `core`, `development`, `apps`, `desktop`. The category is the
++directory — nothing declares it.
++
++## 2. Write `module.sh`
++
++```bash
++#!/usr/bin/env bash
++MODULE_NAME="example"
++MODULE_DESCRIPTION="One line: what this capability is."
++MODULE_DEPENDS=()            # e.g. ("core/git"); ids are "category/name"
++
++# Required hooks --------------------------------------------------------------
++
++# 0 = already present & configured (install is skipped); non-0 = work needed.
++module::check() {
++  os::has_cmd example
++}
++
++# Make it so. Safe to run repeatedly.
++module::install() {
++  os::dnf_install example
++}
++
++# 0 = healthy; non-0 = broken (surfaced by `atlas verify` / `doctor`).
++module::verify() {
++  os::has_cmd example
++}
++
++# Optional hooks: module::update, module::remove, module::backup, module::restore
++```
++
++## 3. Add `config/` (optional)
++
++Any files the module owns live in `config/` beside it — never in a shared
++top-level directory.
++
++## 4. Write `README.md`
++
++Answer three questions: what it does, what it installs/configures, what it
++depends on.
++
++## 5. Test it
++
++```bash
++bash atlas status <category>/<name>
++bash atlas install <category>/<name>
++bash tests/run.sh
++```
++
++That's the whole contract. If you ever feel the need to reach into another
++module's internals, the contract is missing something — extend the contract
++instead.

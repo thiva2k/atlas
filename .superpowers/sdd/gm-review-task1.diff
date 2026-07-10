@@ -1,0 +1,99 @@
+# Review package: f8842ed..cea00d1
+
+## Commits
+cea00d1 feat(os): make os::dnf_install a real idempotent package primitive
+
+## Files changed
+ internal/os.sh       | 17 +++++++++++++++--
+ tests/test_os.sh     |  4 ++--
+ tests/test_os_dnf.sh | 29 +++++++++++++++++++++++++++++
+ 3 files changed, 46 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/internal/os.sh b/internal/os.sh
+index dbdf175..e25e452 100644
+--- a/internal/os.sh
++++ b/internal/os.sh
+@@ -11,13 +11,26 @@ os::require_cmd() {
+     "install '$1' and re-run"
+ }
+ 
+ os::is_fedora() {
+   [ -r /etc/os-release ] || return 1
+   grep -qi '^ID=fedora$' /etc/os-release
+ }
+ 
+ os::is_root() { [ "$(id -u)" -eq 0 ]; }
+ 
+-# --- placeholder installers (real logic lands with the modules that need them) ---
+-os::dnf_install()     { log::info "would dnf install: $*"; }
++# Install one or more packages via dnf. Idempotent (dnf is a no-op for
++# already-installed packages). Uses sudo only when not already root.
++os::dnf_install() {
++  [ "$#" -gt 0 ] || return 0
++  os::require_cmd dnf
++  local sudo=""
++  os::is_root || sudo="sudo"
++  log::info "installing packages: $*"
++  if ! $sudo dnf install -y "$@"; then
++    log::error "dnf install failed: $*"
++    return 1
++  fi
++}
++
++# flatpak install placeholder (promoted when the first flatpak module lands).
+ os::flatpak_install() { log::info "would flatpak install: $*"; }
+diff --git a/tests/test_os.sh b/tests/test_os.sh
+index 2b3838e..a12130d 100644
+--- a/tests/test_os.sh
++++ b/tests/test_os.sh
+@@ -1,12 +1,12 @@
+ #!/usr/bin/env bash
+ source "$ATLAS_ROOT/internal/log.sh"
+ source "$ATLAS_ROOT/internal/error.sh"
+ source "$ATLAS_ROOT/internal/os.sh"
+ 
+ assert_status "has_cmd true for bash"      0 os::has_cmd bash
+ assert_status "has_cmd false for nonesuch" 1 os::has_cmd this_command_does_not_exist_xyz
+ assert_status "require_cmd dies on missing" 5 \
+   bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; os::require_cmd nope_xyz'
+ 
+-out="$(os::dnf_install git curl 2>&1 || true)"
+-assert_contains "dnf_install logs intent" "$out" "git curl"
++# os::dnf_install is now a real primitive (requires real dnf on PATH via
++# os::require_cmd) — covered with proper dnf/sudo stubbing in test_os_dnf.sh.
+diff --git a/tests/test_os_dnf.sh b/tests/test_os_dnf.sh
+new file mode 100644
+index 0000000..7a5c415
+--- /dev/null
++++ b/tests/test_os_dnf.sh
+@@ -0,0 +1,29 @@
++#!/usr/bin/env bash
++# os::dnf_install is tested by shadowing `dnf` and `sudo` with shell FUNCTIONS
++# (functions take precedence over PATH, so no real package manager is touched —
++# safe on Fedora and non-Fedora alike). Each case runs in a child bash so the
++# stubs never leak into the suite shell.
++
++# success: dnf install is invoked with the packages, returns 0
++out="$(bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { printf "dnf-called: %s\n" "$*"; return 0; }
++  sudo() { "$@"; }
++  os::dnf_install git curl
++' 2>/dev/null)"; rc=$?
++assert_eq       "dnf_install returns 0 on success"      "$rc" "0"
++assert_contains "dnf_install runs dnf install for pkgs" "$out" "dnf-called: install -y git curl"
++
++# failure: dnf exits non-zero -> os::dnf_install returns non-zero
++assert_status "dnf_install propagates dnf failure" 1 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { return 1; }
++  sudo() { "$@"; }
++  os::dnf_install git
++'
++
++# no args is a harmless no-op (exit 0)
++assert_status "dnf_install no-op on empty args" 0 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  os::dnf_install
++'

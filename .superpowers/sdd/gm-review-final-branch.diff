@@ -1,0 +1,1738 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index d08caf0..98309d1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,10 +6,36 @@ All notable changes to Atlas are documented here. Format loosely follows
+ ## [Unreleased]
+ 
+ ### Added
++- **The `git` module** — the first real module, and the reference implementation
++  for every module after it (see `RFC-0001`). Installs Git, layers Atlas's
++  defaults *underneath* your own `~/.gitconfig` via an owned config fragment, and
++  fills in `user.name` / `user.email` only when they are missing. Supports
++  `check` / `install` / `verify` / `update` / `remove`; `remove` restores your
++  config byte-for-byte and leaves the Git package and your identity alone.
++- `env::get` (`internal/env.sh`): resolves user-specific settings from the
++  environment, then `~/.config/atlas/atlas.env`. Never prompts, never blocks.
++- `os::dnf_install`: a real, idempotent package primitive.
+ - v1 skeleton: architecture, `atlas` CLI, module runner, and the `internal/`
+   engine (logging, errors, OS helpers, module contract, dependency resolution).
+ - Eight placeholder modules across core / development / apps / desktop.
+ - Zero-dependency `bootstrap.sh`.
+ - Pure-Bash test harness under `tests/`.
+ 
++### Fixed
++- **git: Atlas defaults no longer override your own git settings.** The managed
++  config was wired into `~/.gitconfig` with `git config --add`, which appends —
++  and because git resolves configuration positionally, the Atlas fragment was
++  read last and won. Installing Atlas would silently flip a hand-set
++  `pull.rebase = false` to `true`. The include block is now prepended, so
++  anything you set below it wins, as `RFC-0001` §4.4 always intended. An
++  existing bottom-placed include is relocated on the next `atlas install git`.
++  The rewrite is a single atomic write, preserves the file's mode, follows a
++  symlinked `~/.gitconfig` to its target, and refuses to touch a config that is
++  locked, unwritable, not a regular file, or unparseable — always before
++  modifying anything.
++- **git: `atlas verify git` no longer reports a healthy module as broken** when
++  you override one of Atlas's managed defaults. It now checks that the managed
++  fragment *resolves*, not that Atlas's value is the winning one — which, after
++  the fix above, it deliberately is not.
++
+ [Keep a Changelog]: https://keepachangelog.com/
+diff --git a/atlas b/atlas
+index 472d731..7ed3823 100755
+--- a/atlas
++++ b/atlas
+@@ -17,6 +17,7 @@ ATLAS_VERSION="0.1.0-dev"
+ source "$ATLAS_ROOT/internal/log.sh"
+ source "$ATLAS_ROOT/internal/error.sh"
+ source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/env.sh"
+ source "$ATLAS_ROOT/internal/module.sh"
+ source "$ATLAS_ROOT/internal/runner.sh"
+ 
+diff --git a/docs/conventions.md b/docs/conventions.md
+index 3cdbf32..7805d94 100644
+--- a/docs/conventions.md
++++ b/docs/conventions.md
+@@ -31,3 +31,44 @@ These keep Atlas readable enough to understand in ten minutes.
+ - `internal/` = the engine, shared, module-agnostic.
+ - `modules/<category>/<name>/` = one capability, self-contained.
+ - Files that change together live together.
++
++## User-specific configuration
++
++Some settings are the user's, not Atlas's — an identity, a token, a hostname.
++Atlas never prompts for them and never guesses. A module reads them with
++`env::get NAME` (`internal/env.sh`), which resolves, in order:
++
++1. the environment variable `NAME`
++2. the key `NAME=value` in `$ATLAS_CONFIG_HOME/atlas.env`
++   (default `~/.config/atlas/atlas.env`)
++
++and returns non-zero when neither is set. Rules:
++
++- **Namespace the key** after the module: `ATLAS_GIT_USER_NAME`, not `USER_NAME`.
++- **Never block on a missing value.** `warn` and continue; a missing optional
++  value is not an install failure, and never a `verify` failure.
++- **Never overwrite a value the user already set** by hand. Apply it only when
++  the target is unset.
++- `atlas.env` holds secrets. It is the user's file; Atlas reads it, never writes it.
++
++## Owning configuration a module does not own
++
++A module writes its own settings into a file it *owns*, under
++`$ATLAS_CONFIG_HOME/<module>/`, and then wires that file into the tool's real
++configuration with the smallest possible edit (an include, a source line, a
++drop-in). This keeps `update` and `remove` tractable: Atlas can regenerate or
++delete its own file without ever parsing the user's.
++
++Where the tool resolves configuration positionally, the Atlas fragment goes
++**first**, so the user's own settings — read later — override Atlas's defaults.
++Atlas provides defaults; the user always wins.
++
++When a module must edit a user-owned file anyway:
++
++- validate first, write second: every refusal (`die`, exit `ATLAS_EXIT_MODULE`)
++  must happen *before* anything is modified;
++- one atomic write (temp file in the same directory, then `mv`), preserving mode;
++- resolve symlinks and edit the target, so dotfile managers keep working;
++- take whatever lock the tool itself uses, and never steal one you did not create.
++
++`modules/core/git/` is the reference implementation of all of the above.
+diff --git a/docs/rfcs/RFC-0001-git-module.md b/docs/rfcs/RFC-0001-git-module.md
+index 03688f6..b0e3631 100644
+--- a/docs/rfcs/RFC-0001-git-module.md
++++ b/docs/rfcs/RFC-0001-git-module.md
+@@ -340,3 +340,36 @@ One focused change, TDD, small commits:
+   package install.
+ - The config, identity, and testing patterns here are documented well enough that
+   the next module (GitHub CLI) can follow them without re-deriving them.
++
++## Errata
++
++*Appended 2026-07-09 during implementation. Nothing above this line is modified;
++the RFC's status and its §9 decisions stand unchanged.*
++
++**§4.4's mechanism sketch cannot satisfy §4.4's own guarantee.** The section shows
++`git config --global --add include.path …`, but `--add` *appends* — git writes the new
++`[include]` section at the **bottom** of `~/.gitconfig`. Git resolves configuration
++positionally (last value wins) and expands an include at the position of the directive.
++A bottom include is therefore read **last**, so the Atlas fragment would silently
++override any value the user had already set above it: a user with
++`[pull] rebase = false` would find `git config pull.rebase` reporting `true` after
++`atlas install`.
++
++That is the exact opposite of the guarantee stated in the same section — "the include
++is added near the top … Atlas provides defaults, **the user always wins**" — which is
++also the rationale on which §9 decision 1 selected `include.path` in the first place.
++
++**The guarantee is normative; the `--add` sketch was an error in the example.** The
++implementation prepends the `[include]` block to the top of
++`${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}` via an atomic, mode-preserving, lock-guarded
++rewrite, and relocates an already-appended include in the same single write. `module::check`
++and `module::verify` require the block to be *first*, not merely present, so an older
++mis-installed config migrates itself (the runner skips `install` whenever `check` passes).
++
++**A consequence for §4.7's `verify`.** Once the user wins, "is the module healthy?" can no
++longer be answered by "does `init.defaultBranch` resolve to `main`?" — a user who sets
++`defaultBranch = master` below the include would be told the module is broken. `verify`
++instead asserts that the fragment's value is *present* among the resolved values
++(`--includes --get-all`), i.e. that the include resolves at all.
++
++No design decision changed, so no superseding RFC is required.
+diff --git a/docs/superpowers/plans/2026-07-09-git-module.md b/docs/superpowers/plans/2026-07-09-git-module.md
+new file mode 100644
+index 0000000..76760b6
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-09-git-module.md
+@@ -0,0 +1,648 @@
++# Git Module Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Implement `modules/core/git` — the first real Atlas module and the reference implementation for all future modules — per RFC-0001.
++
++**Architecture:** A real, idempotent `os::dnf_install` primitive; a shared `atlas.env` reader (`internal/env.sh`); and the git module itself, which installs git, applies an Atlas-owned config fragment via a single `include.path` line in `~/.gitconfig`, and sets commit identity non-destructively. All behavior is tested against a sandboxed `HOME`/`GIT_CONFIG_GLOBAL` with the package step mocked — no test ever mutates the real machine or needs root.
++
++**Tech Stack:** Bash + coreutils + git. Pure-Bash test harness (no framework).
++
++## Global Constraints
++
++- **Spec:** `docs/rfcs/RFC-0001-git-module.md` (Accepted). This plan implements it; do not deviate from its decisions.
++- **Runtime deps:** Bash + coreutils + Git + Fedora. No new dependencies.
++- Every shell script starts with `#!/usr/bin/env bash`.
++- Module hooks run under `set -euo pipefail` (the runner's subshell); the `atlas` entrypoint uses `set -uo pipefail`. Write hook code that is safe under `set -e` (guard every fallible command with `|| { …; return 1; }` or use it in an `if`/`||` condition).
++- User output via `log::*` only. Machine values may use `printf`/`echo`.
++- Exit codes come from `internal/error.sh` (`ATLAS_EXIT_*`); fatal paths use `die`.
++- **Config strategy (RFC §4.4):** Atlas owns `${ATLAS_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/atlas}/git/gitconfig` and adds exactly one `include.path` line to `~/.gitconfig` (add only if absent). Never rewrite the user's `~/.gitconfig` otherwise.
++- **Identity (RFC §4.5):** resolve `ATLAS_GIT_USER_NAME` / `ATLAS_GIT_USER_EMAIL` via env var → `~/.config/atlas/atlas.env`. Non-blocking (missing identity → warn, still succeed). Set a key **only if currently unset** (never clobber the user).
++- **Managed defaults (RFC §4.3), verbatim:** `init.defaultBranch=main`, `pull.rebase=true`, `push.default=simple`, `push.autoSetupRemote=true`, `fetch.prune=true`, `rebase.autostash=true`, `color.ui=auto`.
++- **Idempotency:** every hook is safe to run repeatedly (install twice → identical state, one include line).
++- **Testing rule (RFC §6):** tests sandbox `HOME`, `GIT_CONFIG_GLOBAL="$HOME/.gitconfig"`, `GIT_CONFIG_SYSTEM=/dev/null`, and `ATLAS_CONFIG_HOME` under the sandbox; mock `os::dnf_install` (and, for the package branch, `os::has_cmd`). **No automated test may touch the real `$HOME` or run real `dnf`.** Assertions run in the OUTER test scope (via `bash -c` children that print/exit results) so suite counters are never lost in a subshell.
++- **Commits:** conventional; body ends with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`; commit with `git -c commit.gpgsign=false`.
++- **Env (Windows/WSL/UNC dev host):** repo at `//wsl.localhost/Ubuntu/home/thiva/atlas`, branch `feat/git-module`. Bash tool = Git Bash (MINGW64), cwd resets — prefix commands with `cd "//wsl.localhost/Ubuntu/home/thiva/atlas" && …`. Write/Edit/Read use absolute `\\wsl.localhost\Ubuntu\home\thiva\atlas\…`. Run tests with `bash tests/run.sh`. Do NOT push. CRLF warning harmless.
++
++**Current suite baseline:** 51 passed, 0 failed.
++
++---
++
++### Task 1: Real `os::dnf_install` package primitive
++
++**Files:**
++- Modify: `internal/os.sh` (replace the `os::dnf_install` placeholder with a real implementation)
++- Test: `tests/test_os_dnf.sh` (new)
++
++**Interfaces:**
++- Produces: `os::dnf_install <pkg>...` — installs packages via dnf, idempotent (dnf is a no-op if already present), uses `sudo` only when not root, logs intent, returns non-zero on failure. Requires `dnf` (dies exit 5 via `os::require_cmd` if absent). `os::flatpak_install` is left as-is for now.
++
++- [ ] **Step 1: Write the failing test `tests/test_os_dnf.sh`**
++
++```bash
++#!/usr/bin/env bash
++# os::dnf_install is tested by shadowing `dnf` and `sudo` with shell FUNCTIONS
++# (functions take precedence over PATH, so no real package manager is touched —
++# safe on Fedora and non-Fedora alike). Each case runs in a child bash so the
++# stubs never leak into the suite shell.
++
++# success: dnf install is invoked with the packages, returns 0
++out="$(bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { printf "dnf-called: %s\n" "$*"; return 0; }
++  sudo() { "$@"; }
++  os::dnf_install git curl
++' 2>/dev/null)"; rc=$?
++assert_eq       "dnf_install returns 0 on success"      "$rc" "0"
++assert_contains "dnf_install runs dnf install for pkgs" "$out" "dnf-called: install -y git curl"
++
++# failure: dnf exits non-zero -> os::dnf_install returns non-zero
++assert_status "dnf_install propagates dnf failure" 1 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { return 1; }
++  sudo() { "$@"; }
++  os::dnf_install git
++'
++
++# no args is a harmless no-op (exit 0)
++assert_status "dnf_install no-op on empty args" 0 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  os::dnf_install
++'
++```
++
++- [ ] **Step 2: Run it — confirm it fails**
++
++Run: `bash tests/run.sh`
++Expected: `test_os_dnf.sh` fails — the placeholder `os::dnf_install` only logs "would dnf install", so `dnf-called:` never appears and the failure case returns 0 instead of 1.
++
++- [ ] **Step 3: Replace the placeholder in `internal/os.sh`**
++
++Find:
++```bash
++# --- placeholder installers (real logic lands with the modules that need them) ---
++os::dnf_install()     { log::info "would dnf install: $*"; }
++os::flatpak_install() { log::info "would flatpak install: $*"; }
++```
++Replace with:
++```bash
++# Install one or more packages via dnf. Idempotent (dnf is a no-op for
++# already-installed packages). Uses sudo only when not already root.
++os::dnf_install() {
++  [ "$#" -gt 0 ] || return 0
++  os::require_cmd dnf
++  local sudo=""
++  os::is_root || sudo="sudo"
++  log::info "installing packages: $*"
++  if ! $sudo dnf install -y "$@"; then
++    log::error "dnf install failed: $*"
++    return 1
++  fi
++}
++
++# flatpak install placeholder (promoted when the first flatpak module lands).
++os::flatpak_install() { log::info "would flatpak install: $*"; }
++```
++
++- [ ] **Step 4: Run tests — confirm pass**
++
++Run: `bash tests/run.sh`
++Expected: `test_os_dnf.sh` all `ok`; suite total = 51 + 3 = **54 passed, 0 failed**.
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add internal/os.sh tests/test_os_dnf.sh
++git -c commit.gpgsign=false commit -m "feat(os): make os::dnf_install a real idempotent package primitive
++
++Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
++```
++
++---
++
++### Task 2: Shared `atlas.env` reader (`internal/env.sh`)
++
++**Files:**
++- Create: `internal/env.sh`
++- Modify: `atlas` (source `internal/env.sh` alongside the other engine files)
++- Test: `tests/test_env.sh` (new)
++
++**Interfaces:**
++- Produces: `env::get <NAME>` — echoes the user-supplied value of `NAME`, resolved from the environment variable `NAME` first, then a `NAME=value` line in `${ATLAS_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/atlas}/atlas.env` (one layer of surrounding quotes stripped; `#` comments and blank lines ignored; last matching line wins). Prints nothing and returns 1 when unset in both. This is the standard source of user-specific config for all modules.
++
++- [ ] **Step 1: Write the failing test `tests/test_env.sh`**
++
++```bash
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/env.sh"
++
++# sandbox a config home with an atlas.env
++sandbox="$(mktemp -d)"
++export ATLAS_CONFIG_HOME="$sandbox"
++printf '# a comment\nATLAS_GIT_USER_NAME="Ada Lovelace"\nATLAS_GIT_USER_EMAIL=ada@example.com\n' > "$sandbox/atlas.env"
++
++# value read from atlas.env (quotes stripped)
++assert_eq "env::get reads a quoted value from atlas.env" \
++  "$(unset ATLAS_GIT_USER_NAME; env::get ATLAS_GIT_USER_NAME)" "Ada Lovelace"
++assert_eq "env::get reads an unquoted value from atlas.env" \
++  "$(unset ATLAS_GIT_USER_EMAIL; env::get ATLAS_GIT_USER_EMAIL)" "ada@example.com"
++
++# environment variable wins over the file
++assert_eq "env var overrides atlas.env" \
++  "$(ATLAS_GIT_USER_EMAIL='env@x' env::get ATLAS_GIT_USER_EMAIL)" "env@x"
++
++# missing key -> non-zero, empty output
++assert_status "missing key returns non-zero" 1 env::get ATLAS_DEFINITELY_MISSING_XYZ
++assert_eq     "missing key prints nothing"   "$(env::get ATLAS_DEFINITELY_MISSING_XYZ 2>/dev/null)" ""
++
++# comment lines are ignored (no key named '# a comment')
++rm -rf "$sandbox"; unset ATLAS_CONFIG_HOME
++```
++
++- [ ] **Step 2: Run it — confirm it fails**
++
++Run: `bash tests/run.sh`
++Expected: FAIL (`env::get: command not found` / `internal/env.sh` missing).
++
++- [ ] **Step 3: Implement `internal/env.sh`**
++
++```bash
++#!/usr/bin/env bash
++[ -n "${ATLAS_ENV_SH:-}" ] && return 0; ATLAS_ENV_SH=1
++
++: "${ATLAS_CONFIG_HOME:=${XDG_CONFIG_HOME:-$HOME/.config}/atlas}"
++
++# env::get <NAME> — echo the user-supplied value of NAME.
++# Resolution order: environment variable NAME, then NAME=value in atlas.env.
++# Prints nothing and returns 1 if NAME is set in neither.
++env::get() {
++  local name="$1"
++  if [ -n "${!name:-}" ]; then
++    printf '%s\n' "${!name}"
++    return 0
++  fi
++  local file="${ATLAS_CONFIG_HOME}/atlas.env"
++  [ -r "$file" ] || return 1
++  local line val=""
++  while IFS= read -r line || [ -n "$line" ]; do
++    [ -z "$line" ] && continue
++    case "$line" in
++      \#*) continue ;;
++      "$name="*) val="${line#*=}" ;;
++    esac
++  done < "$file"
++  [ -n "$val" ] || return 1
++  # strip one layer of surrounding double or single quotes
++  val="${val%\"}"; val="${val#\"}"
++  val="${val%\'}"; val="${val#\'}"
++  printf '%s\n' "$val"
++}
++```
++
++- [ ] **Step 4: Wire it into the `atlas` entrypoint**
++
++In `atlas`, find the engine-sourcing block:
++```bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/module.sh"
++source "$ATLAS_ROOT/internal/runner.sh"
++```
++Add the `env.sh` source after `os.sh` (so module hooks running in the runner's subshell inherit `env::get`):
++```bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/env.sh"
++source "$ATLAS_ROOT/internal/module.sh"
++source "$ATLAS_ROOT/internal/runner.sh"
++```
++
++- [ ] **Step 5: Run tests — confirm pass**
++
++Run: `bash tests/run.sh`
++Expected: `test_env.sh` all `ok`; suite = 54 + 5 = **59 passed, 0 failed**. Also confirm `bash atlas --help` still exits 0 (entrypoint still sources cleanly).
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add internal/env.sh atlas tests/test_env.sh
++git -c commit.gpgsign=false commit -m "feat(env): add atlas.env reader for user-specific config
++
++Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
++```
++
++---
++
++### Task 3: Git module — fragment + `check`/`install`/`verify` + identity
++
++**Files:**
++- Create: `modules/core/git/config/gitconfig` (the managed fragment; delete the old `gitconfig.template`)
++- Modify: `modules/core/git/module.sh` (real metadata + `check`/`install`/`verify` + helpers)
++- Delete: `modules/core/git/config/gitconfig.template`
++- Test: `tests/test_module_git.sh` (new)
++
++**Interfaces:**
++- Consumes: `os::has_cmd`, `os::dnf_install` (Task 1), `env::get` (Task 2), `log::*`.
++- Produces: a git module whose required hooks work per RFC §4.7. Module-local helpers (leading `_git_`) compute the fragment path and apply identity. Uses `ATLAS_CONFIG_HOME`/`XDG_CONFIG_HOME`/`HOME` for the fragment location and `git config --global` for `~/.gitconfig` (respecting `GIT_CONFIG_GLOBAL` in tests).
++
++- [ ] **Step 1: Write the managed fragment `modules/core/git/config/gitconfig`**
++
++```ini
++# Managed by Atlas (core/git). Included from ~/.gitconfig via include.path.
++# Edit your own ~/.gitconfig to override any of these — your settings win.
++[init]
++	defaultBranch = main
++[pull]
++	rebase = true
++[push]
++	default = simple
++	autoSetupRemote = true
++[fetch]
++	prune = true
++[rebase]
++	autostash = true
++[color]
++	ui = auto
++```
++
++- [ ] **Step 2: Delete the old placeholder template**
++
++Run: `cd "//wsl.localhost/Ubuntu/home/thiva/atlas" && git rm modules/core/git/config/gitconfig.template`
++
++- [ ] **Step 3: Write the failing test `tests/test_module_git.sh`**
++
++```bash
++#!/usr/bin/env bash
++# The git module is exercised entirely inside sandboxes: each assertion runs in
++# a child bash that points HOME / GIT_CONFIG_GLOBAL / ATLAS_CONFIG_HOME at a
++# fresh temp dir and mocks os::dnf_install, so NO real ~/.gitconfig, ~/.config,
++# or dnf is ever touched. GIT_CONFIG_SYSTEM=/dev/null isolates from system git
++# config. Assertions live in the outer scope (via bash -c) so counters count.
++
++# shared preamble: fresh sandbox + engine + mocked package install + the module
++PRE='
++set -uo pipefail
++export HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
++export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
++export GIT_CONFIG_SYSTEM=/dev/null
++export ATLAS_CONFIG_HOME="$HOME/.config/atlas"
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/env.sh"
++os::dnf_install() { printf "DNF:%s\n" "$*"; return 0; }
++source "$ATLAS_ROOT/modules/core/git/module.sh"
++'
++
++# check is unsatisfied before install, satisfied after
++assert_status "git check unsatisfied before install" 1 bash -c "$PRE"' module::check'
++assert_status "git check satisfied after install"    0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::check'
++
++# install creates the Atlas-owned fragment
++assert_status "git install writes the managed fragment" 0 \
++  bash -c "$PRE"' module::install >/dev/null 2>&1; [ -r "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
++
++# a managed value resolves through the include
++assert_eq "git init.defaultBranch resolves to main" \
++  "$(bash -c "$PRE"' module::install >/dev/null 2>&1; git config --global --get init.defaultBranch')" "main"
++
++# install is idempotent: exactly one include.path line after running twice
++assert_eq "git install is idempotent (one include line)" \
++  "$(bash -c "$PRE"' module::install >/dev/null 2>&1; module::install >/dev/null 2>&1; git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++# identity is written from env/atlas.env
++assert_eq "git identity set from env" \
++  "$(bash -c "$PRE"' export ATLAS_GIT_USER_NAME="Ada Lovelace"; module::install >/dev/null 2>&1; git config --global --get user.name')" "Ada Lovelace"
++
++# a pre-existing identity is never overwritten
++assert_eq "git existing identity not clobbered" \
++  "$(bash -c "$PRE"' git config --global user.name "Pre Existing"; export ATLAS_GIT_USER_NAME="Ada"; module::install >/dev/null 2>&1; git config --global --get user.name')" "Pre Existing"
++
++# install succeeds even with no identity available (non-blocking)
++assert_status "git install succeeds without identity" 0 bash -c "$PRE"' module::install'
++
++# the package branch: when git is reported absent, os::dnf_install is invoked
++assert_contains "git install calls dnf when git absent" \
++  "$(bash -c "$PRE"' os::has_cmd() { [ "$1" = git ] && return 1; command -v "$1" >/dev/null 2>&1; }; module::install 2>&1')" \
++  "DNF:git"
++
++# verify: fails before install, passes after
++assert_status "git verify fails before install" 1 bash -c "$PRE"' module::verify'
++assert_status "git verify passes after install" 0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::verify'
++```
++
++- [ ] **Step 4: Run it — confirm it fails**
++
++Run: `bash tests/run.sh`
++Expected: FAIL — the placeholder `module::check` returns 1 always, `install`/`verify` call `not_implemented`, so nearly every git assertion fails.
++
++- [ ] **Step 5: Implement `modules/core/git/module.sh`**
++
++Replace the whole file with:
++```bash
++#!/usr/bin/env bash
++MODULE_NAME="git"
++MODULE_DESCRIPTION="Distributed version control: installs git and applies Atlas's global defaults."
++MODULE_DEPENDS=()
++
++# Absolute path to this module's directory (for its config/ fragment source).
++_GIT_MODULE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++
++# --- module-local helpers ----------------------------------------------------
++
++_git_fragment_dir() {
++  printf '%s\n' "${ATLAS_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/atlas}/git"
++}
++_git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
++
++# True if our fragment path is already an include.path in ~/.gitconfig.
++_git_include_present() {
++  git config --global --get-all include.path 2>/dev/null \
++    | grep -qxF "$(_git_fragment)"
++}
++
++# Set user.name / user.email from env/atlas.env, only if currently unset.
++# Never fails the install; always returns 0.
++_git_apply_identity() {
++  local name email
++  name="$(env::get ATLAS_GIT_USER_NAME || true)"
++  email="$(env::get ATLAS_GIT_USER_EMAIL || true)"
++  if [ -z "$name" ] && [ -z "$email" ]; then
++    log::warn "git identity not set — export ATLAS_GIT_USER_NAME/EMAIL or add them to ~/.config/atlas/atlas.env"
++    return 0
++  fi
++  if [ -n "$name" ]; then
++    if [ -n "$(git config --global --get user.name 2>/dev/null)" ]; then
++      log::info "user.name already set — leaving it"
++    else
++      git config --global user.name "$name" && log::info "set user.name"
++    fi
++  fi
++  if [ -n "$email" ]; then
++    if [ -n "$(git config --global --get user.email 2>/dev/null)" ]; then
++      log::info "user.email already set — leaving it"
++    else
++      git config --global user.email "$email" && log::info "set user.email"
++    fi
++  fi
++  return 0
++}
++
++# --- required hooks ----------------------------------------------------------
++
++module::check() {
++  os::has_cmd git || return 1
++  [ -r "$(_git_fragment)" ] || return 1
++  _git_include_present || return 1
++  return 0
++}
++
++module::install() {
++  # 1. package
++  if os::has_cmd git; then
++    log::info "git already installed"
++  else
++    os::dnf_install git || { log::error "failed to install git"; return 1; }
++  fi
++
++  # 2. write the Atlas-owned fragment (Atlas owns it -> overwrite is idempotent)
++  local frag_dir frag
++  frag_dir="$(_git_fragment_dir)"; frag="$(_git_fragment)"
++  mkdir -p "$frag_dir" || { log::error "cannot create $frag_dir"; return 1; }
++  cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
++  log::info "wrote managed git config: $frag"
++
++  # 3. ensure exactly one include.path line
++  if _git_include_present; then
++    log::info "include.path already present"
++  else
++    git config --global --add include.path "$frag" || { log::error "cannot add include.path"; return 1; }
++    log::info "added include.path -> $frag"
++  fi
++
++  # 4. identity (optional, non-blocking, set-if-unset)
++  _git_apply_identity
++  return 0
++}
++
++module::verify() {
++  os::has_cmd git || { log::error "git not installed"; return 1; }
++  git --version >/dev/null 2>&1 || { log::error "git --version failed"; return 1; }
++  [ -r "$(_git_fragment)" ] || { log::error "managed fragment missing"; return 1; }
++  _git_include_present || { log::error "include.path not wired into ~/.gitconfig"; return 1; }
++  [ "$(git config --global --get init.defaultBranch 2>/dev/null)" = "main" ] \
++    || { log::error "managed config not effective (init.defaultBranch != main)"; return 1; }
++  return 0
++}
++```
++
++- [ ] **Step 6: Run tests — confirm pass**
++
++Run: `bash tests/run.sh`
++Expected: `test_module_git.sh` all `ok`; the existing `test_modules.sh` still passes (git still defines the 3 required hooks + README + metadata). Suite = 59 + 11 = **70 passed, 0 failed**.
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add modules/core/git/module.sh modules/core/git/config/gitconfig tests/test_module_git.sh
++git -c commit.gpgsign=false commit -m "feat(git): implement check/install/verify with owned config fragment + identity
++
++Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
++```
++
++---
++
++### Task 4: Git module — optional `update` and `remove` hooks
++
++**Files:**
++- Modify: `modules/core/git/module.sh` (append `module::update` and `module::remove`)
++- Modify: `tests/test_module_git.sh` (append update/remove assertions)
++
++**Interfaces:**
++- Consumes: the helpers from Task 3 (`_git_fragment`, `_git_include_present`, `_GIT_MODULE_DIR`).
++- Produces: `module::update` (re-applies the managed fragment + ensures the include line; does not touch identity or the package) and `module::remove` (drops the include line and deletes the fragment; leaves the git package and the user's identity untouched).
++
++- [ ] **Step 1: Append failing tests to `tests/test_module_git.sh`**
++
++```bash
++# update re-applies the fragment and keeps exactly one include line
++assert_eq "git update keeps one include line" \
++  "$(bash -c "$PRE"' module::install >/dev/null 2>&1; module::update >/dev/null 2>&1; git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++# remove deletes the fragment
++assert_status "git remove deletes the fragment" 0 \
++  bash -c "$PRE"' module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; [ ! -e "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
++
++# remove drops the include line (grep finds nothing -> exit 1)
++assert_status "git remove drops the include line" 1 \
++  bash -c "$PRE"' module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; git config --global --get-all include.path 2>/dev/null | grep -qxF "$ATLAS_CONFIG_HOME/git/gitconfig"'
++
++# remove leaves the user's identity untouched
++assert_eq "git remove leaves identity intact" \
++  "$(bash -c "$PRE"' git config --global user.name "Keep Me"; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; git config --global --get user.name')" "Keep Me"
++```
++
++- [ ] **Step 2: Run — confirm the new assertions fail**
++
++Run: `bash tests/run.sh`
++Expected: the 4 new git assertions fail (`module::update`/`module::remove` not defined → the module subshell errors / grep still finds the include).
++
++- [ ] **Step 3: Append `update` and `remove` to `modules/core/git/module.sh`**
++
++Add after `module::verify`:
++```bash
++# --- optional hooks ----------------------------------------------------------
++
++module::update() {
++  # Re-apply the latest managed fragment and ensure the include line.
++  # Does not touch identity or the git package.
++  local frag_dir frag
++  frag_dir="$(_git_fragment_dir)"; frag="$(_git_fragment)"
++  mkdir -p "$frag_dir" || { log::error "cannot create $frag_dir"; return 1; }
++  cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
++  _git_include_present || git config --global --add include.path "$frag" \
++    || { log::error "cannot add include.path"; return 1; }
++  log::info "re-applied managed git config"
++  return 0
++}
++
++module::remove() {
++  # Drop Atlas's include line and delete Atlas's fragment. Leaves the git
++  # package installed (shared) and the user's identity untouched.
++  local frag esc
++  frag="$(_git_fragment)"
++  if _git_include_present; then
++    esc="$(printf '%s' "$frag" | sed -e 's/[][\\.^$*+?(){}|/]/\\&/g')"
++    git config --global --unset-all include.path "^${esc}$" 2>/dev/null || true
++    log::info "removed include.path -> $frag"
++  fi
++  if [ -e "$frag" ]; then
++    rm -f "$frag" && log::info "deleted $frag"
++  fi
++  log::info "git package left installed (shared); identity untouched"
++  return 0
++}
++```
++
++- [ ] **Step 4: Run tests — confirm pass**
++
++Run: `bash tests/run.sh`
++Expected: all git assertions `ok`; suite = 70 + 4 = **74 passed, 0 failed**.
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add modules/core/git/module.sh tests/test_module_git.sh
++git -c commit.gpgsign=false commit -m "feat(git): add update and remove hooks
++
++Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
++```
++
++---
++
++### Task 5: Documentation — module README, CHANGELOG, conventions
++
++**Files:**
++- Modify: `modules/core/git/README.md` (real behavior)
++- Modify: `CHANGELOG.md` (Unreleased entry)
++- Modify: `docs/conventions.md` (establish the `atlas.env` user-config convention)
++
++**Interfaces:**
++- Produces: documentation matching the shipped module. No code; deliverable is accurate, consistent docs.
++
++- [ ] **Step 1: Rewrite `modules/core/git/README.md`**
++
++```markdown
++# git
++
++**What it does:** Installs Git and applies Atlas's opinionated global defaults,
++without ever overwriting your own `~/.gitconfig`.
++
++**What it installs / configures:**
++- The `git` package (via `dnf`, only if not already present).
++- An Atlas-owned config fragment at `~/.config/atlas/git/gitconfig` holding the
++  managed defaults: `init.defaultBranch=main`, `pull.rebase=true`,
++  `push.default=simple`, `push.autoSetupRemote=true`, `fetch.prune=true`,
++  `rebase.autostash=true`, `color.ui=auto`.
++- A single `include.path` line added to `~/.gitconfig` pointing at that fragment.
++  Anything you set directly in `~/.gitconfig` overrides these defaults.
++- Your commit identity (`user.name` / `user.email`), taken from
++  `ATLAS_GIT_USER_NAME` / `ATLAS_GIT_USER_EMAIL` (env var or
++  `~/.config/atlas/atlas.env`) — set only if not already configured. If you
++  provide neither, install still succeeds and logs a reminder.
++
++**Depends on:** nothing (Atlas modules). Uses the engine's `os::dnf_install` and
++`env::get`.
++
++**Lifecycle:** `check` (is git installed + config wired?), `install`, `verify`,
++`update` (re-apply the managed fragment), `remove` (drop the include line and the
++fragment; the git package and your identity are left untouched). `backup` /
++`restore` are intentionally not implemented — nothing here is both irreplaceable
++and Atlas-owned.
++```
++
++- [ ] **Step 2: Add a `CHANGELOG.md` entry**
++
++Under `## [Unreleased]` → `### Added`, append:
++```markdown
++- **core/git module** (RFC-0001): installs Git, applies Atlas's managed global
++  defaults via an owned `include.path` fragment, and sets commit identity from
++  `ATLAS_GIT_USER_*` / `atlas.env` (non-destructively). Real, idempotent
++  `os::dnf_install` package primitive and the shared `env::get` (`atlas.env`)
++  reader landed alongside it.
++```
++
++- [ ] **Step 3: Add the `atlas.env` convention to `docs/conventions.md`**
++
++Append a new section:
++```markdown
++## User-specific configuration
++
++Values that belong to the user, not the machine (git identity, tokens, etc.)
++are **never** hard-coded or committed. A module reads them with `env::get NAME`
++(`internal/env.sh`), which resolves:
++
++1. the environment variable `NAME`, then
++2. `NAME=value` in `~/.config/atlas/atlas.env` (a gitignored, machine-local file
++   the user fills in once).
++
++Modules apply such values **non-destructively** — set them only if unset, never
++clobber a value the user already configured — and treat their absence as
++non-fatal (log a reminder, continue).
++```
++
++- [ ] **Step 4: Verify docs + suite**
++
++Run: `bash tests/run.sh` (still **74 passed, 0 failed**) and confirm the files exist and read correctly:
++`ls modules/core/git/README.md CHANGELOG.md docs/conventions.md`
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add modules/core/git/README.md CHANGELOG.md docs/conventions.md
++git -c commit.gpgsign=false commit -m "docs(git): document the git module + atlas.env convention
++
++Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
++```
++
++---
++
++## Self-Review (completed by plan author)
++
++**1. Spec coverage vs RFC-0001:**
++- §4.3 managed defaults → fragment content (Task 3 Step 1). ✔
++- §4.4 include.path owned-fragment strategy → install/check/verify/update/remove (Tasks 3–4). ✔
++- §4.5 identity env→atlas.env, non-blocking, set-if-unset → `env::get` (Task 2) + `_git_apply_identity` (Task 3). ✔
++- §4.6 real `os::dnf_install` → Task 1. ✔
++- §4.7 hook contracts incl. backup/restore intentionally omitted → Tasks 3–4 (omission is explicit; `test_modules.sh` only requires the 3 required hooks). ✔
++- §5 idempotency table → Task 3/4 mechanisms + idempotency test. ✔
++- §6 testing pattern (mock the primitive, sandbox HOME, assert twice) → all test files. ✔
++- §7 documentation plan → Task 5. ✔
++
++**2. Placeholder scan:** none — every step has complete code/content. The module's `backup`/`restore` absence is spec-mandated, not a placeholder.
++
++**3. Type/name consistency:** verified across tasks — `os::dnf_install`, `env::get`, `_git_fragment`/`_git_fragment_dir`/`_git_include_present`/`_git_apply_identity`/`_GIT_MODULE_DIR`, `module::check|install|verify|update|remove`, env keys `ATLAS_GIT_USER_NAME`/`ATLAS_GIT_USER_EMAIL`, `ATLAS_CONFIG_HOME`. Names match between definition and use.
++
++**4. Safety:** no automated test touches the real `$HOME` or runs real `dnf` — every git assertion sandboxes `HOME`/`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`/`ATLAS_CONFIG_HOME` in a child bash and mocks `os::dnf_install`. Real end-to-end (`atlas install core/git` on a live Fedora box) is an integration check, out of automated scope.
+diff --git a/internal/env.sh b/internal/env.sh
+new file mode 100644
+index 0000000..f9ea96a
+--- /dev/null
++++ b/internal/env.sh
+@@ -0,0 +1,30 @@
++#!/usr/bin/env bash
++[ -n "${ATLAS_ENV_SH:-}" ] && return 0; ATLAS_ENV_SH=1
++
++: "${ATLAS_CONFIG_HOME:=${XDG_CONFIG_HOME:-$HOME/.config}/atlas}"
++
++# env::get <NAME> — echo the user-supplied value of NAME.
++# Resolution order: environment variable NAME, then NAME=value in atlas.env.
++# Prints nothing and returns 1 if NAME is set in neither.
++env::get() {
++  local name="$1"
++  if [ -n "${!name:-}" ]; then
++    printf '%s\n' "${!name}"
++    return 0
++  fi
++  local file="${ATLAS_CONFIG_HOME}/atlas.env"
++  [ -r "$file" ] || return 1
++  local line val=""
++  while IFS= read -r line || [ -n "$line" ]; do
++    [ -z "$line" ] && continue
++    case "$line" in
++      \#*) continue ;;
++      "$name="*) val="${line#*=}" ;;
++    esac
++  done < "$file"
++  [ -n "$val" ] || return 1
++  # strip one layer of surrounding double or single quotes
++  val="${val%\"}"; val="${val#\"}"
++  val="${val%\'}"; val="${val#\'}"
++  printf '%s\n' "$val"
++}
+diff --git a/internal/os.sh b/internal/os.sh
+index dbdf175..e25e452 100644
+--- a/internal/os.sh
++++ b/internal/os.sh
+@@ -18,6 +18,19 @@ os::is_fedora() {
+ 
+ os::is_root() { [ "$(id -u)" -eq 0 ]; }
+ 
+-# --- placeholder installers (real logic lands with the modules that need them) ---
+-os::dnf_install()     { log::info "would dnf install: $*"; }
++# Install one or more packages via dnf. Idempotent (dnf is a no-op for
++# already-installed packages). Uses sudo only when not already root.
++os::dnf_install() {
++  [ "$#" -gt 0 ] || return 0
++  os::require_cmd dnf
++  local sudo=""
++  os::is_root || sudo="sudo"
++  log::info "installing packages: $*"
++  if ! $sudo dnf install -y "$@"; then
++    log::error "dnf install failed: $*"
++    return 1
++  fi
++}
++
++# flatpak install placeholder (promoted when the first flatpak module lands).
+ os::flatpak_install() { log::info "would flatpak install: $*"; }
+diff --git a/modules/core/git/README.md b/modules/core/git/README.md
+index 4e48cc6..f76c323 100644
+--- a/modules/core/git/README.md
++++ b/modules/core/git/README.md
+@@ -1,10 +1,103 @@
+ # git
+ 
+-**What it does:** Installs Git and applies a global configuration.
++**What it does:** Installs Git and layers Atlas's opinionated defaults *underneath*
++your own global configuration.
+ 
+-**Installs / configures:** the `git` package; a global `~/.gitconfig` derived
+-from `config/gitconfig.template`.
++**Installs / configures:**
++- the `git` package (via `dnf`, only when Git is absent)
++- an Atlas-owned config fragment at `~/.config/atlas/git/gitconfig`
++- one `include.path` directive at the **top** of your `~/.gitconfig`
++- optionally `user.name` / `user.email`, only if they are not already set
+ 
+ **Depends on:** nothing.
+ 
+-> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
++**Design:** [RFC-0001](../../../docs/rfcs/RFC-0001-git-module.md).
++
++## Atlas provides defaults; you always win
++
++Atlas never edits your settings. It writes its own fragment and points your
++`~/.gitconfig` at it with a single directive placed **before** everything else:
++
++```ini
++[include]
++	path = "/home/you/.config/atlas/git/gitconfig"
++
++# …your configuration, untouched, below…
++```
++
++Git resolves configuration positionally — the last value read wins — and expands
++an include where the directive sits. Because the include comes first, anything
++you set below it overrides the Atlas default. Set `pull.rebase = false` in your
++own config and it stays `false`.
++
++The corollary: `atlas verify git` checks that the fragment is intact and that Git
++*resolves* it. It does **not** check that Atlas's value is the winning one,
++because for any key you have overridden it deliberately is not.
++
++The managed defaults live in [`config/gitconfig`](config/gitconfig):
++`init.defaultBranch`, `pull.rebase`, `push.default`, `push.autoSetupRemote`,
++`fetch.prune`, `rebase.autostash`, `color.ui`.
++
++## Identity
++
++`user.name` and `user.email` are yours, not Atlas's, so Atlas only fills them in
++when they are missing. It reads them from the environment first, then from
++`~/.config/atlas/atlas.env`:
++
++```sh
++ATLAS_GIT_USER_NAME=Ada Lovelace
++ATLAS_GIT_USER_EMAIL=ada@example.com
++```
++
++Neither is required. With no identity available, `install` warns and continues —
++a missing identity is not an install failure, and never a `verify` failure. An
++identity you have already set is never overwritten.
++
++## Lifecycle
++
++| Verb | What happens |
++|---|---|
++| `check` | Git present, fragment readable, and the include is the **first** section |
++| `install` | install Git if absent → write the fragment → wire the include → fill in identity if missing |
++| `verify` | `git --version` works, the fragment is intact, and Git resolves it |
++| `update` | re-apply the fragment (picks up new Atlas defaults) and re-check the include |
++| `remove` | drop the include and delete the fragment |
++
++`backup` / `restore` are intentionally **not implemented**: the fragment is
++regenerable, and everything else in `~/.gitconfig` belongs to you, not to Atlas.
++Omitting a hook you do not need is correct — the runner simply skips it.
++
++`update` does not upgrade the Git package, and `remove` does not uninstall it
++(shared, high blast radius) or touch your identity. `remove` restores your
++`~/.gitconfig` byte-for-byte.
++
++`check` requires the include to be *first*, not merely present, because the runner
++skips `install` whenever `check` passes. That is what lets a config wired up by an
++older, buggy Atlas migrate itself on the next run.
++
++## Editing your global config safely
++
++Atlas has to modify a file it does not own, so it is careful:
++
++- the rewrite is a **single atomic write** (temp file in the same directory, then
++  `mv`), so a crash leaves your old file intact
++- the file's **mode is preserved** (a `600` config stays `600`)
++- a **symlinked** `~/.gitconfig` (chezmoi, stow) keeps its link; the target is rewritten
++- it takes Git's own `.lock` file, and never steals one it did not create
++- `$GIT_CONFIG_GLOBAL` is honoured when set
++
++It **refuses** (exit `4`, telling you what, why, and how to fix it) rather than
++touch a config that is locked, unwritable, not a regular file, a dangling symlink,
++unparseable by Git, or owned by another user while Atlas runs as root. Nothing is
++ever modified before those checks pass.
++
++## Testing
++
++Every test sandboxes `HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, and
++`ATLAS_CONFIG_HOME` into a fresh temp directory and mocks `os::dnf_install`, so
++the suite never touches your real `~/.gitconfig` and never runs `dnf`. Run it on
++Linux — Windows Git-Bash mangles POSIX paths:
++
++```sh
++bash tests/run.sh
++```
+diff --git a/modules/core/git/config/gitconfig b/modules/core/git/config/gitconfig
+new file mode 100644
+index 0000000..2569bba
+--- /dev/null
++++ b/modules/core/git/config/gitconfig
+@@ -0,0 +1,15 @@
++# Managed by Atlas (core/git). Included from ~/.gitconfig via include.path.
++# Edit your own ~/.gitconfig to override any of these — your settings win.
++[init]
++	defaultBranch = main
++[pull]
++	rebase = true
++[push]
++	default = simple
++	autoSetupRemote = true
++[fetch]
++	prune = true
++[rebase]
++	autostash = true
++[color]
++	ui = auto
+diff --git a/modules/core/git/config/gitconfig.template b/modules/core/git/config/gitconfig.template
+deleted file mode 100644
+index c5fced6..0000000
+--- a/modules/core/git/config/gitconfig.template
++++ /dev/null
+@@ -1,5 +0,0 @@
+-# Applied by the git module (placeholder — not yet wired up).
+-[init]
+-	defaultBranch = main
+-[pull]
+-	rebase = true
+diff --git a/modules/core/git/module.sh b/modules/core/git/module.sh
+index 23576f5..7345124 100644
+--- a/modules/core/git/module.sh
++++ b/modules/core/git/module.sh
+@@ -1,8 +1,336 @@
+ #!/usr/bin/env bash
+ MODULE_NAME="git"
+-MODULE_DESCRIPTION="Distributed version control: installs git and applies global config."
++MODULE_DESCRIPTION="Distributed version control: installs git and applies Atlas's global defaults."
+ MODULE_DEPENDS=()
+ 
+-module::check()   { return 1; }               # TODO: os::has_cmd git && gitconfig applied
+-module::install() { not_implemented "git: dnf install git + apply config/gitconfig.template"; }
+-module::verify()  { not_implemented "git: git --version and config sanity"; }
++# Absolute path to this module's directory (for its config/ fragment source).
++_GIT_MODULE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++
++# --- module-local helpers ----------------------------------------------------
++
++_git_fragment_dir() {
++  printf '%s\n' "${ATLAS_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/atlas}/git"
++}
++_git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
++
++# The global config file git itself would read/write.
++_git_config_file() { printf '%s\n' "${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}"; }
++
++# True if our fragment path is already an include.path in ~/.gitconfig.
++_git_include_present() {
++  git config --global --get-all include.path 2>/dev/null \
++    | grep -qxF "$(_git_fragment)"
++}
++
++# The block we prepend. Git resolves config positionally and expands an include
++# at the position of the directive, so this must come BEFORE the user's own
++# sections: then anything they set below overrides our default (RFC-0001 §4.4).
++# The path is quoted, as git's own writer would, so a `#` or `;` in it is not
++# read as a comment.
++_git_include_block() { printf '[include]\n\tpath = "%s"\n\n' "$(_git_fragment)"; }
++
++# True if the Atlas [include] is the first section of $1 (blanks/comments skipped).
++_git_include_is_first() {
++  local file="$1" body first second
++  [ -r "$file" ] || return 1
++  body="$(grep -vE '^[[:space:]]*([#;].*)?$' "$file")" || return 1
++  first="$(printf '%s\n' "$body" | sed -n 1p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++  second="$(printf '%s\n' "$body" | sed -n 2p | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++  [ "$first" = "[include]" ] || return 1
++  [ "$second" = "path = \"$(_git_fragment)\"" ] || return 1
++}
++
++# Strip any existing include line pointing at our fragment, in every shape git
++# accepts: quoted or bare (an older Atlas wrote it bare via `git config --add`),
++# `path=x` or `path = x`, and the inline `[include] path = x` form. The value is
++# compared as a literal string, so a path with regex metacharacters is safe.
++# `[includeIf …]` is deliberately NOT matched — it is a different section.
++# Only ever called on input git has already parsed successfully (see step 4).
++_git_strip_include() {
++  awk -v frag="$(_git_fragment)" '
++    function value(s) {                       # "  path = \"x\" " -> x
++      sub(/^[^=]*=[[:space:]]*/, "", s)
++      gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
++      if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2)
++      return s
++    }
++    # Close the pending section. If our line was the ONLY thing in an [include]
++    # section, the now-empty header goes too (with the blank line we wrote after
++    # it) — otherwise `remove` would not be a clean revert. A section we did not
++    # strip from is always emitted verbatim.
++    function endsec(   i, start) {
++      start = 1
++      if (hdr != "" && stripped && !kept) {
++        while (start <= nb && buf[start] ~ /^[[:space:]]*$/) start++
++      } else if (hdr != "") {
++        print hdr
++      }
++      for (i = start; i <= nb; i++) print buf[i]
++      hdr = ""; nb = 0; stripped = 0; kept = 0
++    }
++    /^[[:space:]]*\[/ {                       # any section header
++      endsec()
++      if ($0 ~ /^[[:space:]]*\[[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\][[:space:]]*(path[[:space:]]*=.*)?$/) {
++        insec = 1
++        rest = $0
++        if (sub(/^[[:space:]]*\[[^]]*\][[:space:]]*/, "", rest) && rest != "") {
++          if (value(rest) == frag) { stripped = 1; next }   # inline: [include] path = frag
++          kept = 1; print; next                             # inline, someone else s
++        }
++        hdr = $0; next                        # hold: it may end up empty
++      }
++      insec = 0; print; next                  # [includeIf …] and every other section
++    }
++    insec {
++      if ($0 ~ /^[[:space:]]*path[[:space:]]*=/ && value($0) == frag) { stripped = 1; next }
++      if ($0 ~ /^[[:space:]]*([#;].*)?$/) { buf[++nb] = $0; next }   # blank/comment: hold
++      kept = 1                                # a real key: the section survives
++      if (hdr != "") { print hdr; hdr = "" }
++      for (i = 1; i <= nb; i++) print buf[i]
++      nb = 0
++      print; next
++    }
++    { print }
++    END { endsec() }
++  ' "$1"
++}
++
++# Rewrite $1 in ONE atomic write (same-dir temp + mv), mode-preserving: the
++# include block (when $2 is `with-block`) followed by the original content minus
++# any stale include line of ours. A crash leaves the old file untouched, and
++# nothing can fail after the file has been modified.
++# Caller holds the lock. Returns 1 on failure, never dies.
++_git_rewrite_config() {
++  local real="$1" block="${2:-}" dir tmp
++  dir="$(dirname "$real")"
++  tmp="$(mktemp "$dir/.atlas-gitconfig.XXXXXX")" || {
++    log::error "cannot create a temp file in $dir"; return 1; }
++  if ! {
++        if [ "$block" = "with-block" ]; then _git_include_block; fi
++        _git_strip_include "$real"
++      } > "$tmp"; then
++    rm -f "$tmp"; log::error "cannot write $tmp"; return 1
++  fi
++  chmod --reference="$real" "$tmp" 2>/dev/null || true
++  if ! mv -f "$tmp" "$real"; then
++    rm -f "$tmp"; log::error "cannot replace $real"; return 1
++  fi
++}
++
++# Resolve the global config and refuse anything we cannot safely rewrite.
++# Sets _GIT_REAL. Dies (exit 4) rather than damage a user-owned file. `$1` is
++# the verb quoted back at the user in the "how to fix" line.
++# NOTE: this must never be called from inside `$( … )` — `die` calls `exit`,
++# which inside a command substitution would only kill the subshell.
++_git_guard_config() {
++  local verb="$1" target dir
++  target="$(_git_config_file)"
++
++  # a symlinked config (chezmoi/stow): edit the target, keep the link
++  if [ -L "$target" ]; then
++    _GIT_REAL="$(readlink -f "$target" 2>/dev/null || true)"
++    [ -n "$_GIT_REAL" ] || die "$ATLAS_EXIT_MODULE" "cannot resolve $target" \
++      "it is a symlink whose target directory does not exist" \
++      "repair or remove the symlink, then re-run 'atlas $verb git'"
++  else
++    _GIT_REAL="$target"
++  fi
++
++  if [ -e "$_GIT_REAL" ] && [ ! -f "$_GIT_REAL" ]; then
++    die "$ATLAS_EXIT_MODULE" "$_GIT_REAL is not a regular file" \
++      "Atlas rewrites the global git config in place and will not touch a directory or special file" \
++      "move it aside, then re-run 'atlas $verb git'"
++  fi
++  dir="$(dirname "$_GIT_REAL")"
++  [ -d "$dir" ] && [ -w "$dir" ] || die "$ATLAS_EXIT_MODULE" "$dir is not a writable directory" \
++    "Atlas writes the new config to a temp file there before renaming it into place" \
++    "fix the permissions on $dir, then re-run 'atlas $verb git'"
++  if [ -f "$_GIT_REAL" ] && [ ! -w "$_GIT_REAL" ]; then
++    die "$ATLAS_EXIT_MODULE" "$_GIT_REAL is not writable" \
++      "Atlas must edit the include directive in your global git config" \
++      "fix the permissions on $_GIT_REAL, then re-run 'atlas $verb git'"
++  fi
++  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -f "$_GIT_REAL" ] && [ ! -O "$_GIT_REAL" ]; then
++    die "$ATLAS_EXIT_MODULE" "refusing to rewrite $_GIT_REAL as root" \
++      "the file is not owned by root, so rewriting it would change its owner" \
++      "run 'atlas $verb git' as the user who owns $_GIT_REAL, without sudo"
++  fi
++  # never textually edit a file whose semantics git cannot confirm
++  if [ -s "$_GIT_REAL" ]; then
++    git config --file "$_GIT_REAL" --list >/dev/null 2>&1 || \
++      die "$ATLAS_EXIT_MODULE" "git cannot parse $_GIT_REAL" \
++        "Atlas will not rewrite a config file it cannot read" \
++        "fix the syntax (try 'git config --list'), then re-run 'atlas $verb git'"
++  fi
++}
++
++# Take git's own lock path, so we cannot race a concurrent `git config`.
++# `set -C` makes this fail rather than clobber: we never steal another process's
++# lock. Callers must treat this as the LAST thing that may fail before writing.
++_git_lock() {
++  local verb="$1" lock="$2"
++  if ! (set -C; : > "$lock") 2>/dev/null; then
++    die "$ATLAS_EXIT_MODULE" "cannot lock ${lock%.lock}" \
++      "$lock exists — another git process is writing, or a crash left it behind" \
++      "wait for that process, or remove $lock if it is stale, then re-run 'atlas $verb git'"
++  fi
++}
++
++# Guarantee the Atlas [include] block is the first section of the global config.
++_git_ensure_include() {
++  local frag real rc
++  frag="$(_git_fragment)"
++  _git_guard_config install
++  real="$_GIT_REAL"
++
++  # missing or empty: just create it — no user content to preserve
++  if [ ! -s "$real" ]; then
++    _git_include_block > "$real" || { log::error "cannot write $real"; return 1; }
++    log::info "created $real with include -> $frag"
++    return 0
++  fi
++
++  if _git_include_present && _git_include_is_first "$real"; then
++    log::info "include.path already at the top of $real"
++    return 0
++  fi
++
++  _git_lock install "$real.lock"
++  # INVARIANT: nothing between here and the `rm -f` below may die() — die() exits
++  # and would leak the lock, wedging every later run behind the refusal above.
++  # _git_rewrite_config only ever *returns* non-zero. (A `trap … RETURN` here
++  # would outlive this function and fire under `set -u` with $lock out of scope.)
++
++  # `A && B` would abort the hook under `set -e` when A is false — use `if`.
++  if _git_include_present; then log::info "relocating include.path to the top of $real"; fi
++  if _git_rewrite_config "$real" with-block; then rc=0; else rc=1; fi
++  rm -f "$real.lock"
++  [ "$rc" -eq 0 ] || return 1
++  log::info "added include.path -> $frag"
++}
++
++# Set user.name / user.email from env/atlas.env, only if currently unset.
++# Never fails the install; always returns 0.
++_git_apply_identity() {
++  local name email
++  name="$(env::get ATLAS_GIT_USER_NAME || true)"
++  email="$(env::get ATLAS_GIT_USER_EMAIL || true)"
++  if [ -z "$name" ] && [ -z "$email" ]; then
++    log::warn "git identity not set — export ATLAS_GIT_USER_NAME/EMAIL or add them to ~/.config/atlas/atlas.env"
++    return 0
++  fi
++  if [ -n "$name" ]; then
++    if [ -n "$(git config --global --get user.name 2>/dev/null)" ]; then
++      log::info "user.name already set — leaving it"
++    else
++      git config --global user.name "$name" && log::info "set user.name"
++    fi
++  fi
++  if [ -n "$email" ]; then
++    if [ -n "$(git config --global --get user.email 2>/dev/null)" ]; then
++      log::info "user.email already set — leaving it"
++    else
++      git config --global user.email "$email" && log::info "set user.email"
++    fi
++  fi
++  return 0
++}
++
++# --- required hooks ----------------------------------------------------------
++
++module::check() {
++  os::has_cmd git || return 1
++  [ -r "$(_git_fragment)" ] || return 1
++  _git_include_present || return 1
++  # Not merely present — first. An include left at the bottom by an older Atlas
++  # would override the user's own settings, and `install` is skipped when check
++  # passes, so this is what lets a bad install migrate itself.
++  _git_include_is_first "$(_git_config_file)" || return 1
++  return 0
++}
++
++module::install() {
++  # 1. package
++  if os::has_cmd git; then
++    log::info "git already installed"
++  else
++    os::dnf_install git || { log::error "failed to install git"; return 1; }
++  fi
++
++  # 2. write the Atlas-owned fragment (Atlas owns it -> overwrite is idempotent)
++  local frag_dir frag
++  frag_dir="$(_git_fragment_dir)"; frag="$(_git_fragment)"
++  mkdir -p "$frag_dir" || { log::error "cannot create $frag_dir"; return 1; }
++  cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
++  log::info "wrote managed git config: $frag"
++
++  # 3. wire the fragment in as the FIRST section, so the user's own settings win
++  _git_ensure_include || return 1
++
++  # 4. identity (optional, non-blocking, set-if-unset)
++  _git_apply_identity
++  return 0
++}
++
++# --- optional hooks ----------------------------------------------------------
++
++# Re-apply the latest managed fragment and re-check the include line, so a change
++# to Atlas's default set reaches an existing machine. Per RFC-0001 §4.7 this
++# deliberately does NOT touch identity and does NOT upgrade the git package.
++module::update() {
++  os::has_cmd git || { log::error "git is not installed — run 'atlas install git'"; return 1; }
++  local frag; frag="$(_git_fragment)"
++  mkdir -p "$(_git_fragment_dir)" || { log::error "cannot create $(_git_fragment_dir)"; return 1; }
++  cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
++  log::info "refreshed managed git config: $frag"
++  _git_ensure_include || return 1
++  return 0
++}
++
++# Drop the include line and delete the Atlas fragment. Per RFC-0001 §4.7 this
++# deliberately does NOT uninstall the git package (shared, high blast radius) and
++# does NOT touch the user's identity. Safely re-runnable.
++module::remove() {
++  local frag real rc; frag="$(_git_fragment)"
++
++  if _git_include_present; then
++    _git_guard_config remove
++    real="$_GIT_REAL"
++    _git_lock remove "$real.lock"
++    # INVARIANT: no die() between here and the `rm -f` below (see _git_ensure_include).
++    if _git_rewrite_config "$real"; then rc=0; else rc=1; fi
++    rm -f "$real.lock"
++    [ "$rc" -eq 0 ] || return 1
++    log::info "removed include.path from $real"
++  else
++    log::info "no include.path to remove"
++  fi
++
++  if [ -e "$frag" ]; then
++    rm -f "$frag" || { log::error "cannot delete $frag"; return 1; }
++    log::info "deleted managed fragment: $frag"
++    rmdir "$(_git_fragment_dir)" 2>/dev/null || true
++  fi
++  log::info "left the git package and your identity untouched"
++  return 0
++}
++
++module::verify() {
++  os::has_cmd git || { log::error "git not installed"; return 1; }
++  git --version >/dev/null 2>&1 || { log::error "git --version failed"; return 1; }
++  [ -r "$(_git_fragment)" ] || { log::error "managed fragment missing"; return 1; }
++  _git_include_present || { log::error "include.path not wired into $(_git_config_file)"; return 1; }
++  _git_include_is_first "$(_git_config_file)" \
++    || { log::error "include.path is not the first section — Atlas defaults would override your own settings"; return 1; }
++  # Health = "the fragment is intact and resolves", NOT "Atlas's value wins" — a
++  # user who overrides a managed key below the include is the point, not a fault.
++  # Read the fragment directly: an emptied fragment must fail even if the user
++  # happens to set the same key themselves.
++  [ "$(git config --file "$(_git_fragment)" --get init.defaultBranch 2>/dev/null)" = "main" ] \
++    || { log::error "managed fragment is not intact (init.defaultBranch missing from $(_git_fragment))"; return 1; }
++  # …and that git actually resolves it: --get-all lists every value in
++  # precedence order, so ours appears even when the user overrides it.
++  git config --global --includes --get-all init.defaultBranch 2>/dev/null | grep -qxF "main" \
++    || { log::error "managed config not resolving (init.defaultBranch=main absent from $(_git_config_file))"; return 1; }
++  return 0
++}
+diff --git a/tests/test_env.sh b/tests/test_env.sh
+new file mode 100644
+index 0000000..e345280
+--- /dev/null
++++ b/tests/test_env.sh
+@@ -0,0 +1,24 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/env.sh"
++
++# sandbox a config home with an atlas.env
++sandbox="$(mktemp -d)"
++export ATLAS_CONFIG_HOME="$sandbox"
++printf '# a comment\nATLAS_GIT_USER_NAME="Ada Lovelace"\nATLAS_GIT_USER_EMAIL=ada@example.com\n' > "$sandbox/atlas.env"
++
++# value read from atlas.env (quotes stripped)
++assert_eq "env::get reads a quoted value from atlas.env" \
++  "$(unset ATLAS_GIT_USER_NAME; env::get ATLAS_GIT_USER_NAME)" "Ada Lovelace"
++assert_eq "env::get reads an unquoted value from atlas.env" \
++  "$(unset ATLAS_GIT_USER_EMAIL; env::get ATLAS_GIT_USER_EMAIL)" "ada@example.com"
++
++# environment variable wins over the file
++assert_eq "env var overrides atlas.env" \
++  "$(ATLAS_GIT_USER_EMAIL='env@x' env::get ATLAS_GIT_USER_EMAIL)" "env@x"
++
++# missing key -> non-zero, empty output
++assert_status "missing key returns non-zero" 1 env::get ATLAS_DEFINITELY_MISSING_XYZ
++assert_eq     "missing key prints nothing"   "$(env::get ATLAS_DEFINITELY_MISSING_XYZ 2>/dev/null)" ""
++
++# comment lines are ignored (no key named '# a comment')
++rm -rf "$sandbox"; unset ATLAS_CONFIG_HOME
+diff --git a/tests/test_module_git.sh b/tests/test_module_git.sh
+new file mode 100644
+index 0000000..63428e5
+--- /dev/null
++++ b/tests/test_module_git.sh
+@@ -0,0 +1,307 @@
++#!/usr/bin/env bash
++# The git module is exercised entirely inside sandboxes: each assertion runs in
++# a child bash that points HOME / GIT_CONFIG_GLOBAL / ATLAS_CONFIG_HOME at a
++# fresh temp dir and mocks os::dnf_install, so NO real ~/.gitconfig, ~/.config,
++# or dnf is ever touched. GIT_CONFIG_SYSTEM=/dev/null isolates from system git
++# config. Assertions live in the outer scope (via bash -c) so counters count.
++
++# shared preamble: fresh sandbox + engine + mocked package install + the module
++PRE='
++set -uo pipefail
++export HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
++export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
++export GIT_CONFIG_SYSTEM=/dev/null
++export ATLAS_CONFIG_HOME="$HOME/.config/atlas"
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++source "$ATLAS_ROOT/internal/os.sh"
++source "$ATLAS_ROOT/internal/env.sh"
++os::dnf_install() { printf "DNF:%s\n" "$*"; return 0; }
++source "$ATLAS_ROOT/modules/core/git/module.sh"
++'
++
++# check is unsatisfied before install, satisfied after
++assert_status "git check unsatisfied before install" 1 bash -c "$PRE"' module::check'
++assert_status "git check satisfied after install"    0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::check'
++
++# install creates the Atlas-owned fragment
++assert_status "git install writes the managed fragment" 0 \
++  bash -c "$PRE"' module::install >/dev/null 2>&1; [ -r "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
++
++# a managed value resolves through the include
++# NOTE: `git config --global --get` alone does NOT expand include.path (real,
++# documented git behavior: --includes defaults to off whenever an explicit
++# scope selector like --global/--system/--local/--file is given, verified
++# against git 2.43.0 here). `--includes` forces expansion for this read while
++# keeping the read scoped to the global file, exactly matching this test's
++# intent ("a managed value resolves through the include").
++assert_eq "git init.defaultBranch resolves to main" \
++  "$(bash -c "$PRE"' module::install >/dev/null 2>&1; git config --global --includes --get init.defaultBranch')" "main"
++
++# install is idempotent: exactly one include.path line after running twice
++assert_eq "git install is idempotent (one include line)" \
++  "$(bash -c "$PRE"' module::install >/dev/null 2>&1; module::install >/dev/null 2>&1; git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++# identity is written from env/atlas.env
++assert_eq "git identity set from env" \
++  "$(bash -c "$PRE"' export ATLAS_GIT_USER_NAME="Ada Lovelace"; module::install >/dev/null 2>&1; git config --global --get user.name')" "Ada Lovelace"
++
++# a pre-existing identity is never overwritten
++assert_eq "git existing identity not clobbered" \
++  "$(bash -c "$PRE"' git config --global user.name "Pre Existing"; export ATLAS_GIT_USER_NAME="Ada"; module::install >/dev/null 2>&1; git config --global --get user.name')" "Pre Existing"
++
++# install succeeds even with no identity available (non-blocking)
++assert_status "git install succeeds without identity" 0 bash -c "$PRE"' module::install'
++
++# the package branch: when git is reported absent, os::dnf_install is invoked
++assert_contains "git install calls dnf when git absent" \
++  "$(bash -c "$PRE"' os::has_cmd() { [ "$1" = git ] && return 1; command -v "$1" >/dev/null 2>&1; }; module::install 2>&1')" \
++  "DNF:git"
++
++# verify: fails before install, passes after
++assert_status "git verify fails before install" 1 bash -c "$PRE"' module::verify'
++assert_status "git verify passes after install" 0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::verify'
++
++# --- include placement: Atlas provides defaults, the user always wins ---------
++# RFC-0001 §4.4. git resolves config positionally (last value wins) and expands
++# an include at the position of the directive, so the Atlas [include] block must
++# be the FIRST section of the global config. `git config --add` appends, which
++# would make Atlas silently override the user's own settings.
++
++# a user's pre-existing value survives; an unclaimed managed key still applies
++assert_eq "git user's pull.rebase survives install" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get pull.rebase')" "false"
++
++assert_eq "git unclaimed managed key still applies" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get init.defaultBranch')" "main"
++
++# the user's file is preserved byte-for-byte below the include block
++assert_status "git install preserves user content byte-for-byte" 0 bash -c "$PRE"'
++  printf "# my config\n[user]\n\tname = Zed\n\n[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  module::install >/dev/null 2>&1
++  tail -n +4 "$GIT_CONFIG_GLOBAL" > "$HOME/after"
++  cmp -s "$HOME/orig" "$HOME/after"'
++
++# idempotent against a pre-populated file: one include line, byte-stable
++assert_eq "git install idempotent on pre-populated config (one include)" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1; module::install >/dev/null 2>&1
++    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++assert_status "git second install leaves config byte-identical" 0 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/first"
++  module::install >/dev/null 2>&1
++  cmp -s "$HOME/first" "$GIT_CONFIG_GLOBAL"'
++
++# a symlinked ~/.gitconfig (chezmoi/stow) stays a symlink; the target is rewritten
++assert_status "git symlinked config preserved and target rewritten" 0 bash -c "$PRE"'
++  mkdir -p "$HOME/dots"
++  printf "[pull]\n\trebase = false\n" > "$HOME/dots/gitconfig"
++  ln -s "$HOME/dots/gitconfig" "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  [ -L "$GIT_CONFIG_GLOBAL" ] || exit 1
++  [ "$(git config --global --includes --get pull.rebase)" = false ] || exit 1
++  head -n 1 "$HOME/dots/gitconfig" | grep -qxF "[include]"'
++
++# file mode is preserved (users keep 600 on configs holding credentials)
++assert_eq "git install preserves config file mode" \
++  "$(bash -c "$PRE"'
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    chmod 600 "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    stat -c %a "$GIT_CONFIG_GLOBAL"')" "600"
++
++# a pre-existing lock means another writer: refuse, and do not touch the file
++assert_status "git install refuses when config is locked" 4 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  : > "$GIT_CONFIG_GLOBAL.lock"
++  module::install'
++
++# die() exits, so contain the hook in a subshell exactly as the runner does
++assert_status "git locked config left unmodified" 0 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  : > "$GIT_CONFIG_GLOBAL.lock"
++  ( module::install ) >/dev/null 2>&1 || true
++  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
++
++# migration: an include appended at the BOTTOM by an older Atlas is relocated
++assert_eq "git migrates a bottom-appended include (user wins)" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    git config --global --includes --get pull.rebase')" "false"
++
++assert_eq "git migration leaves exactly one include line" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++assert_eq "git migration puts the include block at the very top" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    head -n 1 "$GIT_CONFIG_GLOBAL"')" "[include]"
++
++# health is "the fragment resolves", not "Atlas'"'"'s value wins": a user who
++# deliberately overrides a managed key must not be told the module is broken
++assert_status "git verify passes when user overrides a managed key" 0 bash -c "$PRE"'
++  printf "[init]\n\tdefaultBranch = master\n" > "$GIT_CONFIG_GLOBAL"
++  module::install >/dev/null 2>&1
++  [ "$(git config --global --includes --get init.defaultBranch)" = master ] || exit 1
++  module::verify'
++
++# an emptied fragment is broken even if the user happens to set the same key
++assert_status "git verify fails on an emptied fragment" 1 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  : > "$ATLAS_CONFIG_HOME/git/gitconfig"
++  git config --global init.defaultBranch main
++  module::verify'
++
++# the inline `[include] path = …` form git accepts but never writes itself
++assert_eq "git migrates an inline include without duplicating it" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[include] path = %s\n[pull]\n\trebase = false\n" "$frag" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --get-all include.path | wc -l | tr -d " "')" "1"
++
++# a user's own unrelated include must survive migration untouched
++assert_eq "git migration leaves a foreign include alone" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"; : > "$HOME/theirs"
++    printf "[include]\n\tpath = %s\n\tpath = %s\n" "$HOME/theirs" "$frag" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    git config --global --get-all include.path | grep -cxF "$HOME/theirs"')" "1"
++
++# `[includeIf]` is a different section and must never be stripped
++assert_eq "git migration never strips an includeIf section" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"; : > "$HOME/work"
++    printf "[includeIf \"gitdir:~/w/\"]\n\tpath = %s\n" "$HOME/work" > "$GIT_CONFIG_GLOBAL"
++    module::install >/dev/null 2>&1
++    grep -c "includeIf" "$GIT_CONFIG_GLOBAL"')" "1"
++
++# migrating must not leave the old, now-empty [include] header behind
++assert_eq "git migration leaves no orphan include header" \
++  "$(bash -c "$PRE"'
++    frag="$ATLAS_CONFIG_HOME/git/gitconfig"
++    mkdir -p "$(dirname "$frag")"; : > "$frag"
++    printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++    git config --global --add include.path "$frag"
++    module::install >/dev/null 2>&1
++    grep -cxF "[include]" "$GIT_CONFIG_GLOBAL"')" "1"
++
++# --- optional hooks: update / remove (RFC-0001 §4.7) --------------------------
++
++# update re-applies the managed fragment (picks up changes to Atlas's defaults)
++assert_status "git update restores a tampered fragment" 0 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  : > "$ATLAS_CONFIG_HOME/git/gitconfig"
++  module::update >/dev/null 2>&1
++  module::verify'
++
++# update never sets identity and never installs a package
++assert_eq "git update does not touch identity" \
++  "$(bash -c "$PRE"'
++    module::install >/dev/null 2>&1
++    export ATLAS_GIT_USER_NAME="Ada"
++    module::update >/dev/null 2>&1
++    git config --global --get user.name')" ""
++
++# remove: the include goes, the fragment goes, the user's file survives intact
++assert_status "git remove restores the config byte-for-byte" 0 bash -c "$PRE"'
++  printf "# mine\n[user]\n\tname = Zed\n[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  module::install >/dev/null 2>&1
++  module::remove  >/dev/null 2>&1
++  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
++
++assert_status "git remove deletes the managed fragment" 0 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  module::remove  >/dev/null 2>&1
++  [ ! -e "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
++
++assert_status "git check is unsatisfied after remove" 1 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  module::remove  >/dev/null 2>&1
++  module::check'
++
++# remove is safely re-runnable and never touches the user's identity
++assert_status "git remove is idempotent" 0 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  module::remove  >/dev/null 2>&1
++  module::remove'
++
++assert_eq "git remove leaves identity alone" \
++  "$(bash -c "$PRE"'
++    git config --global user.name "Zed"
++    module::install >/dev/null 2>&1
++    module::remove  >/dev/null 2>&1
++    git config --global --get user.name')" "Zed"
++
++# remove on a machine Atlas never touched is a clean no-op
++assert_status "git remove is a no-op when nothing is installed" 0 bash -c "$PRE"' module::remove'
++
++# install after remove restores everything (full lifecycle round-trip)
++assert_status "git install -> remove -> install round-trips" 0 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  module::remove  >/dev/null 2>&1
++  module::install >/dev/null 2>&1
++  module::verify'
++
++# remove refuses a locked config rather than half-editing it
++assert_status "git remove refuses when config is locked" 4 bash -c "$PRE"'
++  module::install >/dev/null 2>&1
++  : > "$GIT_CONFIG_GLOBAL.lock"
++  module::remove'
++
++# --- refuse to proceed rather than damage a config we cannot safely rewrite ---
++# Each asserts BOTH the exit code and that the file was left untouched. die()
++# exits, so the hook is contained in a subshell exactly as internal/runner.sh does.
++
++assert_status "git install refuses an unparseable config" 4 bash -c "$PRE"'
++  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git unparseable config left unmodified" 0 bash -c "$PRE"'
++  printf "[pull\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  cp "$GIT_CONFIG_GLOBAL" "$HOME/orig"
++  ( module::install ) >/dev/null 2>&1 || true
++  cmp -s "$HOME/orig" "$GIT_CONFIG_GLOBAL"'
++
++assert_status "git install refuses a dangling symlink config" 4 bash -c "$PRE"'
++  ln -s "$HOME/nowhere/gitconfig" "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git install refuses a non-regular-file config" 4 bash -c "$PRE"'
++  mkdir -p "$GIT_CONFIG_GLOBAL"
++  module::install'
++
++assert_status "git install refuses an unwritable config" 4 bash -c "$PRE"'
++  printf "[pull]\n\trebase = false\n" > "$GIT_CONFIG_GLOBAL"
++  chmod 444 "$GIT_CONFIG_GLOBAL"
++  module::install'
+diff --git a/tests/test_os.sh b/tests/test_os.sh
+index 2b3838e..a12130d 100644
+--- a/tests/test_os.sh
++++ b/tests/test_os.sh
+@@ -8,5 +8,5 @@ assert_status "has_cmd false for nonesuch" 1 os::has_cmd this_command_does_not_e
+ assert_status "require_cmd dies on missing" 5 \
+   bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; os::require_cmd nope_xyz'
+ 
+-out="$(os::dnf_install git curl 2>&1 || true)"
+-assert_contains "dnf_install logs intent" "$out" "git curl"
++# os::dnf_install is now a real primitive (requires real dnf on PATH via
++# os::require_cmd) — covered with proper dnf/sudo stubbing in test_os_dnf.sh.
+diff --git a/tests/test_os_dnf.sh b/tests/test_os_dnf.sh
+new file mode 100644
+index 0000000..7a5c415
+--- /dev/null
++++ b/tests/test_os_dnf.sh
+@@ -0,0 +1,29 @@
++#!/usr/bin/env bash
++# os::dnf_install is tested by shadowing `dnf` and `sudo` with shell FUNCTIONS
++# (functions take precedence over PATH, so no real package manager is touched —
++# safe on Fedora and non-Fedora alike). Each case runs in a child bash so the
++# stubs never leak into the suite shell.
++
++# success: dnf install is invoked with the packages, returns 0
++out="$(bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { printf "dnf-called: %s\n" "$*"; return 0; }
++  sudo() { "$@"; }
++  os::dnf_install git curl
++' 2>/dev/null)"; rc=$?
++assert_eq       "dnf_install returns 0 on success"      "$rc" "0"
++assert_contains "dnf_install runs dnf install for pkgs" "$out" "dnf-called: install -y git curl"
++
++# failure: dnf exits non-zero -> os::dnf_install returns non-zero
++assert_status "dnf_install propagates dnf failure" 1 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  dnf()  { return 1; }
++  sudo() { "$@"; }
++  os::dnf_install git
++'
++
++# no args is a harmless no-op (exit 0)
++assert_status "dnf_install no-op on empty args" 0 bash -c '
++  source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"
++  os::dnf_install
++'

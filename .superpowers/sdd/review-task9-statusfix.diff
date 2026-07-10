@@ -1,0 +1,67 @@
+# Review package: 058cb5e..348fbb3
+
+## Commits
+348fbb3 fix(runner): status reports installed/not-installed instead of failing
+
+## Files changed
+ internal/runner.sh   | 10 ++++++++++
+ tests/test_runner.sh |  6 ++++++
+ 2 files changed, 16 insertions(+)
+
+## Diff
+diff --git a/internal/runner.sh b/internal/runner.sh
+index da68c49..859ac0a 100644
+--- a/internal/runner.sh
++++ b/internal/runner.sh
+@@ -29,20 +29,30 @@ _runner_run_module() {
+     local hook
+     for hook in $hooks; do
+       if [ "$verb" = "install" ] && [ "$hook" = "check" ]; then
+         if module::has_hook check && module::check; then
+           log::info "already satisfied — skipping"
+           printf '__SKIP__'
+           exit 0
+         fi
+         continue
+       fi
++      # status: report installed/not-installed via check; never a failure
++      if [ "$verb" = "status" ] && [ "$hook" = "check" ]; then
++        if module::has_hook check && module::check; then
++          log::info "installed"
++        else
++          log::info "not installed"
++          printf '__SKIP__'
++        fi
++        exit 0
++      fi
+       module::has_hook "$hook" || { log::debug "no $hook hook"; continue; }
+       if ! "module::$hook"; then
+         log::error "$hook failed"
+         exit 1
+       fi
+     done
+   )
+ }
+ 
+ # runner::run <verb> [id...]
+diff --git a/tests/test_runner.sh b/tests/test_runner.sh
+index 4a2f0f4..09dae8b 100644
+--- a/tests/test_runner.sh
++++ b/tests/test_runner.sh
+@@ -19,10 +19,16 @@ out="$(runner::run install core/alpha 2>&1 || true)"
+ assert_contains "install reaches placeholder hook" "$out" "not yet implemented"
+ 
+ # a module whose check passes is skipped
+ out="$(ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_satisfied" \
+        bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/sat' 2>&1 || true)"
+ assert_contains "satisfied module is skipped" "$out" "already satisfied"
+ 
+ # a module whose install hook fails makes runner::run return ATLAS_EXIT_MODULE (4)
+ assert_status "failing module install returns exit 4" 4 \
+   bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_failing"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/fail'
++
++# status reports installed/not-installed and NEVER fails on a not-installed module
++assert_status "status exits 0 on not-installed modules" 0 \
++  runner::run status core/alpha apps/beta
++out="$(runner::run status core/alpha apps/beta 2>&1 || true)"
++assert_contains "status reports 'not installed'" "$out" "not installed"

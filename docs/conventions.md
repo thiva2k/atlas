@@ -72,3 +72,36 @@ When a module must edit a user-owned file anyway:
 - take whatever lock the tool itself uses, and never steal one you did not create.
 
 `modules/core/git/` is the reference implementation of all of the above.
+
+## Secrets
+
+A secret is not a preference. Reading one goes through `env::get_secret NAME`
+(`internal/env.sh`), never `env::get`:
+
+- it disables `xtrace` for its own duration, so a caller running under `set -x`
+  cannot leak the value to stderr;
+- it refuses to consume a secret from a group- or world-readable `atlas.env`,
+  warning and returning non-zero so the value is treated as **absent**. Atlas will
+  not make an already-leaked credential load-bearing;
+- it fails closed: a file whose mode cannot be determined is refused.
+
+The standing rules for every credentialed module (RFC-0003 §4.4):
+
+- **Atlas never prompts for a secret.** It runs unattended.
+- **Atlas never writes a secret** into a file it owns, and never into the repo.
+- A secret reaches Atlas only via the environment or `atlas.env` — mode `600`,
+  gitignored, the user's own file.
+- **A secret is never a command-line argument.** `argv` is world-readable in
+  `/proc`. Pipe it to the tool on stdin, using a shell builtin (`printf`) so the
+  value never becomes a process argument at all.
+- **A secret is never logged**, not even in an error path. No Atlas code may run
+  under `set -x`.
+- **Absent credentials degrade to a warning, never a failed install.** A missing
+  credential is the user's to supply. Only a credential the user *did* supply, and
+  the tool then rejected, is a hard failure.
+
+Beware tools that print secrets. `gh auth token` writes the token to stdout, so
+Atlas invokes it only as a predicate — `gh auth token >/dev/null 2>&1` — and never
+captures its output.
+
+`modules/development/github-cli/` is the reference implementation.

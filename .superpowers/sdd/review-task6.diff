@@ -1,0 +1,119 @@
+# Review package: 41257c9..c1ac19f
+
+## Commits
+c1ac19f feat(internal): resolve module dependencies with cycle detection
+
+## Files changed
+ internal/module.sh                          | 44 ++++++++++++++++++++++++++++-
+ tests/fixtures/modules/core/cyc_a/module.sh |  7 +++++
+ tests/fixtures/modules/core/cyc_b/module.sh |  7 +++++
+ tests/test_module_order.sh                  | 15 ++++++++++
+ 4 files changed, 72 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/internal/module.sh b/internal/module.sh
+index b273006..83dffce 100644
+--- a/internal/module.sh
++++ b/internal/module.sh
+@@ -14,11 +14,53 @@ module::discover() {
+     id="${f#"$ATLAS_MODULES_DIR"/}"
+     id="${id%/module.sh}"
+     printf '%s\n' "$id"
+   done | sort
+ }
+ 
+ module::path() { printf '%s\n' "$ATLAS_MODULES_DIR/$1/module.sh"; }
+ 
+ module::has_hook() { declare -F "module::$1" >/dev/null 2>&1; }
+ 
+-# Dependency ordering (module::deps_of, module::resolve_order) is added in Task 6.
++# --- dependency resolution -------------------------------------------------
++
++# Print a module's declared dependencies (one per line), read in isolation.
++module::deps_of() {
++  local id="$1" p; p="$(module::path "$id")"
++  [ -r "$p" ] || return 0
++  ( set +u
++    MODULE_DEPENDS=()
++    # shellcheck source=/dev/null
++    source "$p"
++    local d
++    for d in "${MODULE_DEPENDS[@]}"; do
++      [ -n "$d" ] && printf '%s\n' "$d"
++    done )
++}
++
++# Print ids + transitive deps in dependency-first order. Cycle => exit 3.
++module::resolve_order() {
++  local -a input=("$@")
++  local -A _state=()          # unset | temp | done
++  local -a _order=()
++
++  _module_visit() {
++    local id="$1" d
++    case "${_state[$id]:-}" in
++      done) return 0 ;;
++      temp) die "$ATLAS_EXIT_DEPENDENCY" \
++              "dependency cycle detected at '$id'" \
++              "two or more modules depend on each other in a loop" \
++              "break the loop by editing a module's MODULE_DEPENDS" ;;
++    esac
++    _state[$id]=temp
++    while IFS= read -r d; do
++      [ -n "$d" ] && _module_visit "$d"
++    done < <(module::deps_of "$id")
++    _state[$id]=done
++    _order+=("$id")
++  }
++
++  local id
++  for id in "${input[@]}"; do _module_visit "$id"; done
++  printf '%s\n' "${_order[@]}"
++}
+diff --git a/tests/fixtures/modules/core/cyc_a/module.sh b/tests/fixtures/modules/core/cyc_a/module.sh
+new file mode 100644
+index 0000000..0ce5809
+--- /dev/null
++++ b/tests/fixtures/modules/core/cyc_a/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="cyc_a"
++MODULE_DESCRIPTION="cycle fixture a"
++MODULE_DEPENDS=("core/cyc_b")
++module::check()   { return 1; }
++module::install() { not_implemented "cyc_a"; }
++module::verify()  { not_implemented "cyc_a"; }
+diff --git a/tests/fixtures/modules/core/cyc_b/module.sh b/tests/fixtures/modules/core/cyc_b/module.sh
+new file mode 100644
+index 0000000..0e130b5
+--- /dev/null
++++ b/tests/fixtures/modules/core/cyc_b/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="cyc_b"
++MODULE_DESCRIPTION="cycle fixture b"
++MODULE_DEPENDS=("core/cyc_a")
++module::check()   { return 1; }
++module::install() { not_implemented "cyc_b"; }
++module::verify()  { not_implemented "cyc_b"; }
+diff --git a/tests/test_module_order.sh b/tests/test_module_order.sh
+new file mode 100644
+index 0000000..1bcc8b9
+--- /dev/null
++++ b/tests/test_module_order.sh
+@@ -0,0 +1,15 @@
++#!/usr/bin/env bash
++source "$ATLAS_ROOT/internal/log.sh"
++source "$ATLAS_ROOT/internal/error.sh"
++export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
++source "$ATLAS_ROOT/internal/module.sh"
++
++assert_eq "beta declares its dep" "$(module::deps_of apps/beta)" "core/alpha"
++
++# resolving beta pulls in alpha first
++order="$(module::resolve_order apps/beta | tr '\n' ' ')"
++assert_eq "dependency comes before dependent" "$order" "core/alpha apps/beta "
++
++# a cycle is a fatal dependency error (exit 3)
++assert_status "cycle detected as exit 3" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"; source "$ATLAS_ROOT/internal/module.sh"; module::resolve_order core/cyc_a'

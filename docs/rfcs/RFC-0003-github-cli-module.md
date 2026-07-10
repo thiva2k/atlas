@@ -185,9 +185,12 @@ Identical resolution to `env::get`, plus:
   environment is the caller's problem.
 - The value is returned on stdout and nowhere else.
 
-This is not a silent failure mode: `check` resolves the secret too, so the warning
-fires on every `install`, `status`, and `doctor` run until the mode is fixed. It
-names the file and the command.
+This is not a silent failure mode. `check` resolves the secret too, so in the
+state that matters — a token supplied, `gh` logged out — the warning fires on
+every `install` and `status` run until the mode is fixed, naming the file and the
+command. (`check` short-circuits before resolving when `gh` is already
+authenticated: there is no reason to read a credential nobody needs. `verify` and
+`doctor` never resolve it at all.)
 
 `env::get` is untouched; non-secret keys (`ATLAS_GIT_USER_EMAIL`) keep using it.
 

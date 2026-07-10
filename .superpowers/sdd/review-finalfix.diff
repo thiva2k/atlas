@@ -1,0 +1,213 @@
+# Review package: 2e4e60d..3f7e192
+
+## Commits
+3f7e192 fix(runner,deps): surface dependency cycles and unmet deps as exit 3
+
+## Files changed
+ CONTRIBUTING.md                                      | 5 +++++
+ docs/architecture.md                                 | 4 ++--
+ internal/module.sh                                   | 6 ++++++
+ internal/runner.sh                                   | 4 +++-
+ tests/fixtures/modules_unmetdep/core/needy/module.sh | 7 +++++++
+ tests/run.sh                                         | 3 +++
+ tests/test_module_order.sh                           | 8 ++++++++
+ 7 files changed, 34 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index f7f0e5a..30492d7 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -22,14 +22,19 @@ See [`docs/module-authoring.md`](docs/module-authoring.md).
+ 
+ Run the whole suite with:
+ 
+ ```bash
+ bash tests/run.sh
+ ```
+ 
+ Tests are pure Bash (no framework). Add `tests/test_<area>.sh` and use the
+ assertions in `tests/lib/assert.sh`. Every behavioural change ships with a test.
+ 
++> Test files are `source`d into one shell by `tests/run.sh`. `run.sh` resets
++> `ATLAS_MODULES_DIR` to the real `modules/` dir before each file; a test that
++> needs a fixtures dir must `export ATLAS_MODULES_DIR` itself (do not rely on a
++> value left by another test file).
++
+ ## Commits
+ 
+ Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, …). Keep them small and
+ focused.
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 1a5b8ef..1891c4e 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -102,21 +102,21 @@ Consequences that shape the whole codebase:
+ ---
+ 
+ ## 5. Repository layout
+ 
+ ```text
+ atlas/
+ ├── atlas                 # the CLI entrypoint — parses args, dispatches a verb
+ ├── bootstrap.sh          # zero-dependency first touch on a fresh machine
+ ├── internal/             # the reusable engine (shared, not user-facing)
+ │   ├── log.sh            # logging system (§9)
+-│   ├── error.sh          # error handling, traps, exit codes (§8)
++│   ├── error.sh          # error handling + exit codes (§8)
+ │   ├── os.sh             # Fedora / dnf / flatpak / privilege helpers
+ │   ├── module.sh         # module discovery, contract, dependency resolution
+ │   └── runner.sh         # the verbs, implemented on top of the above
+ ├── modules/              # every capability lives here, grouped by category
+ │   ├── core/             #   fundamentals (git, base packages, shell)
+ │   ├── development/      #   dev tooling (docker, language runtimes, claude, codex)
+ │   ├── apps/             #   applications (brave, ghostty)
+ │   └── desktop/          #   desktop environment (kde, fonts)
+ ├── docs/                 # architecture, conventions, module-authoring guide
+ ├── tests/                # pure-Bash test harness (no external framework)
+@@ -266,21 +266,21 @@ log::info  "git already present"
+ log::warn  "docker service not enabled"
+ log::error "failed to write ~/.gitconfig"
+ ```
+ 
+ ---
+ 
+ ## 10. How a command flows through the system
+ 
+ Walkthrough of `atlas install`:
+ 
+-1. **`atlas`** parses global flags (`--verbose`, `--dry-run`, …) and the verb,
++1. **`atlas`** parses global flags (`--verbose`, `--quiet`, …) and the verb,
+    then calls into `internal/runner.sh`.
+ 2. **`runner.sh`** asks `internal/module.sh` to **discover** modules by scanning
+    `modules/<category>/<name>/module.sh`.
+ 3. **`module.sh`** reads each module's `MODULE_DEPENDS`, builds a dependency
+    graph, and **topologically orders** the modules (a cycle is a fatal exit `3`).
+ 4. For each module in order, the runner:
+    - sources `module.sh` in a **subshell**,
+    - runs `module::check`; if satisfied, logs and skips,
+    - otherwise runs `module::install`, then `module::verify`,
+    - records the outcome.
+diff --git a/internal/module.sh b/internal/module.sh
+index 83dffce..69fcb1b 100644
+--- a/internal/module.sh
++++ b/internal/module.sh
+@@ -38,20 +38,26 @@ module::deps_of() {
+ }
+ 
+ # Print ids + transitive deps in dependency-first order. Cycle => exit 3.
+ module::resolve_order() {
+   local -a input=("$@")
+   local -A _state=()          # unset | temp | done
+   local -a _order=()
+ 
+   _module_visit() {
+     local id="$1" d
++    if [ ! -r "$(module::path "$id")" ]; then
++      die "$ATLAS_EXIT_DEPENDENCY" \
++        "unknown module: $id" \
++        "a requested module or a declared dependency does not exist" \
++        "check the id (category/name) and any MODULE_DEPENDS entries"
++    fi
+     case "${_state[$id]:-}" in
+       done) return 0 ;;
+       temp) die "$ATLAS_EXIT_DEPENDENCY" \
+               "dependency cycle detected at '$id'" \
+               "two or more modules depend on each other in a loop" \
+               "break the loop by editing a module's MODULE_DEPENDS" ;;
+     esac
+     _state[$id]=temp
+     while IFS= read -r d; do
+       [ -n "$d" ] && _module_visit "$d"
+diff --git a/internal/runner.sh b/internal/runner.sh
+index 859ac0a..1270914 100644
+--- a/internal/runner.sh
++++ b/internal/runner.sh
+@@ -57,21 +57,23 @@ _runner_run_module() {
+ 
+ # runner::run <verb> [id...]
+ runner::run() {
+   local verb="${1:-}"; shift || true
+   _runner_hooks_for_verb "$verb" >/dev/null 2>&1 || \
+     die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'"
+ 
+   local -a ids
+   if [ "$#" -gt 0 ]; then ids=("$@"); else mapfile -t ids < <(module::discover); fi
+   if [ "${#ids[@]}" -eq 0 ]; then log::warn "no modules found"; return 0; fi
+-  mapfile -t ids < <(module::resolve_order "${ids[@]}")
++  local _ordered
++  _ordered="$(module::resolve_order "${ids[@]}")" || return $?
++  mapfile -t ids <<<"$_ordered"
+ 
+   log::step "atlas $verb (${#ids[@]} modules)"
+   local id out rc ok=0 skip=0 fail=0
+   for id in "${ids[@]}"; do
+     out="$(_runner_run_module "$verb" "$id")"; rc=$?
+     if [ "$rc" -ne 0 ]; then
+       fail=$((fail + 1)); log::error "[$id] failed"
+     elif [ "$out" = "__SKIP__" ]; then
+       skip=$((skip + 1))
+     else
+diff --git a/tests/fixtures/modules_unmetdep/core/needy/module.sh b/tests/fixtures/modules_unmetdep/core/needy/module.sh
+new file mode 100644
+index 0000000..1f1b57b
+--- /dev/null
++++ b/tests/fixtures/modules_unmetdep/core/needy/module.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++MODULE_NAME="needy"
++MODULE_DESCRIPTION="fixture that declares a nonexistent dependency"
++MODULE_DEPENDS=("core/ghost")
++module::check()   { return 1; }
++module::install() { not_implemented "needy install"; }
++module::verify()  { not_implemented "needy verify"; }
+diff --git a/tests/run.sh b/tests/run.sh
+index 5a4d573..71bc45c 100644
+--- a/tests/run.sh
++++ b/tests/run.sh
+@@ -4,19 +4,22 @@ ATLAS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ export ATLAS_ROOT
+ # keep test state out of the real state dir
+ export ATLAS_STATE_DIR="$ATLAS_ROOT/.local/state/atlas"
+ 
+ source "$ATLAS_ROOT/tests/lib/assert.sh"
+ 
+ total_pass=0 total_fail=0
+ for t in "$ATLAS_ROOT"/tests/test_*.sh; do
+   [ -e "$t" ] || continue
+   printf '\n%s\n' "$(basename "$t")"
++  # each test file starts from the real modules dir; files needing fixtures
++  # override ATLAS_MODULES_DIR in their own body (sourced after this reset).
++  export ATLAS_MODULES_DIR="$ATLAS_ROOT/modules"
+   ATLAS_TESTS_PASS=0 ATLAS_TESTS_FAIL=0
+   # shellcheck source=/dev/null
+   source "$t"
+   total_pass=$((total_pass + ATLAS_TESTS_PASS))
+   total_fail=$((total_fail + ATLAS_TESTS_FAIL))
+ done
+ 
+ printf '\n== %d passed, %d failed ==\n' "$total_pass" "$total_fail"
+ [ "$total_fail" -eq 0 ]
+diff --git a/tests/test_module_order.sh b/tests/test_module_order.sh
+index 1bcc8b9..5f3f774 100644
+--- a/tests/test_module_order.sh
++++ b/tests/test_module_order.sh
+@@ -6,10 +6,18 @@ source "$ATLAS_ROOT/internal/module.sh"
+ 
+ assert_eq "beta declares its dep" "$(module::deps_of apps/beta)" "core/alpha"
+ 
+ # resolving beta pulls in alpha first
+ order="$(module::resolve_order apps/beta | tr '\n' ' ')"
+ assert_eq "dependency comes before dependent" "$order" "core/alpha apps/beta "
+ 
+ # a cycle is a fatal dependency error (exit 3)
+ assert_status "cycle detected as exit 3" 3 \
+   bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"; source "$ATLAS_ROOT/internal/module.sh"; module::resolve_order core/cyc_a'
++
++# a dependency cycle reaches the user through runner::run as exit 3 (Fix A)
++assert_status "runner surfaces a dependency cycle as exit 3" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/cyc_a'
++
++# an unmet (missing) dependency is a fatal dependency error, exit 3 (Fix B)
++assert_status "runner surfaces an unmet dependency as exit 3" 3 \
++  bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_unmetdep"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/needy'

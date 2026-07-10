@@ -1,0 +1,38 @@
+# Review package: 4bde4b3..41257c9
+
+## Commits
+41257c9 fix(test): count has_hook assertions in the suite total (subshell dropped them)
+
+## Files changed
+ tests/test_module_discovery.sh | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/tests/test_module_discovery.sh b/tests/test_module_discovery.sh
+index 6d898bc..a493710 100644
+--- a/tests/test_module_discovery.sh
++++ b/tests/test_module_discovery.sh
+@@ -4,17 +4,19 @@ source "$ATLAS_ROOT/internal/error.sh"
+ export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
+ source "$ATLAS_ROOT/internal/module.sh"
+ 
+ found="$(module::discover | tr '\n' ' ')"
+ assert_contains "discovers alpha" "$found" "core/alpha"
+ assert_contains "discovers beta"  "$found" "apps/beta"
+ 
+ assert_eq "path points at module.sh" \
+   "$(module::path core/alpha)" "$ATLAS_MODULES_DIR/core/alpha/module.sh"
+ 
+-# has_hook works after sourcing a module
+-( source "$(module::path core/alpha)"
+-  assert_status "alpha defines install hook" 0 module::has_hook install
+-  assert_status "alpha lacks backup hook"    1 module::has_hook backup )
++# has_hook works after sourcing a module. Assert in the OUTER scope so the
++# suite counters see the result; source the module inside a child bash -c so
++# its hook definitions don't leak into the test runner.
++_hh='source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_MODULES_DIR/core/alpha/module.sh";'
++assert_status "alpha defines install hook" 0 bash -c "$_hh"' module::has_hook install'
++assert_status "alpha lacks backup hook"    1 bash -c "$_hh"' module::has_hook backup'
+ 
+ out="$(not_implemented "x" 2>&1 || true)"
+ assert_contains "not_implemented warns" "$out" "not yet implemented"

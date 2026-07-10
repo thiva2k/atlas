@@ -29,3 +29,54 @@ env::get() {
   val="${val%\'}"; val="${val#\'}"
   printf '%s\n' "$val"
 }
+
+# env::get_secret <NAME> — env::get, hardened for credentials (RFC-0003 §4.5).
+#
+# Differences from env::get, all of them deliberate:
+#   * xtrace is disabled for the body and restored on return, so a caller running
+#     under `set -x` cannot leak the value to stderr.
+#   * A secret is never consumed from a group- or world-readable atlas.env. The
+#     value is treated as absent and the user is told how to fix the mode: Atlas
+#     refuses to make an already-leaked credential load-bearing.
+#   * If the file's mode cannot be determined, the secret is refused. Fail closed.
+#
+# A value taken from the environment is not mode-checked — the environment is the
+# caller's problem. The value goes to stdout and nowhere else; nothing here may
+# log it. Prints nothing and returns 1 if NAME cannot be resolved.
+env::get_secret() {
+  local name="$1" restore_xtrace=0
+  case "$-" in *x*) restore_xtrace=1; set +x ;; esac
+
+  local val="" rc=0
+  if [ -n "${!name:-}" ]; then
+    val="${!name}"
+  else
+    local file="${ATLAS_CONFIG_HOME}/atlas.env"
+    if [ ! -r "$file" ]; then
+      rc=1
+    else
+      # -L: judge the target of a symlink, not the link itself.
+      local mode=""
+      mode="$(stat -Lc '%a' "$file" 2>/dev/null)" || mode=""
+      if [ -z "$mode" ]; then
+        log::warn "refusing to read $name from $file: cannot determine its permissions"
+        rc=1
+      elif [ "$(( 8#$mode & 8#077 ))" -ne 0 ]; then
+        log::warn "refusing to read $name from $file: it is group- or world-readable"
+        log::warn "  fix: chmod 600 $file"
+        rc=1
+      else
+        val="$(env::get "$name")" || rc=1
+      fi
+    fi
+  fi
+
+  if [ "$rc" -eq 0 ] && [ -n "$val" ]; then
+    printf '%s\n' "$val"
+  else
+    rc=1
+  fi
+
+  if [ "$restore_xtrace" -eq 1 ]; then set -x; fi
+  return "$rc"
+}
