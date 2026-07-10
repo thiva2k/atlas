@@ -40,17 +40,23 @@ _gh_authenticate() {
     return 0
   fi
 
-  local token
-  if ! token="$(env::get_secret ATLAS_GH_TOKEN)"; then
-    log::warn "gh is installed but not authenticated, and no ATLAS_GH_TOKEN was supplied"
+  # Resolve once, discarding the value, so that an absent — or permission-refused
+  # — secret is a warning rather than a failure. env::get_secret emits its own
+  # warning when it refuses a group-readable atlas.env.
+  if ! env::get_secret ATLAS_GH_TOKEN >/dev/null; then
+    log::warn "gh is installed but not authenticated, and no usable ATLAS_GH_TOKEN was supplied"
     log::warn "  fix: run 'gh auth login' — Atlas will never prompt you for a credential"
     return 0
   fi
 
   log::info "authenticating gh from ATLAS_GH_TOKEN"
-  # printf is a shell builtin, so the token never becomes a process argument and
-  # never appears in /proc/*/cmdline. gh reads it from stdin.
-  if ! printf '%s' "$token" | gh auth login --with-token; then
+  # The token is NEVER assigned to a variable. Under `set -x` an assignment traces
+  # its own value (`+ token=ghp_…`), and so does any later expansion of it — which
+  # would defeat env::get_secret's xtrace guard the instant the value crossed back
+  # into this scope. Piping the resolver straight into gh keeps the secret out of
+  # the trace, out of argv (/proc/*/cmdline), and out of this shell's memory.
+  # gh reads the token from stdin and trims the trailing newline.
+  if ! env::get_secret ATLAS_GH_TOKEN | gh auth login --with-token; then
     log::error "gh did not accept the supplied token"
     log::error "  why: the token was rejected, or GitHub was unreachable — gh validates over the network and the two are indistinguishable"
     log::error "  fix: check ATLAS_GH_TOKEN's value and scopes, then re-run 'atlas install development/github-cli'"
@@ -64,6 +70,9 @@ module::check() {
   # If a token is resolvable and gh is logged out, install has work to do, so
   # check must fail: the runner skips install entirely whenever check passes.
   # Nothing about gh's configuration is asserted — Atlas owns none of it.
+  #
+  # _gh_env_token_var is not consulted: when GH_TOKEN/GITHUB_TOKEN is exported,
+  # `gh auth token` already succeeds (§6.1), so _gh_authenticated covers that case.
   if ! _gh_authenticated && env::get_secret ATLAS_GH_TOKEN >/dev/null; then
     return 1
   fi

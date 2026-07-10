@@ -75,6 +75,11 @@ When a module must edit a user-owned file anyway:
 
 ## Secrets
 
+`atlas.env` holds the user's secrets next to their preferences, so **both**
+resolvers disable `xtrace` for their bodies: `env::get` walks every line of the
+file to find one key, and would otherwise trace a credential during a lookup of
+something else.
+
 A secret is not a preference. Reading one goes through `env::get_secret NAME`
 (`internal/env.sh`), never `env::get`:
 
@@ -83,7 +88,9 @@ A secret is not a preference. Reading one goes through `env::get_secret NAME`
 - it refuses to consume a secret from a group- or world-readable `atlas.env`,
   warning and returning non-zero so the value is treated as **absent**. Atlas will
   not make an already-leaked credential load-bearing;
-- it fails closed: a file whose mode cannot be determined is refused.
+- it fails closed: a file whose mode cannot be determined is refused;
+- a value taken from the **environment** is not mode-checked. The environment is
+  the caller's problem, not a file Atlas can judge.
 
 The standing rules for every credentialed module (RFC-0003 §4.4):
 
@@ -92,10 +99,22 @@ The standing rules for every credentialed module (RFC-0003 §4.4):
 - A secret reaches Atlas only via the environment or `atlas.env` — mode `600`,
   gitignored, the user's own file.
 - **A secret is never a command-line argument.** `argv` is world-readable in
-  `/proc`. Pipe it to the tool on stdin, using a shell builtin (`printf`) so the
-  value never becomes a process argument at all.
+  `/proc`.
+- **A secret is never assigned to a variable.** `env::get_secret` can only guard
+  its own body; `token="$(env::get_secret KEY)"` traces as `+ token=ghp_…` the
+  instant the value crosses back into a caller running under `set -x`. Pipe the
+  resolver straight into the tool that consumes it, so the value never enters the
+  module's shell at all:
+
+  ```sh
+  env::get_secret ATLAS_GH_TOKEN >/dev/null || { log::warn "no usable token"; return 0; }
+  env::get_secret ATLAS_GH_TOKEN | gh auth login --with-token
+  ```
+
+  The first call, discarding the value, separates "no usable secret" (a warning)
+  from "the tool rejected it" (a failure).
 - **A secret is never logged**, not even in an error path. No Atlas code may run
-  under `set -x`.
+  under `set -x`, and no Atlas code may *leak* under an operator's `set -x`.
 - **Absent credentials degrade to a warning, never a failed install.** A missing
   credential is the user's to supply. Only a credential the user *did* supply, and
   the tool then rejected, is a hard failure.

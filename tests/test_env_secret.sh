@@ -110,9 +110,43 @@ case "$err" in
   *) _t_ok "xtrace stays off when it started off" ;;
 esac
 
-# --- env::get is untouched -------------------------------------------------
+# --- env::get keeps its semantics, but must not leak a neighbouring secret ---
 
 out="$(bash -c "$PRE
 printf 'ATLAS_GIT_USER_NAME=Ada\n' > \"\$envfile\"; chmod 644 \"\$envfile\"
 env::get ATLAS_GIT_USER_NAME" 2>/dev/null)"
 assert_eq "env::get still reads a 644 atlas.env (not a secret)" "$out" "Ada"
+
+# env::get walks EVERY line of atlas.env. A preference lookup by one module
+# (core/git wanting an identity) must not trace another module's credential.
+# This is the leak the end-to-end `bash -x ./atlas install` run actually found.
+err="$(bash -c "$PRE
+{ printf 'ATLAS_GH_TOKEN=%s\n' '$SECRET'; printf 'ATLAS_GIT_USER_NAME=Ada\n'; } > \"\$envfile\"
+chmod 600 \"\$envfile\"
+set -x
+env::get ATLAS_GIT_USER_NAME >/dev/null
+: get-sentinel" 2>&1 || true)"
+case "$err" in
+  *"$SECRET"*) _t_fail "env::get never traces a secret it was not asked for" ;;
+  *) _t_ok "env::get never traces a secret it was not asked for" ;;
+esac
+assert_contains "env::get restores xtrace" "$err" "get-sentinel"
+
+# ...and env::get still returns the value it *was* asked for, alongside a secret.
+out="$(bash -c "$PRE
+{ printf 'ATLAS_GH_TOKEN=%s\n' '$SECRET'; printf 'ATLAS_GIT_USER_NAME=Ada\n'; } > \"\$envfile\"
+chmod 600 \"\$envfile\"
+env::get ATLAS_GIT_USER_NAME" 2>/dev/null)"
+assert_eq "env::get finds a key that follows a secret" "$out" "Ada"
+
+bash -c "$PRE
+env::get NOPE_NOT_SET" >/dev/null 2>&1
+assert_eq "env::get returns 1 for an absent key" "$?" "1"
+
+# env::get must not trip a caller's `set -e` when the key is absent and the
+# caller tests its status.
+bash -c "$PRE
+set -e
+if env::get NOPE_NOT_SET >/dev/null; then echo found; fi
+: survived" >/dev/null 2>&1
+assert_eq "env::get missing key is safe under set -e" "$?" "0"

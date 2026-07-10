@@ -6,28 +6,49 @@
 # env::get <NAME> — echo the user-supplied value of NAME.
 # Resolution order: environment variable NAME, then NAME=value in atlas.env.
 # Prints nothing and returns 1 if NAME is set in neither.
+#
+# xtrace is disabled for the body and restored on return. This is not about
+# NAME's own value: atlas.env holds the user's *secrets* alongside their
+# preferences, and the read loop below walks every line of the file. Under an
+# operator's `bash -x`, tracing `line=ATLAS_GH_TOKEN=ghp_…` would leak a
+# credential during a lookup of something else entirely.
 env::get() {
-  local name="$1"
+  local name="$1" restore_xtrace=0
+  case "$-" in *x*) restore_xtrace=1; set +x ;; esac
+
+  local rc=0 out=""
   if [ -n "${!name:-}" ]; then
-    printf '%s\n' "${!name}"
-    return 0
+    out="${!name}"
+  else
+    local file="${ATLAS_CONFIG_HOME}/atlas.env"
+    if [ ! -r "$file" ]; then
+      rc=1
+    else
+      local line val=""
+      while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"          # atlas.env may have been written on Windows
+        [ -z "$line" ] && continue
+        case "$line" in
+          \#*) continue ;;
+          "$name="*) val="${line#*=}" ;;
+        esac
+      done < "$file"
+      if [ -n "$val" ]; then
+        # strip one layer of surrounding double or single quotes
+        val="${val%\"}"; val="${val#\"}"
+        val="${val%\'}"; val="${val#\'}"
+        out="$val"
+      else
+        rc=1
+      fi
+    fi
   fi
-  local file="${ATLAS_CONFIG_HOME}/atlas.env"
-  [ -r "$file" ] || return 1
-  local line val=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%$'\r'}"          # atlas.env may have been written on Windows
-    [ -z "$line" ] && continue
-    case "$line" in
-      \#*) continue ;;
-      "$name="*) val="${line#*=}" ;;
-    esac
-  done < "$file"
-  [ -n "$val" ] || return 1
-  # strip one layer of surrounding double or single quotes
-  val="${val%\"}"; val="${val#\"}"
-  val="${val%\'}"; val="${val#\'}"
-  printf '%s\n' "$val"
+
+  # An `A && B` statement would itself return non-zero when rc != 0, tripping a
+  # caller's `set -e` before the restore below could run.
+  if [ "$rc" -eq 0 ]; then printf '%s\n' "$out"; fi
+  if [ "$restore_xtrace" -eq 1 ]; then set -x; fi
+  return "$rc"
 }
 
 # env::get_secret <NAME> — env::get, hardened for credentials (RFC-0003 §4.5).

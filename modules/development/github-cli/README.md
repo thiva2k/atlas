@@ -16,12 +16,13 @@ token out of band, logs it in — without ever prompting you.
 This module owns no files. It never runs `gh config`, never reads or creates
 `config.yml`, and never touches your `~/.gitconfig`.
 
-That is a decision, not an oversight. Atlas used to set `git_protocol = ssh` on a
-fresh install, which sounds harmless and is not: under SSH, *every* `gh repo
-clone` needs a key registered on GitHub — including public repositories, which
-`gh` clones anonymously over HTTPS with no setup at all. A default that only pays
-off once you finish a later step, and quietly costs you until then, is a bad
-default. `gh`'s own is better.
+That is a decision, not an oversight. An early draft of this module set
+`git_protocol = ssh` on a fresh install — it was rejected before it shipped, and
+it is worth saying why. Under SSH, *every* `gh repo clone` needs a key registered
+on GitHub, including public repositories, which `gh` otherwise clones anonymously
+over HTTPS with no setup at all. A default that only pays off once you finish a
+later step, and quietly costs you until then, is a bad default. `gh`'s own is
+better.
 
 If you want SSH, it is one command:
 
@@ -41,6 +42,11 @@ Give it a token by exporting `ATLAS_GH_TOKEN`, or by putting it in
 ```sh
 ATLAS_GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
+
+Create it at <https://github.com/settings/tokens>. A classic token needs at least
+the `repo` scope to be useful, plus `read:org` if you work in an organisation, and
+`admin:public_key` if you want a later `atlas install core/ssh` to register your
+SSH key for you. `gh` will reject a token with no scopes at all.
 
 That file must be mode `600`. If it is readable by anyone else, Atlas **refuses to
 use the secret** — it warns, tells you to `chmod 600`, and carries on as if no
@@ -97,14 +103,15 @@ because that is work `install` can do — and the runner skips `install` entirel
 whenever `check` passes.
 
 One consequence worth knowing: on a box where `gh` is installed and you never
-supplied a token, `atlas install` skips this module silently. The "installed but
-not authenticated" warning shows up under `atlas verify` and `atlas doctor`.
+supplied a token, `atlas install` skips this module (it logs `already satisfied`)
+without saying anything about authentication. The "installed but not
+authenticated" warning shows up under `atlas verify` and `atlas doctor`.
 
 `backup` and `restore` do nothing on purpose. `gh`'s only state is an OAuth token
 in `hosts.yml` — regenerating one is cheap, leaking one is not, so Atlas will not
 copy it into a backup artifact. `config.yml` is not Atlas's to back up either.
 Modules that hold state you *cannot* regenerate — `core/ssh`, whose private key is
-your identity — do implement real, encrypted backup.
+your identity — will implement real, encrypted backup.
 
 There is no `remove` hook. Atlas wrote nothing it owns, so there is nothing to
 revert, and it will not delete a credential you granted or a package your other

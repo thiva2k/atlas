@@ -192,7 +192,35 @@ command. (`check` short-circuits before resolving when `gh` is already
 authenticated: there is no reason to read a credential nobody needs. `verify` and
 `doctor` never resolve it at all.)
 
-`env::get` is untouched; non-secret keys (`ATLAS_GIT_USER_EMAIL`) keep using it.
+`env::get` keeps its semantics — non-secret keys (`ATLAS_GIT_USER_EMAIL`) go on
+using it, and it still reads a `644` `atlas.env` — but it gains the same xtrace
+guard, as a bug fix. It walks *every* line of `atlas.env` to find one key, so
+under an operator's `bash -x` a `core/git` identity lookup was tracing
+`line=ATLAS_GH_TOKEN=ghp_…`: a module leaking a credential belonging to a
+different module, during a lookup of something else entirely. Found by running
+`bash -x ./atlas install development/github-cli` end to end; no unit test on
+`env::get_secret` could have caught it, because `env::get_secret` was never on
+that call path.
+
+#### The resolver's guard is not enough on its own
+
+`env::get_secret` can only protect its own body. The moment a caller does
+`token="$(env::get_secret …)"`, xtrace is back on and bash traces the assignment
+as `+ token=ghp_…`, then traces the value again on every expansion. The guard is
+defeated at the call site, not inside the resolver.
+
+So the rule for callers, and for every credentialed module after this one:
+**never assign a secret to a variable.** Pipe the resolver straight into the tool
+that consumes it:
+
+```sh
+env::get_secret ATLAS_GH_TOKEN | gh auth login --with-token
+```
+
+Resolve once beforehand, discarding the value (`env::get_secret KEY >/dev/null`),
+to distinguish "no usable secret" — a warning — from "the tool rejected it" — a
+failure. The value then never enters the module's shell at all: not in a trace,
+not in argv, not in the process's memory.
 
 ### 4.6 Configuration — Atlas manages none
 
@@ -369,9 +397,16 @@ Same sandbox discipline as RFC-0001, extended for a binary Atlas does not own:
 - **`gh` is mocked as a shell function** (functions take precedence over `PATH`),
   recording both its **argv** and its **stdin** to files, so tests can assert what
   was asked of it *and* that the token arrived intact on stdin.
-- Tests run under `set -euo pipefail` (the runner's flags) and drive the module
-  through `runner::run`, per the precedent set at the end of RFC-0001's branch.
+- Hook-level tests run under `set -euo pipefail`, the flags `internal/runner.sh`
+  gives a hook subshell. Runner-level tests, which drive the module through
+  `runner::run`, must instead use the `atlas` entrypoint's flags — `set +e; set -uo
+  pipefail`. Under a caller's `-e` the runner dies at the first failing module
+  before its failure tally runs, so `ATLAS_EXIT_MODULE` is never returned and an
+  "exit 4" assertion proves nothing.
 - No test may run real `dnf`, real `gh`, or touch the real `$HOME`.
+- The mocked `gh` must disable xtrace in its own body: the real `gh` is a compiled
+  binary whose internals cannot appear in a shell trace, and a mock that traces
+  them would fail the xtrace-containment assertions for the wrong reason.
 
 Required assertions:
 

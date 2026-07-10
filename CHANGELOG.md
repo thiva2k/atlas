@@ -6,6 +6,21 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `github-cli` module** (see `RFC-0003`) — installs `gh` and, only from a
+  token you supplied out of band, authenticates it without ever prompting. It
+  **owns no `gh` configuration**: an early draft set `git_protocol = ssh` on a
+  fresh install, which would have broken anonymous clones of *public* repos until
+  you registered an SSH key. `gh`'s own default is better, so Atlas leaves it be.
+  It also never runs `gh auth setup-git` — that writes into `~/.gitconfig`, which
+  belongs to the `git` module. No `remove` hook; `backup` / `restore` are no-ops,
+  because `gh`'s only state is a regenerable OAuth token Atlas will not copy.
+- `env::get_secret` (`internal/env.sh`): the credential-grade sibling of
+  `env::get`, and the precedent for every credentialed module after it. It
+  disables `xtrace` for its own duration, **refuses to consume a secret from a
+  group- or world-readable `atlas.env`** (warning, and treating the value as
+  absent rather than failing), and fails closed when a file's mode cannot be read.
+  Secrets reach tools on **stdin**, never as command-line arguments — `argv` is
+  world-readable in `/proc`.
 - **The `git` module** — the first real module, and the reference implementation
   for every module after it (see `RFC-0001`). Installs Git, layers Atlas's
   defaults *underneath* your own `~/.gitconfig` via an owned config fragment, and
@@ -24,6 +39,14 @@ All notable changes to Atlas are documented here. Format loosely follows
 - Pure-Bash test harness under `tests/`.
 
 ### Fixed
+- **`atlas.env` secrets no longer leak into a `bash -x` trace.** `env::get` walks
+  every line of `atlas.env` looking for one key, so running Atlas under `set -x`
+  traced `line=ATLAS_GH_TOKEN=ghp_…` — a credential belonging to one module,
+  printed to stderr during another module's lookup of an unrelated preference
+  (`core/git` reading your git identity). Both `env::get` and `env::get_secret`
+  now disable `xtrace` for their bodies and restore it on return, and no module
+  may assign a secret to a variable (an assignment traces its own value). Found by
+  running `bash -x ./atlas install development/github-cli` end to end.
 - **git: Atlas defaults no longer override your own git settings.** The managed
   config was wired into `~/.gitconfig` with `git config --add`, which appends —
   and because git resolves configuration positionally, the Atlas fragment was
