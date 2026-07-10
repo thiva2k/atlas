@@ -8,9 +8,9 @@ source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/module.sh"   # uses real ATLAS_MODULES_DIR ($ATLAS_ROOT/modules)
 
-expected="apps/brave apps/ghostty core/git desktop/fonts desktop/kde development/claude development/codex development/docker development/github-cli"
+expected="apps/brave apps/ghostty core/git core/ssh desktop/fonts desktop/kde development/claude development/codex development/docker development/github-cli"
 got="$(module::discover | tr '\n' ' ' | sed 's/ *$//')"
-assert_eq "all nine modules discovered" "$got" "$expected"
+assert_eq "all ten modules discovered" "$got" "$expected"
 
 # every module satisfies the contract: metadata + three required hooks + README
 fail=0
