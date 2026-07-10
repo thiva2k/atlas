@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Author** | Claude Code (for thiva2k) |
 | **Created** | 2026-07-10 |
-| **Revised** | 2026-07-10 — architecture review r1: 9 blocking, 8 adopted, 1 refuted by probe. Gate review r2: 6 blocking edits, all confirmed by probe and applied |
+| **Revised** | 2026-07-10 — architecture review r1: 9 blocking, 8 adopted, 1 refuted by probe. Gate review r2: 6 blocking edits, all confirmed by probe and applied. Post-implementation errata: see §12 |
 | **Phase / order** | Phase 1 — Foundation · module 3 of 16 |
 | **Depends on** | *nothing.* `MODULE_DEPENDS=()` — see Decision 1 |
 | **Establishes** | **Ownership of persistent state**, the **backup/restore contract**, and one **engine fact** about `errexit` |
@@ -616,9 +616,11 @@ only when they need it. See Decision 4.
 Restore never deletes, never merges, never overwrites. A second `restore` over a
 completed one finds everything byte-identical, skips everything, exits 0.
 
-**Restore re-establishes ownership.** It rewrites the manifest, so keys the user
-disowned by editing it become owned again. Restore therefore prints the list of paths it
-will own *before* it writes them.
+**Restore re-establishes ownership** in the disaster-recovery case — where the live
+manifest is *absent*, and restore writes the archived one. If the live manifest is
+merely *edited* (so it differs from the backup's), the conflict scan sees the mismatch
+and the whole restore refuses, rather than silently re-adopting keys the user disowned.
+Either way, restore prints the list of paths it will own *before* it writes anything.
 
 ### 4.13 There is no `remove` hook
 
@@ -755,8 +757,9 @@ already recorded against `development/github-cli`: the runner has `ok`/`skip`/`f
 - owned key modes correct; `~/.ssh` is `700` — else fail with the exact `chmod`
 - no owned key → **warn**, exit 0
 - row 9 → **warn**: a passphrase is set but the default path holds a key Atlas does not own
-- reports external keys by fingerprint; touches none
-- GitHub connectivity: **reported, never fatal** (below)
+- reports external keys by fingerprint and path; touches none
+- GitHub connectivity: **reported, never fatal** (below), and skipped entirely when
+  `ATLAS_SSH_NO_NETWORK=1` so `atlas verify` is fast and offline-safe
 
 **`update`:** refresh Atlas's `known_hosts` from `config/` (the pinned key may be rotated
 by a commit). Touches nothing else. Mirrors `core/git`'s fragment refresh.
@@ -1143,3 +1146,29 @@ than quietly contradicted. *Recommend: accept.*
   needs one (Decision 5).
 - **Docs:** `CONTRIBUTING.md` should record that the suite is verified on Linux/WSL, not Git
   Bash.
+
+---
+
+## 12. Errata (post-implementation, 2026-07-10)
+
+Corrections made after the implementation and its reviews, recorded here rather than
+by rewriting the body (per the RFC process: an accepted RFC is amended by a dated note,
+not silently edited). None changes a design decision.
+
+- **§4.15 said `verify` "reports external keys by fingerprint"; the first implementation
+  reported by path only.** Corrected in code — `verify` now logs both the fingerprint and
+  the path — and the wording above is fixed. (RFC-compliance review.)
+- **`ATLAS_SSH_NO_NETWORK=1` was implemented and documented in the README but not named in
+  this RFC.** It skips the GitHub connectivity probe so `atlas verify` is offline-safe.
+  Added to §4.15's `verify` list.
+- **`ATLAS_SSH_STAGING_DIR` is a knob this RFC did not anticipate.** It overrides the base
+  directory for key-material staging — for an operator whose `/dev/shm` is too small for a
+  large backup, and for the test suite (a per-sandbox directory, so tests never share the
+  global `/dev/shm`). Its addition surfaced a real gap: an override to a *disk* directory
+  must still warn that key material touches the disk. The warning is now keyed on the
+  filesystem *type* (`stat -f`), so an override to disk warns exactly like the involuntary
+  `$TMPDIR` fallback (§4.11 / §4.12 step 3). Documented in the README and `docs/conventions.md`.
+- **§4.12's "restore re-establishes ownership" was imprecise.** It is true only when the
+  live manifest is *absent* (disaster recovery). An *edited* live manifest differs from the
+  backup's and is caught by the conflict scan, so the whole restore refuses rather than
+  re-adopting disowned keys. Wording tightened.

@@ -245,7 +245,10 @@ A module that *does* hold state follows this contract:
    with an empty passphrase.
 8. **No plaintext copy.** Stage a farm of symlinks and let `tar --dereference` stream
    straight into `gpg`. Decrypt into a `700` directory on tmpfs (`/dev/shm`) where
-   available; say so in a log line when falling back to a disk-backed `$TMPDIR`.
+   available. Warn — keyed on the filesystem *type* (`stat -f`), not on how the base was
+   chosen — whenever staging lands on a real disk, so an operator override to a disk
+   directory warns exactly like the involuntary `$TMPDIR` fallback. A module may accept an
+   `ATLAS_<…>_STAGING_DIR`-style override for operators whose `/dev/shm` is too small.
 9. **Restore validates everything before writing anything.** List the archive with
    `tar -tv` (`tar -t` prints names only and cannot see member types), reject anything
    that is not a regular file or directory, then scan **every** destination for conflicts.

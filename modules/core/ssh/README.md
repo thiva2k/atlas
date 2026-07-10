@@ -120,7 +120,11 @@ What goes in: the manifest, every key Atlas owns (private and public), and Atlas
 Atlas does not own.
 
 - The plaintext archive **never touches the disk.** Staging is a farm of symlinks, and
-  `tar` streams straight into `gpg`.
+  `tar` streams straight into `gpg`. The small amount of key material that *is* staged
+  (during generation and restore) goes on a tmpfs (`/dev/shm`), so it stays in RAM. If
+  your `/dev/shm` is too small for a large backup, set `ATLAS_SSH_STAGING_DIR` to a
+  roomier tmpfs. Atlas warns if that directory turns out to be on a real disk, because
+  then the decrypted key touches the platter.
 - Atlas **reads the artifact back** before reporting success — and checks that it does
   *not* open with an empty passphrase.
 - A failed backup **never destroys the previous good one.** Atlas writes a `.tmp`,

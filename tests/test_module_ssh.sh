@@ -807,3 +807,75 @@ module::install >\"\$HOME/stdout\" 2>/dev/null || true
 # the only thing a hook may print to stdout is the __SKIP__ token (never here)
 grep -qi 'public key added' \"\$HOME/stdout\" && echo LEAKED-TO-STDOUT || echo clean-stdout" 2>&1 | tail -1)"
 assert_eq "gh registration chatter does not reach the hook's stdout" "$out" "clean-stdout"
+
+# ===========================================================================
+# Coverage the RFC-compliance review found missing (the non-network branches).
+# ===========================================================================
+
+# --- verify reports an external key by fingerprint AND path (RFC §4.15) ------
+out="$(bash -c "$PRE
+setpass ATLAS_SSH_KEY_PASSPHRASE pw; run_hook install >/dev/null 2>&1   # an owned key
+mkkey \"\$HOME/.ssh/id_stranger\" '' stranger                            # plus an external one
+fp=\$(ssh-keygen -lf \"\$HOME/.ssh/id_stranger.pub\" | awk '{print \$2}')
+run_hook verify 2>&1 | grep 'external key' | grep -q \"\$fp\" && echo reports-fp || echo NO-FP" 2>&1 | tail -1)"
+assert_eq "verify reports an external key by its fingerprint" "$out" "reports-fp"
+
+out="$(bash -c "$PRE
+mkkey \"\$HOME/.ssh/id_owned_check\" >/dev/null 2>&1 || true
+setpass ATLAS_SSH_KEY_PASSPHRASE pw; run_hook install >/dev/null 2>&1
+mkkey \"\$HOME/.ssh/id_stranger\" '' stranger
+run_hook verify 2>&1 | grep 'external key' | grep -q 'id_stranger' && echo reports-path || echo NO-PATH" 2>&1 | tail -1)"
+assert_eq "verify reports an external key by its path too" "$out" "reports-path"
+
+# --- verify row-9 warning (passphrase set, default path holds an unowned key) -
+out="$(bash -c "$PRE
+mkdir -p \"\$HOME/.ssh\"; chmod 700 \"\$HOME/.ssh\"
+mkkey \"\$HOME/.ssh/id_ed25519\" '' ext
+setpass ATLAS_SSH_KEY_PASSPHRASE pw
+run_hook install >/dev/null 2>&1
+v=\$(run_hook verify 2>&1)
+grep -qi 'does not own it' <<<\"\$v\" && echo warns || echo SILENT" 2>&1 | tail -1)"
+assert_eq "verify warns when a passphrase is set but the default key is unowned (row 9)" "$out" "warns"
+
+# --- ATLAS_SSH_NO_NETWORK skips the connectivity probe -----------------------
+# With an unencrypted owned key, verify would otherwise try `ssh -T`. The flag
+# must short-circuit that and say so.
+out="$(bash -c "$PRE
+export ATLAS_SSH_ALLOW_EMPTY_PASSPHRASE=1; run_hook install >/dev/null 2>&1
+ATLAS_SSH_NO_NETWORK=1 run_hook verify 2>&1 | grep -qi 'ATLAS_SSH_NO_NETWORK' && echo skipped || echo NOT-SKIPPED" 2>&1 | tail -1)"
+assert_eq "verify honours ATLAS_SSH_NO_NETWORK and skips the network probe" "$out" "skipped"
+
+# --- update fails cleanly when ssh is absent ---------------------------------
+out="$(bash -c "$PRE
+os::has_cmd() { case \"\$1\" in ssh|ssh-keygen) return 1 ;; *) command -v \"\$1\" >/dev/null 2>&1 ;; esac; }
+run_hook update >/dev/null 2>&1; echo \"rc=\$?\"" 2>&1 | tail -1)"
+assert_eq "update fails when ssh is not installed" "$out" "rc=1"
+
+# --- staging on a real disk WARNS (the D2 gap) -------------------------------
+# The sandbox already points ATLAS_SSH_STAGING_DIR at a disk-backed dir in WSL,
+# but assert the filesystem-type warning fires when staging is not tmpfs.
+out="$(bash -c "$PRE
+export ATLAS_SSH_STAGING_DIR=\"\$HOME/disk-staging\"; mkdir -p \"\$ATLAS_SSH_STAGING_DIR\"
+fstype=\$(stat -f -c '%T' \"\$ATLAS_SSH_STAGING_DIR\" 2>/dev/null)
+case \"\$fstype\" in tmpfs|ramfs) echo SKIP-tmpfs-host; exit 0 ;; esac
+setpass ATLAS_SSH_KEY_PASSPHRASE pw
+out2=\$(run_hook install 2>&1)
+printf '%s' \"\$out2\" | grep -qi 'touches the disk' && echo warns || echo SILENT" 2>&1 | tail -1)"
+case "$out" in
+  SKIP-tmpfs-host) _t_ok "staging-on-disk warning (host filesystem is tmpfs; test skipped)" ;;
+  *) assert_eq "staging on a non-tmpfs directory warns that it touches the disk" "$out" "warns" ;;
+esac
+
+# --- SIGPIPE regression: backup read-back must not false-fail on a large listing -
+# `printf "$listing" | grep -q` used to SIGPIPE the producer and, under pipefail,
+# misreport a present member as missing. Import several keys so the listing is long.
+out="$(bash -c "$PRE
+mkdir -p \"\$HOME/.ssh\"
+for k in a b c d e f g h; do
+  mkkey \"\$HOME/.ssh/id_\$k\" '' \"key\$k\"
+  ATLAS_SSH_IMPORT_KEY=\"\$HOME/.ssh/id_\$k\" run_hook install >/dev/null 2>&1
+done
+setpass ATLAS_BACKUP_PASSPHRASE bp
+run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
+gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf bp) 2>/dev/null | tar -t | grep -c id_ | tr -d ' '" 2>&1 | tail -2 | tr '\n' ' ')"
+assert_eq "backup of many keys succeeds and archives them all (SIGPIPE-safe read-back)" "$out" "rc=0 16 "

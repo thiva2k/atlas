@@ -42,11 +42,15 @@ _ssh_track() {
 # the plaintext never touches the disk. NEVER call in $( … ): the tracking would
 # happen in a subshell and the dir would leak.
 #
-# $ATLAS_SSH_STAGING_DIR overrides the base directory. Its purpose is twofold:
-# an operator whose /dev/shm is too small for a large backup can point it at a
-# roomier tmpfs, and the test suite points it at a per-sandbox directory so tests
-# never share the global /dev/shm. When set, no "touches the disk" warning is
-# emitted — the location is the caller's explicit choice.
+# $ATLAS_SSH_STAGING_DIR overrides the base directory — for an operator whose
+# /dev/shm is too small for a large backup, and for the test suite (a per-sandbox
+# dir, so tests never share the global /dev/shm).
+#
+# Whatever base is chosen, if it is NOT on a tmpfs the key material touches the
+# disk, and Atlas says so. The warning is keyed on the filesystem *type*, not on
+# how the base was selected — an override to a disk directory warns exactly like
+# the involuntary $TMPDIR fallback. That closes the gap where an explicit override
+# would silently decrypt private keys to disk.
 _ssh_mktemp_dir() {
   local base
   if [ -n "${ATLAS_SSH_STAGING_DIR:-}" ]; then
@@ -57,8 +61,13 @@ _ssh_mktemp_dir() {
     base=/dev/shm
   else
     base="${TMPDIR:-/tmp}"
-    log::warn "tmpfs unavailable: staging key material under $base (it touches the disk)"
   fi
+  # stat -f reports the filesystem type; tmpfs (and ramfs) keep plaintext off disk.
+  local fstype; fstype="$(stat -f -c '%T' "$base" 2>/dev/null || true)"
+  case "$fstype" in
+    tmpfs|ramfs) ;;
+    *) log::warn "staging key material under $base — a $fstype filesystem, so it touches the disk" ;;
+  esac
   _SSH_TMP="$(mktemp -d "$base/atlas-ssh.XXXXXX")" || {
     log::error "cannot create a temporary directory under $base"; return 1; }
   chmod 700 "$_SSH_TMP" || { log::error "cannot secure $_SSH_TMP"; return 1; }
@@ -350,8 +359,14 @@ _ssh_gh_authed() {
 }
 
 _ssh_gh_has_key() {              # <abs> — is this pubkey already on the account?
-  local blob; blob="$(cut -d' ' -f1,2 < "$1.pub")"
-  gh api user/keys 2>/dev/null | grep -qxF "$blob"
+  local blob keys
+  blob="$(cut -d' ' -f1,2 < "$1.pub")"
+  # Capture, then match with a here-string. `gh … | grep -q` would let grep close
+  # the pipe on its first match, `gh` would take SIGPIPE (141), and under `pipefail`
+  # the pipeline would report failure even though the key WAS found — a false
+  # "not present" that re-uploads a key already on the account.
+  keys="$(gh api user/keys 2>/dev/null)" || return 1
+  grep -qxF "$blob" <<<"$keys"
 }
 
 _ssh_register() {
@@ -553,15 +568,17 @@ module::verify() {
     fi
   fi
 
-  # External keys: report, touch nothing.
-  local f rel owned
+  # External keys: report by fingerprint AND path, touch nothing. (RFC §4.15 asks
+  # for the fingerprint — it identifies the key even if the file is later moved.)
+  local f rel owned fp
   for f in "$HOME"/.ssh/id_*; do
     case "$f" in *.pub|*'*'*) continue ;; esac
     [ -f "$f" ] || continue
     rel="$(_ssh_rel "$f")"; owned=0
     for ((i = 0; i < n; i++)); do [ "${_SSH_K_PATH[$i]}" = "$rel" ] && owned=1; done
     [ "$owned" -eq 1 ] && continue
-    log::info "external key (Atlas does not manage it): $f"
+    if [ -r "$f.pub" ]; then fp="$(_ssh_fp_of_pub "$f.pub")"; else fp="(no public half)"; fi
+    log::info "external key (Atlas does not manage it): $fp  $f"
   done
 
   for ((i = 0; i < n; i++)); do
@@ -671,12 +688,15 @@ _ssh_backup_impl() {
     rm -f "$art.tmp"; return 1
   fi
 
+  # here-strings, not `printf … | grep -q`: grep closes the pipe on its first match,
+  # printf takes SIGPIPE (141), and `pipefail` would then read the whole check as
+  # failed — a false "artifact is missing" that fails a perfectly good backup.
   for ((i = 0; i < n; i++)); do
     rel="${_SSH_K_PATH[$i]}"
-    printf '%s\n' "$listing" | grep -qxF "./home/$rel" || {
+    grep -qxF "./home/$rel" <<<"$listing" || {
       log::error "the artifact is missing $rel"; rm -f "$art.tmp"; return 1; }
   done
-  printf '%s\n' "$listing" | grep -qxF "./config/ssh/manifest" || {
+  grep -qxF "./config/ssh/manifest" <<<"$listing" || {
     log::error "the artifact is missing the manifest"; rm -f "$art.tmp"; return 1; }
 
   mv -f "$art.tmp" "$art" || { rm -f "$art.tmp"; log::error "cannot replace $art"; return 1; }
