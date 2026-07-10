@@ -44,8 +44,8 @@ env::get() {
     fi
   fi
 
-  # An `A && B` statement would itself return non-zero when rc != 0, tripping a
-  # caller's `set -e` before the restore below could run.
+  # Single exit point, so the xtrace restore below can never be skipped — the
+  # early `return 1`s this function used to have would have bypassed it.
   if [ "$rc" -eq 0 ]; then printf '%s\n' "$out"; fi
   if [ "$restore_xtrace" -eq 1 ]; then set -x; fi
   return "$rc"

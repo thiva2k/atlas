@@ -59,6 +59,7 @@ _gh_authenticate() {
   if ! env::get_secret ATLAS_GH_TOKEN | gh auth login --with-token; then
     log::error "gh did not accept the supplied token"
     log::error "  why: the token was rejected, or GitHub was unreachable — gh validates over the network and the two are indistinguishable"
+    log::error "  why: or the secret stopped being readable between resolving it and using it (its file changed mid-run)"
     log::error "  fix: check ATLAS_GH_TOKEN's value and scopes, then re-run 'atlas install development/github-cli'"
     return 1
   fi
