@@ -109,16 +109,26 @@ Auth resolution, in order:
 1. **`GH_TOKEN` or `GITHUB_TOKEN` is exported in the environment** → `gh` is
    already authenticated, from the environment, for the life of that environment.
    Atlas logs this and **does nothing else**. This is not a preference: `gh auth
-   login --with-token` *refuses to run* in this state ("The value of the GH_TOKEN
-   environment variable is being used for authentication"). Ephemeral env-based
-   auth counts as authenticated for `check` and `verify`, and the README says
-   plainly that it vanishes with the shell.
+   login --with-token` *refuses to run* in this state ("The value of the
+   `GH_TOKEN` environment variable is being used for authentication"; the message
+   names whichever variable is set). Both variables were probed and behave
+   identically (§6.1). Ephemeral env-based auth counts as authenticated for
+   `check` and `verify`, and the README says plainly that it vanishes with the
+   shell.
 2. **Already authenticated on disk** (`gh auth token >/dev/null 2>&1` succeeds) →
    log it, change nothing. A working login is user-owned state and is never
    overwritten.
 3. **Not authenticated, `ATLAS_GH_TOKEN` resolvable** → `gh auth login
    --with-token` reading the token **from stdin**, never from a command-line
    argument (argv is world-readable in `/proc`) and never echoed to a log.
+   If that command fails, `install` fails. `gh` validates the token over the
+   network, so a rejected token and an unreachable network are indistinguishable
+   by exit code, and both are treated as hard failures. This is deliberate: the
+   user supplied a credential and asked Atlas to install it; finishing "green"
+   without having done so would report a workstation as provisioned when its
+   GitHub access is not. (An install has already reached the network by this
+   point — `os::dnf_install` ran — so offline is not a state Atlas can reach and
+   still be doing useful work.)
 4. **Not authenticated, no token** → `log::warn` with the exact command to run
    (`gh auth login`), and **return success**. A missing credential is not an
    install failure, exactly as a missing Git identity is not (RFC-0001 §4.5).
@@ -197,11 +207,28 @@ The owner's ruling, adopted here:
 > configuration. Existing user configuration is immutable unless the user
 > explicitly requests migration or reset.
 
+The module resolves the config file exactly as `gh` does, and must keep mirroring
+`gh`'s lookup:
+
+```sh
+_gh_config_file() {
+  printf '%s\n' "${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}/config.yml"
+}
+```
+
+(The `:-` defaults matter: a bare `$GH_CONFIG_DIR` expands to the empty string
+under the runner's `set -u` when the variable is unset, which is every real run.)
+
+A `config.yml` written by something other than `gh` — a dotfiles manager, say — is
+still *the user's configuration*, and immutability is exactly the right response
+to it. The proxy is not "gh wrote this file"; it is "this workstation has a
+GitHub CLI configuration", which is the thing the ruling is about.
+
 Therefore:
 
-- `install` applies the managed key **iff `$GH_CONFIG_DIR/config.yml` does not
-  exist**, using `gh`'s own writer (`gh config set git_protocol ssh`). Atlas
-  never parses or edits the YAML itself.
+- `install` applies the managed key **iff that file does not exist**, using `gh`'s
+  own writer (`gh config set git_protocol ssh`). Atlas never parses or edits the
+  YAML itself.
 - If `config.yml` exists, `install` logs that `gh` is already configured and
   leaves it alone. Every subsequent run — including the run immediately after
   Atlas's own first — takes this branch, because Atlas's own `gh config set`
@@ -243,22 +270,42 @@ because it would cross a module boundary.
 **`check`** — satisfied iff:
 
 ```
-os::has_cmd gh  AND NOT ( token-resolvable AND not-authenticated )
+os::has_cmd gh
+  AND  config-file exists
+  AND  NOT ( token-resolvable AND not-authenticated )
 ```
 
 where "not-authenticated" is the offline probe `gh auth token >/dev/null 2>&1`
-failing. Read the second clause as: *if there is work `install` can do, `check`
-must fail.* When the user has supplied a token and `gh` is not logged in, Atlas
-can and should act, so `check` fails and the runner runs `install`. When no token
-exists, `install` cannot help, so `check` passes and the runner skips it — the
-warning is emitted by `verify` instead.
+failing, and "config-file" is `_gh_config_file` (§4.6).
 
-Managed configuration is **deliberately excluded** from `check`, in explicit
-contrast to `core/git`. There, `check` asserts the include is *first* precisely
-so a stale config re-migrates on the next run — anything `check` asserts must be
-something `install` can fix. Here, an existing `config.yml` is immutable by
-ruling: `install` *cannot* fix a `git_protocol` the user changed, so asserting it
-would fail `check` forever with no path to green.
+The governing rule is *if there is work `install` can do, `check` must fail* — the
+runner skips `install` entirely when `check` passes, so a `check` that ignores
+available work leaves that work undone forever.
+
+This is why the config clause is about the file's **existence**, not its
+**contents**:
+
+- **Existence is fixable.** `install` step 2 creates the file. A user who ran
+  `dnf install gh` themselves has `gh` on `PATH` and no config; without this
+  clause `check` would pass, `install` would be skipped, and `git_protocol` would
+  never be set. With it, `check` fails once, `install` runs once, and every run
+  thereafter passes — it converges permanently.
+- **Contents are not fixable.** An existing `config.yml` is immutable by ruling
+  (§4.6). If `check` asserted `git_protocol == ssh`, a user who changed it back to
+  `https` would fail `check` on every run, and `install` — forbidden from touching
+  their file — could never make it pass. That is a `check` with no path to green.
+
+This is the precise distinction `core/git` also draws: there, `check` asserts the
+include is *first* (an Atlas-owned property `install` can restore), not that
+Atlas's values *win* (a user-owned outcome it must not force).
+
+Auth is excluded from `check` when no token is resolvable, for the same reason:
+`install` cannot log a user in without a credential. Note the consequence — on
+`atlas install`, a passing `check` skips the module **including its `verify`
+hook** (`internal/runner.sh`: the `check` branch prints `__SKIP__` and exits), so
+the "installed but unauthenticated" warning is **not** printed during that run.
+It surfaces under `atlas verify` and `atlas doctor`, which is where a user looks
+for the health of an already-provisioned box.
 
 **`install`** —
 1. `os::has_cmd gh` || `os::dnf_install gh`
@@ -286,9 +333,16 @@ looking for it will actually be; a hook body that only logs "I do nothing" is
 noise in the module contract. (No `remove` platform verb exists yet in any case —
 RFC-0002.)
 
-**`backup` / `restore`** — explicit **no-op hooks**, each logging why. `gh`'s only
-persistent state is `hosts.yml`, which contains a live OAuth token. Atlas will not
-copy credentials around: regenerating a token is cheap, leaking one is not.
+**`backup` / `restore`** — explicit **no-op hooks**, each logging why. `gh` has
+exactly two pieces of persistent state, and neither is backed up:
+
+- **`hosts.yml`** holds a live OAuth token. Atlas will not copy credentials
+  around: regenerating a token is cheap, leaking one is not.
+- **`config.yml`** is *user-owned* under the immutability ruling (§4.6) — even on
+  the one run where Atlas's own `gh config set` created it. The owner's ruling
+  bounds the artifact to "only module-owned state", and this module owns no state.
+  Backing up a file Atlas has declared it may never modify would put it in the
+  restore path for a file it cannot legitimately overwrite.
 
 Per the owner's ruling this is scoped, not universal:
 
@@ -299,7 +353,10 @@ Per the owner's ruling this is scoped, not universal:
 > artifact must contain only module-owned state and should be encrypted locally.
 
 So the precedent this RFC sets is narrow: **a module may decline to back up state
-only when that state is a cheaply-regenerable credential.** `core/ssh` (RFC-0004)
+only when that state is a cheaply-regenerable credential.** That carve-out is an
+*extension* of the owner's ruling, not a restatement of it — the ruling speaks to
+modules with no persistent state, and `gh` has some. It is therefore submitted for
+approval as part of §9 decision 4. `core/ssh` (RFC-0004)
 holds state that is *not* regenerable — a lost private key is a lost identity —
 and will implement real, locally-encrypted backup/restore as the reference for
 every stateful module after it. A module that omits `backup` because backing up
@@ -340,6 +397,8 @@ Required assertions:
 - token reaches `gh` on **stdin**, and appears **nowhere** in recorded argv;
 - token absent → `install` succeeds, warns, exit 0;
 - `GH_TOKEN` exported → no `gh auth login` invocation at all; treated as authed;
+- `GITHUB_TOKEN` exported (with `GH_TOKEN` unset) → identical behaviour;
+- `gh auth login --with-token` fails → `install` fails, non-zero;
 - already authenticated on disk → auth untouched;
 - `config.yml` present → no `gh config set` invocation;
 - `config.yml` absent → exactly one `gh config set git_protocol ssh`;
@@ -348,20 +407,34 @@ Required assertions:
   succeeds;
 - `gh auth token` is never invoked with its stdout captured;
 - `verify` warns but passes when unauthenticated;
-- `check` fails when a token is resolvable and `gh` is logged out; passes when no
-  token is resolvable.
+- `check` fails when `gh` is installed but `config.yml` is absent;
+- `check` fails when a token is resolvable and `gh` is logged out;
+- `check` passes when `gh` is installed, `config.yml` exists, and no token is
+  resolvable;
+- the mocked `gh` creates `config.yml` on `config set` / `auth login` and on
+  **nothing else**, mirroring §6.1.
 
 ### 6.1 Assumptions about `gh`'s contract
 
 The mock encodes behaviour observed on **gh 2.45.0 (Ubuntu/WSL)** and **gh 2.93.0
-(Windows)**, 2026-07-09:
+(Windows)**, 2026-07-09 and 2026-07-10:
 
-1. `gh config get <key>` prints the default and returns `0` for an unset key.
+1. `gh config get <key>` prints the default and returns `0` for an unset key
+   (observed for `git_protocol`).
 2. `gh config get` does not create `config.yml`; `gh config set` does.
-3. `gh auth token` returns non-zero, offline, when no credential is stored — and
+3. Atlas's other invocations — `gh --version` and `gh auth token` — create
+   **nothing** in a fresh `GH_CONFIG_DIR` (observed: the directory stays empty).
+   This is load-bearing: if a read-only probe created `config.yml`, Atlas would
+   destroy its own fresh-config signal before `install` read it.
+4. `gh auth token` returns non-zero, offline, when no credential is stored — and
    **prints the token** when one is.
-4. `gh auth status` exit code is not stable across versions.
-5. `gh auth login --with-token` refuses when `GH_TOKEN` is exported.
+5. `gh auth status` exit code is not stable across versions.
+6. `gh auth login --with-token` refuses, exit `1`, when **either** `GH_TOKEN` or
+   `GITHUB_TOKEN` is exported; in that state `gh auth token` returns `0` and
+   echoes the environment's value. Both variables observed independently.
+7. `gh` resolves its config directory as
+   `${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}` (§4.6). Atlas mirrors
+   this; if `gh` ever changes it, the fresh-config proxy silently inverts.
 
 A mocked `gh` proves Atlas's logic, not `gh`'s. **Named follow-up gate before the
 v1.1 tag:** one manual pass of `atlas install development/github-cli` against real
@@ -394,22 +467,33 @@ codifying §4.4's credential rules and `env::get_secret` for all future modules.
 1. **Package source = Fedora's `gh`, no third-party repo, no `exit 5` fallback.**
    (Recommended.)
 
-2. **Auth = non-blocking, token-only, from stdin; absent token is a warning;
-   `ATLAS_GH_TOKEN` is the only Atlas key; an exported `GH_TOKEN` is deferred to,
-   not overridden.** Adopted as the standing credential precedent (§4.4), with
+2. **Auth = non-blocking, token-only, from stdin; absent token is a warning; a
+   supplied-but-unusable token is a hard failure; `ATLAS_GH_TOKEN` is the only
+   Atlas key; an exported `GH_TOKEN`/`GITHUB_TOKEN` is deferred to, not
+   overridden.** Adopted as the standing credential precedent (§4.4), with
    `env::get_secret` (§4.5) as its enforcement. (Recommended.)
 
-3. **Managed config set = `git_protocol=ssh`, applied only when `config.yml` is
-   absent — and nothing else.**
+3. **Managed config set = `git_protocol=ssh`, applied only when the `gh` config
+   file is absent — and nothing else.**
 
    Rationale: it is the one setting that materially changes behaviour (`gh repo
    clone` uses SSH), it aligns with `core/ssh` landing next, and the user can
    change it back with one command.
 
-   **Ordering hazard, stated plainly.** `git_protocol=ssh` presumes a key
-   registered on GitHub. `core/ssh` is module 3, and *no Atlas module can push a
-   key to GitHub without an authenticated `gh`*. So `install` emits a warning
-   naming the manual step, verbatim:
+   **The cost, stated plainly.** Under `git_protocol=ssh`, *every* `gh repo clone`
+   needs a key registered on GitHub — including clones of **public** repositories,
+   which `gh`'s stock `https` default clones anonymously with no setup at all. So
+   for a user who supplies no token and registers no key, this decision makes the
+   workstation strictly worse than an untouched `gh` until they do one of those
+   two things. The upside only lands for a user who finishes the SSH step; the
+   downside lands immediately on everyone else. This is the whole substance of the
+   decision, and it is why the "manage nothing" alternative below is a serious
+   option rather than a formality.
+
+   **Ordering hazard.** `git_protocol=ssh` presumes a key registered on GitHub.
+   `core/ssh` is module 3, and *no Atlas module can push a key to GitHub without
+   an authenticated `gh`*. So `install` emits a warning naming the manual step,
+   verbatim:
 
    > `gh` will clone over SSH. Register a key with GitHub before cloning:
    > `gh ssh-key add ~/.ssh/id_ed25519.pub` (after `atlas install core/ssh`), or
@@ -426,13 +510,21 @@ codifying §4.4's credential rules and `env::get_secret` for all future modules.
    pass. Do not reorder.
 
    *Alternative:* manage nothing at all and let `gh`'s `https` default stand,
-   deferring protocol choice entirely to the user.
+   deferring protocol choice entirely to the user. This module would then own no
+   configuration whatsoever, and `check` would drop its config clause.
 
 4. **`gh auth setup-git` is never run (§4.7); no `remove` hook (§4.8);
-   `backup`/`restore` are explicit no-ops because `hosts.yml` holds a live,
-   cheaply-regenerable token — a precedent scoped to regenerable credentials
-   only, with `core/ssh` implementing the real, encrypted reference.**
-   (Recommended.)
+   `backup`/`restore` are explicit no-ops because neither `hosts.yml` (a live,
+   cheaply-regenerable token) nor `config.yml` (user-owned by §4.6) is
+   module-owned state.**
+
+   Note this *extends* the owner's backup ruling rather than restating it: the
+   ruling gives no-op hooks to modules with **no persistent state**, and `gh` has
+   state. The extension being approved is: **a module may decline to back up state
+   when that state is either user-owned or a cheaply-regenerable credential.**
+   Declining because backup is merely *awkward* remains a bug. `core/ssh`
+   (RFC-0004) holds state that is neither — a lost private key is a lost identity —
+   and implements the real, locally-encrypted reference. (Recommended.)
 
 ## 10. Implementation plan
 
