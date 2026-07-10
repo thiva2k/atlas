@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Author** | Claude Code (for thiva2k) |
 | **Created** | 2026-07-10 |
 | **Revised** | 2026-07-10 — architecture review r1: 9 blocking, 8 adopted, 1 refuted by probe. Gate review r2: 6 blocking edits, all confirmed by probe and applied |
@@ -995,9 +995,16 @@ if it does not.
 
 ---
 
-## 9. Decisions requiring approval
+## 9. Decisions
+
+**All seven ruled by the owner on 2026-07-10, as recommended.** Decisions 1, 2, 5 and 6
+were put to the owner explicitly; 3, 4 and 7 were accepted with the RFC. The rulings are
+recorded verbatim in each subsection and are now normative — a change to any of them
+requires a superseding RFC, not an implementation decision.
 
 ### 9.1 Decision 1 — `MODULE_DEPENDS=()`, reversing the first draft
+
+**Owner ruling (2026-07-10): no dependency. `MODULE_DEPENDS=()`.**
 
 `core/ssh` needs `gh` only for an optional step, but `MODULE_DEPENDS` is Atlas's only
 ordering mechanism, and `module::discover` sorts alphabetically — so on a bare `atlas
@@ -1028,11 +1035,15 @@ manual-auth flow regardless, and is the tell that the dependency buys nearly not
 
 ### 9.2 Decision 2 — generation is opt-in
 
+**Owner ruling (2026-07-10): generation is opt-in.**
+
 A brand-new Fedora box finishes `atlas install` **without an SSH key** unless the user set
 one variable. This is "the minimal manual step where security demands it", applied to the
 most security-demanding artifact on the machine. *Recommend: accept.*
 
 ### 9.3 Decision 3 — `verify` fails on bad permissions, but never repairs them
+
+**Owner ruling (2026-07-10): accepted.**
 
 OpenSSH refuses a `644` private key, so the module is genuinely unhealthy. But `chmod`-ing a
 user's file is a modification, and the ownership ruling admits no exception. Atlas prints the
@@ -1040,12 +1051,16 @@ command. *Recommend: accept.*
 
 ### 9.4 Decision 4 — `backup` fails when it has state but no passphrase
 
+**Owner ruling (2026-07-10): accepted.**
+
 A narrow, stated exception to "absent credentials degrade to a warning, never a failed
 install". That rule protects `install`. Here the credential is the only thing between the
 user's private key and a plaintext archive. With **no owned state**, `backup` is a no-op
 success and needs no passphrase. *Recommend: accept.*
 
 ### 9.5 Decision 5 — one backup passphrase for the platform verb
+
+**Owner ruling (2026-07-10): one platform-wide `ATLAS_BACKUP_PASSPHRASE`; no per-module override.**
 
 `atlas backup` fans out to every module. If each stateful module minted its own
 `ATLAS_<MODULE>_BACKUP_PASSPHRASE`, one verb would eventually demand N secrets. So:
@@ -1064,6 +1079,8 @@ so it is surfaced here rather than settled by accretion. *Owner ruling requested
 
 ### 9.6 Decision 6 — Atlas does not touch `~/.ssh/known_hosts`
 
+**Owner ruling (2026-07-10): Atlas does not touch `~/.ssh/known_hosts`.**
+
 Atlas maintains its own pinned `known_hosts` for its own checks. It *could* also append the
 pinned GitHub entry to the user's file when that file has no `github.com` entry — recording
 the exact line in the manifest so it remains an entry Atlas owns. That would remove the TOFU
@@ -1074,6 +1091,8 @@ user-owned file for convenience, and the ruling names `known_hosts` explicitly. 
 one keystroke, and it is the user's trust decision to make.
 
 ### 9.7 Decision 7 — `gnupg2` becomes a runtime dependency
+
+**Owner ruling (2026-07-10): accepted.**
 
 Mandated by the backup ruling ("encrypted locally"). `docs/conventions.md` is amended rather
 than quietly contradicted. *Recommend: accept.*
