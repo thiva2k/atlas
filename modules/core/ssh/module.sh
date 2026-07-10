@@ -38,11 +38,22 @@ _ssh_track() {
   _SSH_CLEANUP+=("$1")
 }
 
-# Sets $_SSH_TMP to a fresh 700 dir, preferring tmpfs. NEVER call in $( … ):
-# the tracking would happen in a subshell and the dir would leak.
+# Sets $_SSH_TMP to a fresh 700 dir for key material. Prefers tmpfs (/dev/shm) so
+# the plaintext never touches the disk. NEVER call in $( … ): the tracking would
+# happen in a subshell and the dir would leak.
+#
+# $ATLAS_SSH_STAGING_DIR overrides the base directory. Its purpose is twofold:
+# an operator whose /dev/shm is too small for a large backup can point it at a
+# roomier tmpfs, and the test suite points it at a per-sandbox directory so tests
+# never share the global /dev/shm. When set, no "touches the disk" warning is
+# emitted — the location is the caller's explicit choice.
 _ssh_mktemp_dir() {
   local base
-  if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+  if [ -n "${ATLAS_SSH_STAGING_DIR:-}" ]; then
+    base="$ATLAS_SSH_STAGING_DIR"
+    [ -d "$base" ] && [ -w "$base" ] || {
+      log::error "ATLAS_SSH_STAGING_DIR is not a writable directory: $base"; return 1; }
+  elif [ -d /dev/shm ] && [ -w /dev/shm ]; then
     base=/dev/shm
   else
     base="${TMPDIR:-/tmp}"
@@ -81,6 +92,16 @@ _ssh_path_ownable() {
   case "$p" in
     *[[:space:]]*|*[[:cntrl:]]*)
       log::error "refusing a path containing whitespace or control characters"; return 1 ;;
+    *'*'*|*'?'*|*'['*|*']'*)
+      # A glob metacharacter would make `set -- $line` expand the field (and the
+      # parser is guarded against that too), but a path Atlas *owns* has no
+      # business containing one. Refuse rather than escape.
+      log::error "refusing a path containing a glob metacharacter (* ? [ ])"; return 1 ;;
+  esac
+  # A `..` component escapes $HOME even though the prefix test above passed
+  # ("$HOME"/* matches "$HOME/../etc"). Reject it explicitly.
+  case "/$p/" in
+    */../*) log::error "refusing a path containing '..': $p"; return 1 ;;
   esac
   return 0
 }
@@ -89,6 +110,13 @@ _ssh_path_ownable() {
 # The manifest is user-editable (§4.14), so its parser is a trust boundary.
 # It rejects — never repairs, never ignores. Populates the _SSH_K_* arrays.
 _ssh_manifest_load() {
+  # `set -f` for the whole function: the field split below is `set -- $line`,
+  # which performs PATHNAME EXPANSION. A path field with a glob would otherwise
+  # be rewritten against $CWD, so the same manifest would parse differently
+  # depending on where `atlas` was run. This parser is a trust boundary; its
+  # result must depend only on the file. `local -` restores globbing on return,
+  # and this function has no legitimate glob of its own.
+  local -; set -f
   _SSH_K_ORIGIN=(); _SSH_K_PATH=(); _SSH_K_FP=(); _SSH_K_HASH=(); _SSH_K_MODE=(); _SSH_GH_FP=()
   local m; m="$(_ssh_manifest)"
   [ -e "$m" ] || return 0
@@ -106,7 +134,8 @@ _ssh_manifest_load() {
     if [ "$hdr" -ne 1 ]; then
       log::error "manifest line $n: records before the '# atlas-ssh-manifest v1' header"; return 1
     fi
-    # Field-split is safe: ownable paths contain no whitespace.
+    # Split without globbing (set -f, above) and without word-splitting surprises:
+    # ownable paths contain no whitespace, and glob metacharacters are refused.
     # shellcheck disable=SC2086
     set -- $line
     case "${1:-}" in
@@ -257,6 +286,12 @@ _ssh_generate() {
       ATLAS_ROOT="$ATLAS_ROOT" ATLAS_CONFIG_HOME="$ATLAS_CONFIG_HOME" \
       SSH_ASKPASS="$helper" SSH_ASKPASS_REQUIRE=force \
       ssh-keygen -t ed25519 -f "$key" -C "$(_ssh_comment)" -q </dev/null || rc=1
+
+  # The helper is finished with — remove it now, not at subshell exit. It holds no
+  # secret, but leaving temp dirs around during a long run is untidy (§5.1: the
+  # trap is a backstop, explicit cleanup is the rule).
+  rm -rf -- "$_SSH_TMP"
+
   if [ "$rc" -ne 0 ]; then
     log::error "ssh-keygen failed"
     log::error "  why: it may have declined SSH_ASKPASS, or the passphrase was unreadable"
@@ -339,7 +374,9 @@ _ssh_register() {
       log::info "this key is already on your GitHub account — recording that"
     else
       log::info "registering $abs.pub with GitHub"
-      if ! gh ssh-key add - --title "$(_ssh_comment)" < "$abs.pub"; then
+      # `gh` prints a success line to stdout; the runner reads a hook's stdout for
+      # the `__SKIP__` control token, so send gh's chatter to the log's channel.
+      if ! gh ssh-key add - --title "$(_ssh_comment)" < "$abs.pub" >/dev/null; then
         log::warn "could not add the key to GitHub — leaving it unregistered"
         log::warn "  why: gh may lack the 'admin:public_key' scope, or GitHub was unreachable"
         log::warn "  fix: gh auth refresh -h github.com -s admin:public_key"
@@ -546,7 +583,19 @@ module::update() {
 
 # --- backup / restore: the reference implementation (RFC-0004 §4.10) ---------
 
+# Thin wrapper (see module::restore): removes the staging dir this call created —
+# a symlink farm, so no plaintext key, but temp dirs should not outlive the hook
+# that made them. The `_ssh_cleanup` trap remains the backstop.
 module::backup() {
+  local st_before="${_SSH_TMP:-}"
+  _ssh_backup_impl; local rc=$?
+  if [ -n "${_SSH_TMP:-}" ] && [ "${_SSH_TMP:-}" != "$st_before" ]; then
+    rm -rf -- "$_SSH_TMP"
+  fi
+  return "$rc"
+}
+
+_ssh_backup_impl() {
   _ssh_manifest_load || return 1
   if _ssh_any_divergent; then
     _ssh_report_divergence
@@ -592,12 +641,16 @@ module::backup() {
   chmod 700 "$(dirname "$art")" || return 1
 
   # Write a TEMP artifact. `gpg --yes -o "$art"` would truncate the last good
-  # backup before this one is verified (§4.10 item 3).
-  if ! tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
-           -cf - -C "$st" . 2>/dev/null \
-       | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
-             --symmetric --cipher-algo AES256 -o "$art.tmp" \
-             3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null
+  # backup before this one is verified (§4.10 item 3). The `umask 077` in a
+  # subshell means gpg creates the file 600 from the start — without it there is a
+  # window between gpg's create (at the process umask, typically 644) and the
+  # chmod below where the *ciphertext* is world-readable.
+  if ! ( umask 077
+         tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
+             -cf - -C "$st" . 2>/dev/null \
+         | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+               --symmetric --cipher-algo AES256 -o "$art.tmp" \
+               3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null )
   then
     log::error "the backup pipeline failed"; rm -f "$art.tmp"; return 1
   fi
@@ -633,7 +686,23 @@ module::backup() {
   return 0
 }
 
+# Thin wrapper: guarantees the staging dir — which holds DECRYPTED private keys —
+# is removed the instant restore returns, on EVERY path including failure, rather
+# than lingering on tmpfs until the module's subshell exits. The `_ssh_cleanup`
+# trap remains the backstop (a SIGKILL between here and the rm). `set -f` for the
+# duration: the archived-manifest split below is `set -- $line`, which globs.
 module::restore() {
+  local -; set -f
+  local st_before="${_SSH_TMP:-}"
+  _ssh_restore_impl; local rc=$?
+  # Remove the staging dir this call created (if any), even on the failure paths.
+  if [ -n "${_SSH_TMP:-}" ] && [ "${_SSH_TMP:-}" != "$st_before" ]; then
+    rm -rf -- "$_SSH_TMP"
+  fi
+  return "$rc"
+}
+
+_ssh_restore_impl() {
   local art; art="$(_ssh_artifact)"
   [ -f "$art" ] || { log::error "no backup artifact at $art"; return 1; }
   os::has_cmd gpg || { log::error "gpg is not installed"; return 1; }
@@ -688,9 +757,20 @@ module::restore() {
     line="${line%$'\r'}"
     case "$line" in ''|\#*) continue ;; esac
     # shellcheck disable=SC2086
-    set -- $line
+    set -- $line                                  # globbing disabled by the wrapper's set -f
     [ "${1:-}" = "key" ] || continue
+    # The archived manifest is untrusted input. A short record must be REJECTED,
+    # not crash the hook: under the runner's `set -u`, `rel="$3"` on a 2-field
+    # line aborts the whole subshell with `$3: unbound variable`.
+    if [ "$#" -ne 6 ]; then log::error "the artifact's manifest has a malformed key record"; return 1; fi
     rel="$3"; fp="$4"; hash="$5"; mode="$6"
+    # `dst` is built as `$HOME/$rel`. A `..`, an absolute path, or a glob in `rel`
+    # would let a crafted (passphrase-protected) artifact write outside where Atlas
+    # is allowed to. Refuse; the write target must stay a plain path under $HOME.
+    case "$rel" in
+      /*|*..*) log::error "the artifact names an unsafe key path: $rel"; return 1 ;;
+      *'*'*|*'?'*|*'['*|*']'*) log::error "the artifact names a glob key path: $rel"; return 1 ;;
+    esac
     src="$st/x/home/$rel"
     [ -f "$src" ] || { log::error "the artifact is missing $rel"; return 1; }
     [ "$(_ssh_hash_of "$src")" = "$hash" ] || { log::error "$rel does not match its recorded hash"; return 1; }

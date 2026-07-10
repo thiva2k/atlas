@@ -22,6 +22,8 @@ ATLAS_CONFIG_HOME="$HOME/.config/atlas"; export ATLAS_CONFIG_HOME
 ATLAS_STATE_DIR="$HOME/.state"; export ATLAS_STATE_DIR
 GH_CONFIG_DIR="$HOME/.config/gh"; export GH_CONFIG_DIR
 GNUPGHOME="$HOME/.gnupg"; export GNUPGHOME
+ATLAS_SSH_STAGING_DIR="$HOME/.staging"; export ATLAS_SSH_STAGING_DIR
+mkdir -p "$ATLAS_SSH_STAGING_DIR"
 mkdir -p "$ATLAS_CONFIG_HOME" "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
 unset ATLAS_SSH_KEY_PASSPHRASE ATLAS_SSH_ALLOW_EMPTY_PASSPHRASE ATLAS_SSH_IMPORT_KEY \
       ATLAS_BACKUP_PASSPHRASE GH_TOKEN GITHUB_TOKEN 2>/dev/null || true
@@ -667,30 +669,34 @@ grep -qi 'ATLAS_BACKUP_PASSPHRASE' \"\$HOME/o\" && echo names-the-secret || echo
 assert_eq "backup without a passphrase names the missing secret, not a pipeline error" "$out" "names-the-secret"
 
 # --- staging must never outlive a hook -------------------------------------
-# The restore staging dir holds PLAINTEXT private keys on tmpfs. The single
-# EXIT trap (§5.1) must remove it on every path, including failures. (bash runs
-# an EXIT trap on SIGINT and SIGTERM too — verified; only SIGKILL can defeat it.)
-_shm_count() { find /dev/shm -maxdepth 1 -name 'atlas-ssh.*' 2>/dev/null | wc -l; }
+# The restore staging dir holds PLAINTEXT private keys. Cleanup must happen the
+# moment the hook returns, on EVERY path including failure — not merely when the
+# module's subshell exits (the trap is only the backstop). The check runs INSIDE
+# each sandbox, before its process exits, because $ATLAS_SSH_STAGING_DIR is
+# per-sandbox (a fresh $HOME per test), so an outer-scope count cannot see it.
+# `count()` reports how many staging dirs remain right after the hook returned.
+_STAGE='count() { find "$ATLAS_SSH_STAGING_DIR" -maxdepth 1 -name '"'"'atlas-ssh.*'"'"' 2>/dev/null | wc -l; }'
 
-before="$(_shm_count)"
-bash -c "$BACKED" >/dev/null 2>&1
-assert_eq "install+backup leave no staging dir behind" "$(_shm_count)" "$before"
+out="$(bash -c "$BACKED; $_STAGE; echo remaining=\$(count)" 2>&1 | tail -1)"
+assert_eq "install+backup leave no staging dir behind" "$out" "remaining=0"
 
-bash -c "$BACKED
+out="$(bash -c "$BACKED; $_STAGE
 rm -rf \"\$HOME/.ssh\" \"\$ATLAS_CONFIG_HOME/ssh\"
-run_hook restore" >/dev/null 2>&1
-assert_eq "a successful restore leaves no staging dir behind" "$(_shm_count)" "$before"
+run_hook restore >/dev/null 2>&1
+echo remaining=\$(count)" 2>&1 | tail -1)"
+assert_eq "a successful restore leaves no staging dir behind" "$out" "remaining=0"
 
-bash -c "$BACKED
+out="$(bash -c "$BACKED; $_STAGE
 printf 'MINE\n' > \"\$HOME/.ssh/id_ed25519\"
-run_hook restore" >/dev/null 2>&1
-assert_eq "a FAILED restore leaves no staging dir behind" "$(_shm_count)" "$before"
+run_hook restore >/dev/null 2>&1
+echo remaining=\$(count)" 2>&1 | tail -1)"
+assert_eq "a FAILED restore leaves no staging dir behind" "$out" "remaining=0"
 
 out="$(bash -c "$BACKED
 rm -rf \"\$HOME/.ssh\" \"\$ATLAS_CONFIG_HOME/ssh\"
 run_hook restore >/dev/null 2>&1
-grep -rlqs 'BEGIN OPENSSH PRIVATE KEY' /dev/shm 2>/dev/null && echo KEY-ON-TMPFS || echo clean" 2>&1 | tail -1)"
-assert_eq "no private key is left in /dev/shm after restore" "$out" "clean"
+grep -rlqs 'BEGIN OPENSSH PRIVATE KEY' \"\$ATLAS_SSH_STAGING_DIR\" 2>/dev/null && echo KEY-LEFT || echo clean" 2>&1 | tail -1)"
+assert_eq "no decrypted private key is left in staging after restore" "$out" "clean"
 
 # The one hook that runs three times in a single runner subshell must still
 # return 0 — a trap that names a dead `local` would flip it to 1 (§5.1).
@@ -700,3 +706,104 @@ setpass ATLAS_SSH_KEY_PASSPHRASE pw; setpass ATLAS_BACKUP_PASSPHRASE bp
   for h in check install verify; do if ! \"module::\$h\"; then :; fi; done ) >/dev/null 2>&1
 echo \"rc=\$?\"" 2>&1 | tail -1)"
 assert_eq "check+install+verify in one subshell: cleanup does not flip rc to 1" "$out" "rc=0"
+
+# ===========================================================================
+# Regressions for findings from the implementation + security reviews.
+# ===========================================================================
+
+# --- F/impl-1: an import path with `..` escapes $HOME ------------------------
+# It was accepted, install succeeded, check/verify passed — while backup was
+# permanently broken. Now the import is refused up front.
+out="$(bash -c "$PRE
+mkdir -p \"\$HOME/.ssh\" \"\$HOME/outside\"
+mkkey \"\$HOME/outside/id_key\" '' out
+export ATLAS_SSH_IMPORT_KEY=\"\$HOME/../$(basename \"\$HOME\")/outside/id_key\"
+run_hook install >/dev/null 2>&1; echo \"rc=\$?\"
+[ -s \"\$(manifest)\" ] && grep -q '\\.\\.' \"\$(manifest)\" && echo ESCAPED-INTO-MANIFEST || echo clean-manifest" 2>&1 | tail -2 | tr '\n' ' ')"
+assert_eq "import of a \$HOME/../ path is refused, never recorded" "$out" "rc=1 clean-manifest "
+
+out="$(bash -c "$PRE
+run_hook install >/dev/null 2>&1     # baseline: define funcs
+source \"\$MOD\"
+_ssh_path_ownable \"\$HOME/../etc/passwd\" 2>/dev/null && echo ACCEPTED || echo refused" 2>&1 | tail -1)"
+assert_eq "_ssh_path_ownable refuses a .. component" "$out" "refused"
+
+# --- F/impl-2: glob metacharacter in a manifest path ------------------------
+# `set -- $line` used to pathname-expand the field. The parser must now be
+# CWD-independent, and an ownable path must not contain a glob char at all.
+out="$(bash -c "$PRE
+source \"\$MOD\"
+_ssh_path_ownable \"\$HOME/.ssh/id_[work]\" 2>/dev/null && echo ACCEPTED || echo refused" 2>&1 | tail -1)"
+assert_eq "_ssh_path_ownable refuses a glob metacharacter" "$out" "refused"
+
+# The parser gives the SAME answer regardless of \$CWD, even with a decoy present.
+out="$(bash -c "$PRE
+setpass ATLAS_SSH_KEY_PASSPHRASE pw; run_hook install >/dev/null 2>&1
+# hand-craft a manifest whose path is a glob, plus a decoy the glob could match
+mkkey \"\$HOME/.ssh/id_decoy\" '' decoy
+fp=\$(grep '^key ' \"\$(manifest)\" | cut -d' ' -f4)
+h=\$(grep '^key ' \"\$(manifest)\" | cut -d' ' -f5)
+printf '# atlas-ssh-manifest v1\nkey generated .ssh/id_* %s %s 600\n' \"\$fp\" \"\$h\" > \"\$(manifest)\"
+chmod 600 \"\$(manifest)\"
+a=\$(cd \"\$HOME\"      && run_hook check >/dev/null 2>&1; echo \$?)
+b=\$(cd /             && run_hook check >/dev/null 2>&1; echo \$?)
+[ \"\$a\" = \"\$b\" ] && echo cwd-independent || echo CWD-DEPENDENT:\$a/\$b" 2>&1 | tail -1)"
+assert_eq "the manifest parser gives the same answer from any \$CWD" "$out" "cwd-independent"
+
+# --- F/impl-3: a short key record in the ARCHIVED manifest -------------------
+# Under the runner's set -u this used to crash the subshell with `$3: unbound`.
+# It must now be a clean rejection, and nothing may be written.
+out="$(bash -c "$BACKED; rm -rf \"\$HOME/.ssh\"
+w=\$(mktemp -d)
+gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null | tar -x -C \"\$w\"
+printf '# atlas-ssh-manifest v1\nkey generated\n' > \"\$w/config/ssh/manifest\"   # 2 fields
+tar -cf - -C \"\$w\" ./home ./config | gpg --batch --yes -q --pinentry-mode loopback \
+   --passphrase-fd 3 --symmetric --cipher-algo AES256 -o \"\$(artifact)\" 3< <(printf 'bp\n')
+run_hook restore >\"\$HOME/o\" 2>&1; echo \"rc=\$?\"
+grep -qi 'unbound variable' \"\$HOME/o\" && echo CRASHED || echo clean-rejection
+[ -e \"\$HOME/.ssh/id_ed25519\" ] && echo WROTE || echo nothing-written" 2>&1 | tail -3 | tr '\n' ' ')"
+assert_eq "restore rejects a short key record without crashing, writing nothing" "$out" "rc=1 clean-rejection nothing-written "
+
+# --- F/security: an artifact whose manifest names a path outside .ssh --------
+# `dst=$HOME/$rel`; a crafted (passphrase-protected) artifact could name
+# ../ or an absolute rel. Even a plain `home/`-rooted member combined with a
+# manifest `rel` of `.bashrc` would drop a file into $HOME. Refuse unsafe rel.
+out="$(bash -c "$BACKED; rm -rf \"\$HOME/.ssh\"
+w=\$(mktemp -d)
+gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null | tar -x -C \"\$w\"
+# rename the archived key to a traversal path and point the manifest at it
+fp=\$(grep '^key ' \"\$w/config/ssh/manifest\" | cut -d' ' -f4)
+h=\$(grep '^key ' \"\$w/config/ssh/manifest\" | cut -d' ' -f5)
+printf '# atlas-ssh-manifest v1\nkey generated ../evil %s %s 600\n' \"\$fp\" \"\$h\" > \"\$w/config/ssh/manifest\"
+tar -cf - -C \"\$w\" ./home ./config | gpg --batch --yes -q --pinentry-mode loopback \
+   --passphrase-fd 3 --symmetric --cipher-algo AES256 -o \"\$(artifact)\" 3< <(printf 'bp\n')
+run_hook restore >/dev/null 2>&1; echo \"rc=\$?\"
+[ -e \"\$HOME/../evil\" ] && { echo ESCAPED; rm -f \"\$HOME/../evil\"; } || echo contained" 2>&1 | tail -2 | tr '\n' ' ')"
+assert_eq "restore refuses a manifest rel that escapes with .." "$out" "rc=1 contained "
+
+# --- F/rfc-compliance: no decrypted key lingers in staging on FAILURE --------
+# The wrapper removes staging on every return; the trap is only the backstop.
+# Run a FAILING restore and confirm the decrypted key is gone immediately after
+# the hook returns (not merely after the process exits).
+out="$(bash -c "$BACKED
+printf 'MINE\n' > \"\$HOME/.ssh/id_ed25519\"          # forces a conflict AFTER decryption
+run_hook restore >/dev/null 2>&1
+# still inside the SAME shell — the trap has NOT fired yet
+found=\$(find \"\$ATLAS_SSH_STAGING_DIR\" -maxdepth 3 -name 'archive.tar' 2>/dev/null | wc -l)
+leaked=\$(grep -rlqs 'BEGIN OPENSSH PRIVATE KEY' \"\$ATLAS_SSH_STAGING_DIR\"/atlas-ssh.* 2>/dev/null && echo yes || echo no)
+echo \"staging=\$found key-in-staging=\$leaked\"" 2>&1 | tail -1)"
+assert_eq "a failed restore removes its decrypted staging immediately" "$out" "staging=0 key-in-staging=no"
+
+# --- suggestion: the backup .tmp is never world-readable, even mid-write -----
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+run_hook backup >/dev/null 2>&1
+stat -c '%a' \"\$(artifact)\"" 2>&1 | tail -1)"
+assert_eq "the finished artifact is mode 600" "$out" "600"
+
+# --- suggestion: gh registration prints nothing to the hook's stdout ---------
+out="$(bash -c "$PRE; export GH_PRESENT=1 GH_AUTHED=1
+setpass ATLAS_SSH_KEY_PASSPHRASE pw
+module::install >\"\$HOME/stdout\" 2>/dev/null || true
+# the only thing a hook may print to stdout is the __SKIP__ token (never here)
+grep -qi 'public key added' \"\$HOME/stdout\" && echo LEAKED-TO-STDOUT || echo clean-stdout" 2>&1 | tail -1)"
+assert_eq "gh registration chatter does not reach the hook's stdout" "$out" "clean-stdout"
