@@ -112,6 +112,17 @@ _ssh_path_ownable() {
   case "/$p/" in
     */../*) log::error "refusing a path containing '..': $p"; return 1 ;;
   esac
+  # An owned key lives directly in ~/.ssh. Requiring that is not cosmetic: the
+  # backup artifact is portable (designed to be copied off-box), and restore
+  # writes each owned key to its recorded path. Without this, a tampered artifact
+  # whose manifest names `.bashrc` (no `..`, not absolute) would drop arbitrary
+  # bytes at ~/.bashrc — a write-anything-under-$HOME vector on restore. SSH keys
+  # belong in ~/.ssh; constrain ownership to there. (Security hardening, §12.)
+  case "$p" in
+    "$HOME"/.ssh/*/*) log::error "an owned key must be directly in ~/.ssh, not a subdirectory: $p"; return 1 ;;
+    "$HOME"/.ssh/?*) ;;
+    *) log::error "Atlas only manages keys in ~/.ssh; refusing $p"; return 1 ;;
+  esac
   return 0
 }
 
@@ -790,6 +801,15 @@ _ssh_restore_impl() {
     case "$rel" in
       /*|*..*) log::error "the artifact names an unsafe key path: $rel"; return 1 ;;
       *'*'*|*'?'*|*'['*|*']'*) log::error "the artifact names a glob key path: $rel"; return 1 ;;
+    esac
+    # An owned key lives directly in ~/.ssh. A crafted, passphrase-protected
+    # artifact must not be able to name (say) `.bashrc` and have restore write
+    # arbitrary bytes there. The generated key is `.ssh/id_ed25519`; imports are
+    # constrained to ~/.ssh too. (Security hardening, §12.)
+    case "$rel" in
+      .ssh/*/*) log::error "the artifact names a key outside ~/.ssh: $rel"; return 1 ;;
+      .ssh/?*) ;;
+      *) log::error "the artifact names a key outside ~/.ssh: $rel"; return 1 ;;
     esac
     src="$st/x/home/$rel"
     [ -f "$src" ] || { log::error "the artifact is missing $rel"; return 1; }

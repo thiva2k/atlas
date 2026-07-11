@@ -1172,3 +1172,14 @@ not silently edited). None changes a design decision.
   live manifest is *absent* (disaster recovery). An *edited* live manifest differs from the
   backup's and is caught by the conflict scan, so the whole restore refuses rather than
   re-adopting disowned keys. Wording tightened.
+- **Owned keys are constrained to `~/.ssh` (security hardening).** A self-run security
+  audit found that, in disaster recovery (a clean `$HOME` with no live manifest), a
+  tampered but passphrase-valid backup artifact whose manifest named a path like
+  `.bashrc` would write arbitrary bytes to `$HOME/.bashrc` — the manifest sets the
+  recorded hash, so the content is attacker-chosen — an RCE vector on the next shell.
+  The precondition (know `ATLAS_BACKUP_PASSPHRASE` and be able to replace the artifact)
+  usually implies same-uid access to `$HOME` already, so severity is low; but the
+  artifact is explicitly designed to be copied off-box, so restore must not trust it to
+  name arbitrary `$HOME` paths. Import and restore now both require an owned key to live
+  directly in `~/.ssh`. This slightly narrows §4.6 (which said only "under `$HOME`");
+  no test or documented workflow imported a key elsewhere. Regression-tested.

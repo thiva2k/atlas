@@ -76,8 +76,11 @@ This writes a line to the manifest. It does **not** chmod, rewrite, move or re-e
 your key. All it means is: from now on, Atlas will back this key up, verify it, and
 offer it to GitHub.
 
-The path must be a regular file (not a symlink) under `$HOME`, with a `.pub` beside it,
-and no whitespace in its name.
+The path must be a regular file (not a symlink) **directly in `~/.ssh`**, with a `.pub`
+beside it, and no whitespace or glob characters in its name. Atlas manages keys only in
+`~/.ssh` — that is where SSH keys live, and constraining ownership there means a backup
+artifact (which is portable, and which you may copy off-box) can never, on restore, name
+a path like `~/.bashrc` and drop bytes outside `~/.ssh`.
 
 ## GitHub
 

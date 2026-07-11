@@ -879,3 +879,31 @@ setpass ATLAS_BACKUP_PASSPHRASE bp
 run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
 gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf bp) 2>/dev/null | tar -t | grep -c id_ | tr -d ' '" 2>&1 | tail -2 | tr '\n' ' ')"
 assert_eq "backup of many keys succeeds and archives them all (SIGPIPE-safe read-back)" "$out" "rc=0 16 "
+
+# --- SECURITY: a portable artifact must not name a key outside ~/.ssh ---------
+# In disaster recovery (clean $HOME, no live manifest) a tampered, passphrase-
+# protected artifact whose manifest names `.bashrc` would otherwise write
+# arbitrary bytes to $HOME/.bashrc — RCE on the next shell. Owned keys live in
+# ~/.ssh; restore refuses anything else. (Self-run security audit finding.)
+out="$(bash -c "$BACKED
+w=\$(mktemp -d)
+gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf bp) 2>/dev/null | tar -x -C \"\$w\"
+fp=\$(awk '/^key /{print \$4}' \"\$w/config/ssh/manifest\")
+h=\$(awk '/^key /{print \$5}' \"\$w/config/ssh/manifest\")
+mv \"\$w/home/.ssh/id_ed25519\" \"\$w/home/.bashrc\"
+mv \"\$w/home/.ssh/id_ed25519.pub\" \"\$w/home/.bashrc.pub\"
+rmdir \"\$w/home/.ssh\" 2>/dev/null
+printf '# atlas-ssh-manifest v1\nkey generated .bashrc %s %s 600\n' \"\$fp\" \"\$h\" > \"\$w/config/ssh/manifest\"
+tar -cf - -C \"\$w\" . | gpg --batch --yes -q --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 -o \"\$(artifact)\" 3< <(printf bp)
+rm -rf \"\$HOME/.ssh\" \"\$ATLAS_CONFIG_HOME/ssh\"
+run_hook restore >/dev/null 2>&1; echo rc=\$?
+[ -f \"\$HOME/.bashrc\" ] && echo WROTE-BASHRC || echo contained" 2>&1 | tail -2 | tr '\n' ' ')"
+assert_eq "restore refuses an artifact naming a key outside ~/.ssh (write-under-HOME)" "$out" "rc=1 contained "
+
+# import of a key outside ~/.ssh is refused (same constraint, at import time)
+out="$(bash -c "$PRE
+mkdir -p \"\$HOME/keys\"; mkkey \"\$HOME/keys/id_x\" '' kx
+export ATLAS_SSH_IMPORT_KEY=\"\$HOME/keys/id_x\"
+run_hook install >/dev/null 2>&1; echo rc=\$?
+{ [ -s \"\$(manifest)\" ] && grep -q keys/id_x \"\$(manifest)\"; } && echo RECORDED || echo not-recorded" 2>&1 | tail -2 | tr '\n' ' ')"
+assert_eq "import refuses a key outside ~/.ssh" "$out" "rc=1 not-recorded "
