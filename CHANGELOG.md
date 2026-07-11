@@ -6,6 +6,15 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `docker` module** (see `RFC-0005`) — installs Docker CE from Docker's
+  Fedora repository, enables the rootful `docker.service`, and records ownership
+  with an Atlas marker. The module owns only the installation boundary: repository
+  file, package intent, service enablement, and marker. It never adopts an
+  unmanaged Docker installation, never adds the user to the `docker` group, never
+  writes daemon policy, and never touches images, containers, volumes, networks,
+  build cache, registries, Compose projects, or `/var/lib/docker`. `verify`
+  follows the updated contract: unmanaged and detached systems are valid, while
+  broken Atlas-managed state fails.
 - **The `ssh` module** (see `RFC-0004`) — the first Atlas module that manages state
   you cannot regenerate. It installs the OpenSSH client, and then mostly *refuses*:
   on a machine that already has keys, `atlas install core/ssh` changes nothing. It

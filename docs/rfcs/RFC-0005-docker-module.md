@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed — architecture review complete; owner acceptance required |
+| **Status** | Accepted |
 | **Created** | 2026-07-11 |
 | **Phase / order** | Phase 2 — Container infrastructure · module 4 of 16 |
 | **Depends on** | Nothing — `MODULE_DEPENDS=()` |
