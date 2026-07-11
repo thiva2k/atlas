@@ -215,3 +215,79 @@ passed only because `die`'s code is also 4. Both suites now use the entrypoint's
 - RFC-0002 (platform verb `remove`) is a Proposed stub.
 - The EUID-0/non-root-owned guard in `core/git` is still untested (needs root/fakeroot).
 - CONTRIBUTING should say the suite is verified on Linux/WSL, not Git Bash.
+
+---
+
+# Phase 1, module 3 — `core/ssh` (RFC-0004) — MERGED
+
+Merged to `main` as `ce4c08a`, pushed (`9f6882a..ce4c08a`). Suite: **328 passed, 0 failed**
+(was 283 at RFC-0004 start, 111 at v1.1 open). Module inventory: 11 modules.
+
+## What shipped
+- `modules/core/ssh/` — installs OpenSSH; **refuses by default**. Generates an ed25519
+  identity only when `ATLAS_SSH_KEY_PASSPHRASE` is supplied (that IS the opt-in), adopts
+  an existing key only via `ATLAS_SSH_IMPORT_KEY`, never chmods/rewrites/deletes a file it
+  did not create. Best-effort `gh ssh-key add`. Never writes the user's `~/.ssh/known_hosts`.
+- **The backup contract** (`docs/conventions.md`) — the reference every stateful module
+  inherits: one platform-wide `ATLAS_BACKUP_PASSPHRASE`; symlink-farm + `tar --dereference`
+  → `gpg` (no plaintext archive on disk); `.tmp`→read-back→`mv` (never truncate a good
+  artifact unverified); read-back asserts it will NOT open with an empty passphrase;
+  `tar -tv` allow-list + conflict-scan-before-write on restore; deterministic tar, NON-
+  deterministic ciphertext.
+- Ownership manifest bound to disk by **two** values (pubfp + sha256 of the private file),
+  because `ssh-keygen -lf <private>` silently reads the sibling `.pub`.
+- No-op `backup`/`restore` for `core/git` (discharges RFC-0003 §4.8).
+- `docs/security/core-ssh-audit-2026-07-11.md` — the security audit.
+
+## Owner rulings (all 2026-07-10, as recommended)
+- Generation is opt-in. · One platform-wide `ATLAS_BACKUP_PASSPHRASE`, no per-module
+  override. · `MODULE_DEPENDS=()` (Fable reversed the draft: MODULE_DEPENDS orders
+  *installation* but registration needs *authentication*, a permitted manual step). ·
+  Atlas never touches `~/.ssh/known_hosts`. · verify fails-but-never-chmods bad perms. ·
+  backup fails (not warns) when it has state but no passphrase. · `gnupg2` runtime dep.
+
+## Engine facts discovered (now in docs/conventions.md — they invalidate assumptions
+## the earlier modules were written under)
+- **`set -e` is SUSPENDED inside every hook.** The runner calls hooks `if ! module::x`,
+  and bash ignores errexit in a condition, recursively. `-u`/`pipefail` survive. An
+  unchecked `d=$(mktemp -d)` → empty → `rm -rf "$d"/` = `rm -rf /`. Every fallible command
+  must be explicitly checked.
+- **A `trap … EXIT` in a hook is subshell-global.** check/install/verify share one
+  subshell, so a later trap REPLACES an earlier one; a trap body naming a hook `local`
+  errors under `-u` and flips a SUCCEEDED module to rc=1. → one module-scope array, one
+  idempotent trap over globals.
+- **`producer | grep -q` SIGPIPEs under `pipefail`.** grep closes the pipe on match, the
+  producer takes 141, pipefail reports failure on a successful match. Fixed here (backup
+  read-back false-"missing"; gh dedup false-"not present" → re-upload) AND in the already-
+  merged `core/git` (2 spots) — the RFC-0004 §11 audit item, discharged.
+
+## Verification beyond the suite
+- **Mutation testing:** 16 planted defects (one per safety guard) — all 16 killed. First
+  sweep found 9 guards that survived their own removal (9 test holes, closed) + one test
+  passing for the wrong reason (a mock gpg mis-parsed `--pinentry-mode loopback`).
+- **E2E under `bash -x`** on sandboxed HOME, production `/dev/shm` path: neither passphrase
+  in the trace, artifact refuses empty passphrase, byte-identical restore, conflict writes
+  nothing, external key untouched, `/dev/shm` clean.
+- **Security audit (self-run, 18 checks, 0 fail).** One LOW finding fixed: F-SSH-1 —
+  restore of a tampered portable artifact naming `rel=.bashrc` wrote arbitrary bytes under
+  `$HOME` (RCE). Owned keys now constrained to `~/.ssh` at import and restore.
+
+## Reviews
+Architecture (Fable, 2 rounds → accept), implementation (Opus → MERGE-WITH-EDITS, 3
+fixed), RFC-compliance+docs (Opus → COMPLIANT-WITH-EDITS, verified the pinned GitHub host
+key against live api.github.com/meta), security (self-run after 3 subagent failures —
+2 session limits, 1 watchdog stall → SECURE-TO-MERGE). RFC-0004 carries a §12 Errata for
+the post-acceptance corrections.
+
+## Still owed (carried forward)
+- **v1.1-tag gate:** the manual acceptance run against **real gh + real GitHub + real gpg**
+  on the clean Fedora box (RFC §11). The mock proves Atlas's logic, not the tools' contracts.
+- **Engine RFC:** the runner has ok/skip/fail but no **warn** — rows 4 & 9 (installed-but-
+  unauthenticated, unowned-key-at-default-path) are invisible in an `atlas install` summary.
+- **Audit:** `development/github-cli` for the `set -e`-suspended and trap-in-hook facts
+  (core/git was audited here; its 2 SIGPIPE spots fixed).
+- **CONTRIBUTING.md:** record the suite is verified on Linux/WSL, not Git Bash.
+- `os::flatpak_install` still a placeholder (needed before Phase 4/5). RFC-0002 (`remove`
+  verb) still a Proposed stub.
+
+## Next: Phase 2 opens with **Docker** (RFC-0005), then {python, node, uv} depend on it.
