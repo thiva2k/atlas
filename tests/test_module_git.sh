@@ -14,6 +14,7 @@ export HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 export GIT_CONFIG_SYSTEM=/dev/null
 export ATLAS_CONFIG_HOME="$HOME/.config/atlas"
+export ATLAS_STATE_DIR="$HOME/.local/state/atlas"
 source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/os.sh"
@@ -60,9 +61,19 @@ assert_contains "git install calls dnf when git absent" \
   "$(bash -c "$PRE"' os::has_cmd() { [ "$1" = git ] && return 1; command -v "$1" >/dev/null 2>&1; }; module::install 2>&1')" \
   "DNF:git"
 
-# verify: fails before install, passes after
-assert_status "git verify fails before install" 1 bash -c "$PRE"' module::verify'
+# verify: a clean pre-install workstation is valid, but adopted state must be healthy
+assert_status "git verify passes before install (not installed)" 0 bash -c "$PRE"' module::verify'
 assert_status "git verify passes after install" 0 bash -c "$PRE"' module::install >/dev/null 2>&1; module::verify'
+
+assert_status "git verify fails when Atlas marker exists but fragment is missing" 1 bash -c "$PRE"'
+  mkdir -p "$(dirname "$(_git_install_marker)")"
+  : > "$(_git_install_marker)"
+  module::verify'
+
+assert_status "git verify fails when fragment exists but include is missing" 1 bash -c "$PRE"'
+  mkdir -p "$ATLAS_CONFIG_HOME/git"
+  cp "$_GIT_MODULE_DIR/config/gitconfig" "$ATLAS_CONFIG_HOME/git/gitconfig"
+  module::verify'
 
 # --- include placement: Atlas provides defaults, the user always wins ---------
 # RFC-0001 §4.4. git resolves config positionally (last value wins) and expands
@@ -235,6 +246,7 @@ source "$ATLAS_ROOT/internal/runner.sh"
 '
 assert_status "git installs cleanly through runner::run" 0 bash -c "$RUN"' runner::run install core/git'
 assert_status "git verifies through runner::run"         0 bash -c "$RUN"' runner::run install core/git >/dev/null 2>&1; runner::run verify core/git'
+assert_status "git verifies cleanly through runner::run before install" 0 bash -c "$RUN"' runner::run verify core/git'
 assert_status "git updates through runner::run"          0 bash -c "$RUN"' runner::run install core/git >/dev/null 2>&1; runner::run update core/git'
 
 # a second install is skipped by the runner, not re-run
@@ -276,6 +288,11 @@ assert_status "git remove deletes the managed fragment" 0 bash -c "$PRE"'
   module::install >/dev/null 2>&1
   module::remove  >/dev/null 2>&1
   [ ! -e "$ATLAS_CONFIG_HOME/git/gitconfig" ]'
+
+assert_status "git remove clears the installed-state marker" 0 bash -c "$PRE"'
+  module::install >/dev/null 2>&1
+  module::remove  >/dev/null 2>&1
+  [ ! -e "$(_git_install_marker)" ]'
 
 assert_status "git check is unsatisfied after remove" 1 bash -c "$PRE"'
   module::install >/dev/null 2>&1

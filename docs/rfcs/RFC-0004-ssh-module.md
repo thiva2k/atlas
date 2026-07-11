@@ -479,22 +479,41 @@ env::get_secret ATLAS_BACKUP_PASSPHRASE >/dev/null || {
   return 1
 }
 
-# 2. write to a TEMP artifact; never truncate the last good one (contract item 3)
-if ! tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
-         -cf - -C "$staging" . \
-     | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
-           --symmetric --cipher-algo AES256 -o "$artifact.tmp" \
-           3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE)
+# 2. give this run one same-directory candidate; concurrent runs never share it
+candidate="$(mktemp "$artifact.tmp.XXXXXX")" || return 1
+chmod 600 "$candidate" || { rm -f -- "$candidate"; return 1; }
+local -a pipeline_status
+if tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
+       -cf - -C "$staging" . \
+     | ( umask 077
+         gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+             --symmetric --cipher-algo AES256 -o "$candidate" \
+             3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) )
 then
-  log::error "backup pipeline failed"; rm -f "$artifact.tmp"; return 1
+  pipeline_status=("${PIPESTATUS[@]}")
+else
+  pipeline_status=("${PIPESTATUS[@]}")
 fi
+
+if [ "${pipeline_status[0]}" -ne 0 ] || [ -L "$candidate" ] \
+   || [ ! -f "$candidate" ] || [ ! -s "$candidate" ]; then
+  log::error "backup pipeline failed"; rm -f -- "$candidate"; return 1
+fi
+gpg_encrypt_rc="${pipeline_status[1]}"  # diagnostic; validation below is authoritative
 ```
 
-The explicit `if !` around the pipeline is **not optional**. `-e` is suspended inside
-every hook (§4.0), and this pipeline is not the hook's last statement — the read-back
-follows it. Probed: without the check, a failing `tar | gpg` is silently swallowed and
-the hook returns 0. This snippet is the one every future stateful module will copy, so
-it carries the discipline it preaches.
+The explicit conditional around the pipeline is **not optional**. It captures both
+`PIPESTATUS` values before another command destroys them, and it remains safe when `-e`
+is suspended inside a hook (§4.0). `tar` failure is always fatal. GPG's encryption exit
+status is retained as a diagnostic rather than used alone as the verdict: in the
+restricted Fedora validation sandbox, GnuPG 2.4.9 wrote complete, decryptable ciphertext
+and then returned `2` when `gpg-agent` could not bind its socket. The identical command
+outside that sandbox returned `0`; this is robustness against a constrained environment,
+not a Fedora defect. A candidate from that path is still provisional; the mandatory decrypt,
+empty-passphrase rejection, member checks, and atomic replacement below decide whether
+it is usable. A stale, missing, empty, symlinked, corrupt, or incomplete candidate fails.
+The candidate is unique and lives beside the final artifact, so concurrent backups may
+finish in either order but can promote only the exact inode each one validated.
 
 The passphrase reaches GPG on fd 3 from a process substitution: never assigned, never
 an argument, never logged.
@@ -523,19 +542,19 @@ So the read-back carries a second assertion, borrowed from §4.5's treatment of
 
 ```sh
 # 3. read back the TEMP artifact: it must decrypt with the passphrase …
-gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$artifact.tmp" \
+gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$candidate" \
       3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null | tar -t > "$listing" \
-  || { log::error "backup did not read back"; rm -f "$artifact.tmp"; return 1; }
+  || { log::error "backup did not read back"; rm -f -- "$candidate"; return 1; }
 
 # … and must NOT decrypt without one (probed: rc=2 today; assert it, do not assume it)
-if gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$artifact.tmp" \
+if gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$candidate" \
        3< /dev/null >/dev/null 2>&1; then
   log::error "the artifact decrypts with an empty passphrase — refusing to keep it"
-  rm -f "$artifact.tmp"; return 1
+  rm -f -- "$candidate"; return 1
 fi
 
 # 4. every intended member present? then, and only then, replace the good artifact
-mv -f "$artifact.tmp" "$artifact"
+mv -fT -- "$candidate" "$artifact"
 ```
 
 That closes the hole at **runtime, on the user's gpg**, not merely in Atlas's CI. §6
@@ -1183,3 +1202,13 @@ not silently edited). None changes a design decision.
   name arbitrary `$HOME` paths. Import and restore now both require an owned key to live
   directly in `~/.ssh`. This slightly narrows §4.6 (which said only "under `$HOME`");
   no test or documented workflow imported a key elsewhere. Regression-tested.
+- **2026-07-11 restricted Fedora validation: GPG's encryption exit status is not by
+  itself the artifact verdict.** The managed sandbox denied `gpg-agent` its Unix-socket
+  bind, so GnuPG 2.4.9 returned `2` while still writing complete ciphertext that
+  decrypted and passed every archive check. The identical command outside the sandbox
+  returned `0`. `pipefail` nevertheless rejected the valid candidate and caused eight
+  cascading backup/restore test failures. §4.11 now requires a successful archive
+  producer and a newly created, nonempty regular candidate, then makes full read-back
+  validation authoritative. The GPG status is preserved as a warning. Regression tests
+  cover valid ciphertext with GPG `rc=2`, tar failure despite nonempty output,
+  stale-candidate reuse, and concurrent backups using distinct candidate paths.

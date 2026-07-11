@@ -231,18 +231,23 @@ A module that *does* hold state follows this contract:
    with `env::get_secret`. No per-module override: one verb must not demand N secrets.
 2. **Artifact:** `$ATLAS_STATE_DIR/backup/<category>-<name>.tar.gpg`, directory `700`,
    file `600`. Fixed name.
-3. **Never truncate a good artifact with an unverified one.** Write `<artifact>.tmp`,
-   read it back, and only then `mv -f` into place. `gpg --yes -o "$artifact"` truncates the
-   target *before* the new artifact exists — a failed backup would otherwise leave the
-   user with none.
+3. **Never truncate a good artifact with an unverified one.** Create a unique
+   same-directory `<artifact>.tmp.XXXXXX`, read that exact file back, and only then
+   `mv -fT` it into place. A shared `.tmp` path lets concurrent backups replace each
+   other's candidate; a different directory loses atomic rename. `gpg --yes -o
+   "$artifact"` truncates the target *before* the new artifact exists — a failed backup
+   would otherwise leave the user with none.
 4. **Archive layout** is flat and self-describing, so a restore onto a different `$HOME`
    works: members live under `home/` (relative to `$HOME`) or `config/` (relative to
    `$ATLAS_CONFIG_HOME`). No absolute paths, no `..`, no symlink or device members.
 5. **Only module-owned state.** Never `$HOME`. Never a file the module did not create or
    explicitly import.
 6. **Encrypt locally; never upload.** Print the path. Moving it off-box is the user's job.
-7. **Read the artifact back** before reporting success — and assert it does **not** decrypt
-   with an empty passphrase.
+7. **Validate properties, not only the encryptor's exit code.** The archive producer must
+   exit `0`, and encryption must create a new, nonempty regular candidate. Read that
+   candidate back before reporting success, verify its required contents, and assert it
+   does **not** decrypt with an empty passphrase. A nonzero encryption status is advisory
+   only when every stronger read-back check passes; otherwise discard the candidate.
 8. **No plaintext copy.** Stage a farm of symlinks and let `tar --dereference` stream
    straight into `gpg`. Decrypt into a `700` directory on tmpfs (`/dev/shm`) where
    available. Warn — keyed on the filesystem *type* (`stat -f`), not on how the base was

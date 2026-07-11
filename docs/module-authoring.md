@@ -32,7 +32,7 @@ module::install() {
   os::dnf_install example
 }
 
-# 0 = healthy; non-0 = broken (surfaced by `atlas verify` / `doctor`).
+# 0 = healthy, or not installed by Atlas yet; non-0 = installed but broken.
 module::verify() {
   os::has_cmd example
 }
@@ -58,6 +58,8 @@ bash atlas install <category>/<name>
 bash tests/run.sh
 ```
 
-That's the whole contract. If you ever feel the need to reach into another
-module's internals, the contract is missing something — extend the contract
-instead.
+That's the whole contract. `verify` must distinguish a valid pre-install state
+from a broken installed state: a fresh workstation that Atlas has not touched is
+not a failure, but Atlas-managed state that is missing, corrupt, or no longer
+runnable is. If you ever feel the need to reach into another module's internals,
+the contract is missing something — extend the contract instead.

@@ -129,9 +129,12 @@ Atlas does not own.
   roomier tmpfs. Atlas warns if that directory turns out to be on a real disk, because
   then the decrypted key touches the platter.
 - Atlas **reads the artifact back** before reporting success — and checks that it does
-  *not* open with an empty passphrase.
-- A failed backup **never destroys the previous good one.** Atlas writes a `.tmp`,
-  verifies it, and only then replaces the artifact.
+  *not* open with an empty passphrase. This validation is authoritative even if GPG
+  reports a late nonzero status after writing usable ciphertext; Atlas warns in that
+  case and accepts the candidate only after every read-back check passes.
+- A failed backup **never destroys the previous good one.** Atlas writes a unique
+  same-directory `.tmp.*`, verifies that exact file, and only then atomically replaces
+  the artifact. Concurrent backups therefore cannot swap each other's candidate.
 - Atlas **never uploads it.** It prints the path. Getting it somewhere safe is your job.
 - The archive is byte-for-byte reproducible; the *encrypted file* is not, because GPG
   draws a fresh salt each time. That is correct — a deterministic ciphertext would let

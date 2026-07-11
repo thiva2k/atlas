@@ -668,35 +668,60 @@ _ssh_backup_impl() {
   mkdir -p "$(dirname "$art")" || { log::error "cannot create $(dirname "$art")"; return 1; }
   chmod 700 "$(dirname "$art")" || return 1
 
-  # Write a TEMP artifact. `gpg --yes -o "$art"` would truncate the last good
-  # backup before this one is verified (§4.10 item 3). The `umask 077` in a
-  # subshell means gpg creates the file 600 from the start — without it there is a
-  # window between gpg's create (at the process umask, typically 644) and the
-  # chmod below where the *ciphertext* is world-readable.
-  if ! ( umask 077
-         tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
-             -cf - -C "$st" . 2>/dev/null \
-         | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
-               --symmetric --cipher-algo AES256 -o "$art.tmp" \
+  # Write to a unique candidate in the artifact's directory. `gpg --yes -o
+  # "$art"` would truncate the last good backup before this one is verified
+  # (§4.10 item 3), while a shared `$art.tmp` lets concurrent backups unlink or
+  # replace each other's candidate. A same-directory mktemp gives every run one
+  # inode to validate and then atomically promote.
+  local candidate
+  candidate="$(mktemp "$art.tmp.XXXXXX")" || {
+    log::error "cannot create a backup candidate beside $art"; return 1; }
+  chmod 600 "$candidate" || { rm -f -- "$candidate"; return 1; }
+  _ssh_track "$candidate"
+
+  # In a restricted environment GnuPG 2.4.9 can write complete, decryptable
+  # ciphertext and still exit 2 when gpg-agent cannot bind/start. Therefore
+  # gpg's encryption status is a diagnostic, not the acceptance criterion.
+  # `tar` MUST succeed and gpg MUST create a new, nonempty regular file; the
+  # read-back, empty-passphrase probe,
+  # and member checks below are the authoritative validation. Capture both
+  # PIPESTATUS values immediately — any intervening command destroys them.
+  #
+  # mktemp creates the candidate mode 600. The umask is also scoped to gpg's
+  # pipeline process, so it stays protected even if gpg recreates the file.
+  local -a pipeline_status=()
+  if tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --dereference \
+         -cf - -C "$st" . 2>/dev/null \
+       | ( umask 077
+           gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+               --symmetric --cipher-algo AES256 -o "$candidate" \
                3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null )
   then
-    log::error "the backup pipeline failed"; rm -f "$art.tmp"; return 1
+    pipeline_status=("${PIPESTATUS[@]}")
+  else
+    pipeline_status=("${PIPESTATUS[@]}")
   fi
-  chmod 600 "$art.tmp" || { rm -f "$art.tmp"; return 1; }
+
+  if [ "${pipeline_status[0]}" -ne 0 ] || [ -L "$candidate" ] \
+     || [ ! -f "$candidate" ] || [ ! -s "$candidate" ]; then
+    log::error "the backup pipeline failed"; rm -f -- "$candidate"; return 1
+  fi
+  local gpg_encrypt_rc="${pipeline_status[1]}"
+  chmod 600 "$candidate" || { rm -f -- "$candidate"; return 1; }
 
   # Read it back. A backup that has not been read back is a hypothesis.
   local listing
-  listing="$(gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$art.tmp" \
+  listing="$(gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$candidate" \
                3< <(env::get_secret ATLAS_BACKUP_PASSPHRASE) 2>/dev/null | tar -t 2>/dev/null)" || {
     log::error "the artifact did not read back — not replacing the previous one"
-    rm -f "$art.tmp"; return 1; }
+    rm -f -- "$candidate"; return 1; }
 
   # …and it must NOT open without a passphrase. gpg refuses an empty one today;
   # assert it rather than trust it, on whatever gpg the user actually has.
-  if gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$art.tmp" \
+  if gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 -d "$candidate" \
          3< /dev/null >/dev/null 2>&1; then
     log::error "the artifact decrypts with an empty passphrase — refusing to keep it"
-    rm -f "$art.tmp"; return 1
+    rm -f -- "$candidate"; return 1
   fi
 
   # here-strings, not `printf … | grep -q`: grep closes the pipe on its first match,
@@ -705,12 +730,17 @@ _ssh_backup_impl() {
   for ((i = 0; i < n; i++)); do
     rel="${_SSH_K_PATH[$i]}"
     grep -qxF "./home/$rel" <<<"$listing" || {
-      log::error "the artifact is missing $rel"; rm -f "$art.tmp"; return 1; }
+      log::error "the artifact is missing $rel"; rm -f -- "$candidate"; return 1; }
   done
   grep -qxF "./config/ssh/manifest" <<<"$listing" || {
-    log::error "the artifact is missing the manifest"; rm -f "$art.tmp"; return 1; }
+    log::error "the artifact is missing the manifest"; rm -f -- "$candidate"; return 1; }
 
-  mv -f "$art.tmp" "$art" || { rm -f "$art.tmp"; log::error "cannot replace $art"; return 1; }
+  if [ "$gpg_encrypt_rc" -ne 0 ]; then
+    log::warn "gpg exited $gpg_encrypt_rc after encryption; full artifact read-back validation passed"
+  fi
+
+  mv -fT -- "$candidate" "$art" || {
+    rm -f -- "$candidate"; log::error "cannot replace $art"; return 1; }
   log::info "wrote $art"
   log::info "  it holds only Atlas-owned state, encrypted with ATLAS_BACKUP_PASSPHRASE"
   log::info "  Atlas never uploads it. Copying it somewhere safe is your job"

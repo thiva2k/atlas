@@ -54,6 +54,7 @@ gh() {
   local -
   set +x
   printf "%s\n" "$*" >> "$GH_ARGV_LOG"
+  [ "${GH_PRESENT:-0}" = 1 ] || return 127
   case "${1:-}" in
     --version) printf "gh version 2.94.0 (mock)\n"; return 0 ;;
     auth)
@@ -343,6 +344,12 @@ esac
 # ---------------------------------------------------------------------------
 # verify
 # ---------------------------------------------------------------------------
+
+bash -c "$PRE; $MOD; module::verify" >/dev/null 2>&1
+assert_eq "verify passes when gh absent before install" "$?" "0"
+
+bash -c "$PRE; $MOD; mkdir -p \"\$(dirname \"\$(_gh_install_marker)\")\"; : > \"\$(_gh_install_marker)\"; module::verify" >/dev/null 2>&1
+assert_eq "verify fails when Atlas marker exists but gh is absent" "$?" "1"
 
 bash -c "$PRE; GH_PRESENT=1 GH_STORED=1; $MOD; module::verify" >/dev/null 2>&1
 assert_eq "verify passes when authenticated" "$?" "0"

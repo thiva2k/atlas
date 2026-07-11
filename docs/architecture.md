@@ -186,7 +186,7 @@ calling them.
 ```bash
 module::check()   { ... }   # 0 = already satisfied; non-0 = work needed
 module::install() { ... }   # make it so; MUST be safe to run repeatedly
-module::verify()  { ... }   # 0 = healthy; non-0 = broken
+module::verify()  { ... }   # 0 = healthy/not installed; non-0 = installed but broken
 
 # optional:
 module::update()  { ... }
@@ -202,8 +202,10 @@ module::restore() { ... }
   needed." `check` is what makes `install` idempotent.
 - **`install`** — perform the work. Because `check` gates it and because Atlas
   values idempotency, `install` should itself be safe to re-run.
-- **`verify`** — exit `0` if the capability is healthy; non-zero signals a
-  problem for `atlas verify` / `atlas doctor` to report.
+- **`verify`** — exit `0` if the capability is healthy, or if Atlas has no
+  evidence that it has installed or adopted the capability yet. A fresh
+  pre-install workstation is valid state. Return non-zero only when
+  Atlas-managed evidence exists and the capability is broken.
 - Optional hooks follow the same convention: `0` = success, non-zero = failure
   with a logged reason.
 

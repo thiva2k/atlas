@@ -32,3 +32,30 @@ assert_status "status exits 0 on not-installed modules" 0 \
   runner::run status core/alpha apps/beta
 out="$(runner::run status core/alpha apps/beta 2>&1 || true)"
 assert_contains "status reports 'not installed'" "$out" "not installed"
+
+# Real implemented modules: fresh pre-install state is valid, so verify should
+# not fail just because install has not created Atlas-managed state yet.
+assert_status "runner verify succeeds on real modules before install" 0 \
+  bash -c '
+    set -uo pipefail
+    HOME="$(mktemp -d)"; export HOME
+    ATLAS_CONFIG_HOME="$HOME/.config/atlas"; export ATLAS_CONFIG_HOME
+    ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
+    GH_CONFIG_DIR="$HOME/.config/gh"; export GH_CONFIG_DIR
+    GIT_CONFIG_GLOBAL="$HOME/.gitconfig"; export GIT_CONFIG_GLOBAL
+    GIT_CONFIG_SYSTEM=/dev/null; export GIT_CONFIG_SYSTEM
+    ATLAS_MODULES_DIR="$ATLAS_ROOT/modules"; export ATLAS_MODULES_DIR
+    source "$ATLAS_ROOT/internal/log.sh"
+    source "$ATLAS_ROOT/internal/error.sh"
+    source "$ATLAS_ROOT/internal/env.sh"
+    source "$ATLAS_ROOT/internal/os.sh"
+    source "$ATLAS_ROOT/internal/module.sh"
+    source "$ATLAS_ROOT/internal/runner.sh"
+    os::has_cmd() {
+      case "$1" in
+        gh) return 1 ;;
+        *) command -v "$1" >/dev/null 2>&1 ;;
+      esac
+    }
+    runner::run verify core/git development/github-cli
+  '

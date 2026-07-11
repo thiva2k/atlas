@@ -12,6 +12,25 @@ no real `$HOME`, `dnf`, `gpg` keyring, or GitHub was touched.
 **SECURE-TO-MERGE**, with one finding fixed in this branch and the manual real-`gh`
 acceptance run still outstanding (RFC §11).
 
+## Restricted Fedora validation follow-up
+
+The managed Fedora test sandbox used bash 5.3.9, GNU tar 1.35, and GnuPG 2.4.9. It
+denied `gpg-agent` its Unix-socket bind (`Operation not permitted`), so GPG returned `2`
+after symmetric encryption. The candidate was nevertheless nonempty, decryptable with
+the configured passphrase, rejected an empty passphrase, and contained the complete
+archive. The identical command outside the sandbox returned `0`; this was a constrained
+test-environment behavior, not a Fedora defect. `pipefail` still treated the late status
+as fatal, so one rejected backup cascaded into eight backup/restore failures.
+
+The corrected contract keeps `tar` success and fresh candidate creation as hard gates,
+then treats the existing cryptographic and structural read-back as authoritative. A
+nonzero GPG encryption status is warned about only after all those checks pass. Stale,
+empty, corrupt, incomplete, or unencrypted candidates remain rejected, and the previous
+good artifact remains untouched until atomic replacement. Deterministic regressions now
+cover the constrained-environment exit status, tar failure, stale candidate reuse, and
+concurrent backups. Each run now validates a unique same-directory candidate, preventing
+one backup from unlinking or promoting another backup's partially written file.
+
 ## Finding (fixed)
 
 **F-SSH-1 · Write-anything-under-`$HOME` on restore of a tampered artifact · LOW.**

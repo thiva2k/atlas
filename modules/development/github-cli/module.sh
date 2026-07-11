@@ -26,6 +26,13 @@ _gh_env_token_var() {
 # command substitution. `gh auth status` is not an alternative: its exit code is
 # not stable across gh versions (§6.1).
 _gh_authenticated() { gh auth token >/dev/null 2>&1; }
+_gh_install_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/development-github-cli"; }
+_gh_atlas_state_present() { [ -e "$(_gh_install_marker)" ]; }
+_gh_mark_installed() {
+  local marker; marker="$(_gh_install_marker)"
+  mkdir -p "$(dirname "$marker")" || { log::warn "cannot record installed state: $marker"; return 0; }
+  : > "$marker" || log::warn "cannot record installed state: $marker"
+}
 
 _gh_authenticate() {
   local var
@@ -82,10 +89,21 @@ module::check() {
 
 module::install() {
   os::has_cmd gh || os::dnf_install gh || return 1
-  _gh_authenticate
+  _gh_authenticate || return 1
+  _gh_mark_installed
 }
 
 module::verify() {
+  if ! os::has_cmd gh; then
+    if ! _gh_atlas_state_present; then
+      log::info "development/github-cli is not installed by Atlas; skipping verification"
+      return 0
+    fi
+    log::error "gh is not installed"
+    log::error "  fix: run 'atlas install development/github-cli'"
+    return 1
+  fi
+
   if ! gh --version >/dev/null 2>&1; then
     log::error "gh is not runnable"
     log::error "  fix: run 'atlas install development/github-cli'"

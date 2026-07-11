@@ -32,3 +32,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0002](RFC-0002-remove-verb.md) | Platform verb: `remove` | Proposed |
 | [0003](RFC-0003-github-cli-module.md) | GitHub CLI module — credentials & unattended auth | Accepted |
 | [0004](RFC-0004-ssh-module.md) | SSH module — persistent state, ownership & the backup contract | Accepted |
+| [0005](RFC-0005-docker-module.md) | Docker module — container infrastructure ownership boundary | Proposed |

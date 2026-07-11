@@ -12,6 +12,7 @@ _git_fragment_dir() {
   printf '%s\n' "${ATLAS_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/atlas}/git"
 }
 _git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
+_git_install_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/core-git"; }
 
 # The global config file git itself would read/write.
 _git_config_file() { printf '%s\n' "${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}"; }
@@ -31,6 +32,27 @@ _git_include_present() {
 # The path is quoted, as core/git's own writer would, so a `#` or `;` in it is not
 # read as a comment.
 _git_include_block() { printf '[include]\n\tpath = "%s"\n\n' "$(_git_fragment)"; }
+
+_git_global_config_mentions_fragment() {
+  [ -r "$(_git_config_file)" ] || return 1
+  grep -qF "$(_git_fragment)" "$(_git_config_file)"
+}
+
+_git_atlas_state_present() {
+  [ -e "$(_git_install_marker)" ] || [ -e "$(_git_fragment)" ] || _git_global_config_mentions_fragment
+}
+
+_git_mark_installed() {
+  local marker; marker="$(_git_install_marker)"
+  mkdir -p "$(dirname "$marker")" || { log::warn "cannot record installed state: $marker"; return 0; }
+  : > "$marker" || log::warn "cannot record installed state: $marker"
+}
+
+_git_clear_installed() {
+  local marker; marker="$(_git_install_marker)"
+  rm -f "$marker" 2>/dev/null || true
+  rmdir "$(dirname "$marker")" 2>/dev/null || true
+}
 
 # True if the Atlas [include] is the first section of $1 (blanks/comments skipped).
 _git_include_is_first() {
@@ -274,6 +296,7 @@ module::install() {
 
   # 4. identity (optional, non-blocking, set-if-unset)
   _git_apply_identity
+  _git_mark_installed
   return 0
 }
 
@@ -322,6 +345,7 @@ module::remove() {
     log::info "deleted managed fragment: $frag"
     rmdir "$(_git_fragment_dir)" 2>/dev/null || true
   fi
+  _git_clear_installed
   log::info "left the git package and your identity untouched"
   return 0
 }
@@ -342,6 +366,10 @@ module::restore() {
 }
 
 module::verify() {
+  if ! _git_atlas_state_present; then
+    log::info "core/git is not installed by Atlas; skipping verification"
+    return 0
+  fi
   os::has_cmd git || { log::error "git not installed"; return 1; }
   git --version >/dev/null 2>&1 || { log::error "git --version failed"; return 1; }
   [ -r "$(_git_fragment)" ] || { log::error "managed fragment missing"; return 1; }

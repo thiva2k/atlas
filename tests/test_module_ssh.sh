@@ -83,8 +83,28 @@ source "$MOD"
 mkkey() { ssh-keygen -t ed25519 -f "$1" -N "${2:-}" -q -C "${3:-test}" </dev/null; }
 manifest() { printf "%s\n" "$ATLAS_CONFIG_HOME/ssh/manifest"; }
 artifact() { printf "%s\n" "$ATLAS_STATE_DIR/backup/core-ssh.tar.gpg"; }
+backup_candidates() {
+  local a dir base
+  a="$(artifact)"; dir="$(dirname "$a")"; base="$(basename "$a")"
+  [ -d "$dir" ] || return 0
+  find "$dir" -maxdepth 1 -name "$base.tmp.*" -print 2>/dev/null
+}
+candidate_count() { backup_candidates | wc -l | tr -d " "; }
 setpass() { printf "%s=%s\n" "$1" "$2" >> "$ATLAS_CONFIG_HOME/atlas.env"; chmod 600 "$ATLAS_CONFIG_HOME/atlas.env"; }
-run_hook() { if ! "module::$1"; then return 1; fi; return 0; }'
+run_hook() { if ! "module::$1"; then return 1; fi; return 0; }
+require_hook() {
+  if ! run_hook "$1"; then
+    printf "fixture failed: module::%s\n" "$1" >&2
+    exit 99
+  fi
+}
+require_artifact() {
+  local a; a="$(artifact)"
+  if [ ! -s "$a" ]; then
+    printf "fixture failed: backup artifact missing at %s\n" "$a" >&2
+    exit 99
+  fi
+}'
 
 # ---------------------------------------------------------------------------
 # metadata & contract
@@ -314,7 +334,7 @@ assert_eq "gh auth token used as a predicate; its output never captured" "$out" 
 # ---------------------------------------------------------------------------
 OWNED="$PRE"'
 setpass ATLAS_SSH_KEY_PASSPHRASE keypw
-run_hook install >/dev/null 2>&1'
+require_hook install >/dev/null 2>&1'
 
 out="$(bash -c "$PRE; run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"; [ -e \"\$(artifact)\" ] && echo ARTIFACT || echo none" 2>&1 | tail -2 | tr '\n' ' ')"
 assert_eq "backup with no owned state: exit 0, no artifact" "$out" "rc=0 none "
@@ -328,29 +348,103 @@ a=\$(artifact); [ -f \"\$a\" ] && stat -c '%a' \"\$a\" || echo noartifact
 stat -c '%a' \"\$(dirname \"\$a\")\"" 2>&1 | tail -3 | tr '\n' ' ')"
 assert_eq "backup writes a mode-600 artifact in a mode-700 dir" "$out" "rc=0 600 700 "
 
+# The restricted Fedora test environment exposed GnuPG 2.4.9 emitting valid
+# ciphertext, then exiting 2 because its agent could not bind a socket. Force the
+# behavior portably: status is advisory only after complete read-back validation.
 out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
-run_hook backup >/dev/null 2>&1
+REAL_GPG=\$(type -P gpg)
+gpg() {
+  local arg candidate encrypt=0 rc
+  for arg in \"\$@\"; do [ \"\$arg\" = --symmetric ] && encrypt=1; done
+  \"\$REAL_GPG\" \"\$@\"; rc=\$?
+  candidate=\$(backup_candidates | head -1)
+  if [ \"\$encrypt\" -eq 1 ] && [ -n \"\$candidate\" ] && [ -s \"\$candidate\" ]; then
+    printf '2\n' > \"\$HOME/encrypt.rc\"
+    return 2
+  fi
+  return \"\$rc\"
+}
+run_hook backup >\"\$HOME/backup.log\" 2>&1; rc=\$?
+grep -q 'gpg exited 2' \"\$HOME/backup.log\" && warning=warned || warning=silent
+if \"\$REAL_GPG\" --batch -q --pinentry-mode loopback --passphrase-fd 3 \
+     -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null | tar -tf - >/dev/null 2>&1; then
+  valid=readable
+else
+  valid=unreadable
+fi
+printf 'forced=%s rc=%s %s %s\n' \"\$(cat \"\$HOME/encrypt.rc\" 2>/dev/null || echo missing)\" \"\$rc\" \"\$valid\" \"\$warning\"" 2>&1 | tail -1)"
+assert_eq "backup accepts gpg rc=2 only after validation and warns" "$out" "forced=2 rc=0 readable warned"
+
+# Concurrent backups must never share a candidate pathname. Each run validates
+# and promotes its own inode; last-writer-wins is safe because both artifacts
+# passed the complete contract.
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+REAL_GPG=\$(type -P gpg); : > \"\$HOME/candidates.log\"
+gpg() {
+  local arg encrypt=0 out='' previous=''
+  for arg in \"\$@\"; do
+    [ \"\$previous\" = -o ] && out=\"\$arg\"
+    [ \"\$arg\" = --symmetric ] && encrypt=1
+    previous=\"\$arg\"
+  done
+  [ \"\$encrypt\" -eq 1 ] && printf '%s\n' \"\$out\" >> \"\$HOME/candidates.log\"
+  \"\$REAL_GPG\" \"\$@\"
+}
+run_hook backup >/dev/null 2>&1 & p1=\$!
+run_hook backup >/dev/null 2>&1 & p2=\$!
+wait \"\$p1\"; rc1=\$?; wait \"\$p2\"; rc2=\$?
+names=\$(sort -u \"\$HOME/candidates.log\" | wc -l | tr -d ' ')
+if \"\$REAL_GPG\" --batch -q --pinentry-mode loopback --passphrase-fd 3 \
+     -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null | tar -tf - >/dev/null 2>&1; then
+  valid=readable
+else
+  valid=unreadable
+fi
+printf 'rc=%s/%s names=%s %s remaining=%s\n' \
+  \"\$rc1\" \"\$rc2\" \"\$names\" \"\$valid\" \"\$(candidate_count)\"" 2>&1 | tail -1)"
+assert_eq "concurrent backups validate distinct candidates" "$out" "rc=0/0 names=2 readable remaining=0"
+
+# A complete-looking candidate is insufficient if tar reported a read failure.
+# The wrapper writes the entire archive and then reports failure, proving Atlas
+# checks tar's PIPESTATUS independently of gpg and the candidate's size.
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+REAL_TAR=\$(type -P tar)
+tar() {
+  local arg create=0 rc
+  for arg in \"\$@\"; do [ \"\$arg\" = -cf ] && create=1; done
+  \"\$REAL_TAR\" \"\$@\"; rc=\$?
+  [ \"\$create\" -eq 1 ] && return 2
+  return \"\$rc\"
+}
+run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
+[ -e \"\$(artifact)\" ] && echo ARTIFACT || echo none
+[ \"\$(candidate_count)\" -eq 0 ] && echo no-tmp || echo TMP-LEFT" 2>&1 | tail -3 | tr '\n' ' ')"
+assert_eq "backup rejects a candidate when tar fails" "$out" "rc=1 none no-tmp "
+
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+require_hook backup >/dev/null 2>&1; require_artifact
 gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null \
   | tar -t | grep -vE '/\$' | sort | tr '\n' ' '" 2>&1 | tail -1)"
 assert_eq "artifact contains exactly the owned files" "$out" "./config/ssh/known_hosts ./config/ssh/manifest ./home/.ssh/id_ed25519 ./home/.ssh/id_ed25519.pub "
 
 out="$(bash -c "$PRE; mkdir -p \"\$HOME/.ssh\"; mkkey \"\$HOME/.ssh/id_other\" '' ext
-setpass ATLAS_SSH_KEY_PASSPHRASE keypw; run_hook install >/dev/null 2>&1
-setpass ATLAS_BACKUP_PASSPHRASE bp; run_hook backup >/dev/null 2>&1
+setpass ATLAS_SSH_KEY_PASSPHRASE keypw; require_hook install >/dev/null 2>&1
+setpass ATLAS_BACKUP_PASSPHRASE bp; require_hook backup >/dev/null 2>&1; require_artifact
 gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< <(printf 'bp\n') 2>/dev/null \
   | tar -t | grep -c id_other || true" 2>&1 | tail -1)"
 assert_eq "backup excludes external keys entirely" "$out" "0"
 
 # the artifact must NOT decrypt with an empty passphrase (§4.11, closes B7 at runtime)
-out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp; run_hook backup >/dev/null 2>&1
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+require_hook backup >/dev/null 2>&1; require_artifact
 gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$(artifact)\" 3< /dev/null >/dev/null 2>&1 \
   && echo DECRYPTS_EMPTY || echo refuses-empty" 2>&1 | tail -1)"
 assert_eq "artifact does not decrypt with an empty passphrase" "$out" "refuses-empty"
 
 # determinism: same tar, different ciphertext
 out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
-run_hook backup >/dev/null 2>&1; cp \"\$(artifact)\" \"\$HOME/a1\"
-run_hook backup >/dev/null 2>&1; cp \"\$(artifact)\" \"\$HOME/a2\"
+require_hook backup >/dev/null 2>&1; require_artifact; cp \"\$(artifact)\" \"\$HOME/a1\"
+require_hook backup >/dev/null 2>&1; require_artifact; cp \"\$(artifact)\" \"\$HOME/a2\"
 cmp -s \"\$HOME/a1\" \"\$HOME/a2\" && echo same-ciphertext || echo ciphertext-differs
 for f in a1 a2; do gpg --batch -q --pinentry-mode loopback --passphrase-fd 3 -d \"\$HOME/\$f\" 3< <(printf 'bp\n') 2>/dev/null > \"\$HOME/\$f.tar\"; done
 cmp -s \"\$HOME/a1.tar\" \"\$HOME/a2.tar\" && echo same-tar || echo TAR-DIFFERS" 2>&1 | tail -2 | tr '\n' ' ')"
@@ -358,13 +452,36 @@ assert_eq "backup: deterministic tar, non-deterministic ciphertext" "$out" "ciph
 
 # a failed re-backup must not destroy the previous good artifact (§4.10 item 3)
 out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
-run_hook backup >/dev/null 2>&1; good=\$(sha256sum \"\$(artifact)\" | cut -d' ' -f1)
+require_hook backup >/dev/null 2>&1; require_artifact
+good=\$(sha256sum \"\$(artifact)\" | cut -d' ' -f1)
 rm -f \"\$HOME/.ssh/id_ed25519\"                      # now divergent -> backup must refuse
 run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
 now=\$(sha256sum \"\$(artifact)\" | cut -d' ' -f1)
 [ \"\$good\" = \"\$now\" ] && echo previous-intact || echo PREVIOUS-DESTROYED
-[ -e \"\$(artifact).tmp\" ] && echo TMP-LEFT || echo no-tmp" 2>&1 | tail -3 | tr '\n' ' ')"
+[ \"\$(candidate_count)\" -eq 0 ] && echo no-tmp || echo TMP-LEFT" 2>&1 | tail -3 | tr '\n' ' ')"
 assert_eq "a failed backup leaves the previous artifact byte-identical" "$out" "rc=1 previous-intact no-tmp "
+
+# An interrupted run may leave a valid unique candidate. A later gpg failure
+# that writes nothing must ignore those stale bytes and remove only its own file.
+out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
+require_hook backup >/dev/null 2>&1; require_artifact
+a=\$(artifact); before=\$(sha256sum \"\$a\" | cut -d' ' -f1)
+stale=\"\$a.tmp.stale\"; cp \"\$a\" \"\$stale\"
+stale_before=\$(sha256sum \"\$stale\" | cut -d' ' -f1)
+REAL_GPG=\$(type -P gpg)
+gpg() {
+  local arg encrypt=0
+  for arg in \"\$@\"; do [ \"\$arg\" = --symmetric ] && encrypt=1; done
+  if [ \"\$encrypt\" -eq 1 ]; then cat >/dev/null; return 2; fi
+  \"\$REAL_GPG\" \"\$@\"
+}
+run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
+now=\$(sha256sum \"\$a\" | cut -d' ' -f1)
+[ \"\$before\" = \"\$now\" ] && echo previous-intact || echo PREVIOUS-DESTROYED
+stale_now=\$(sha256sum \"\$stale\" | cut -d' ' -f1)
+[ \"\$stale_before\" = \"\$stale_now\" ] && echo stale-ignored || echo STALE-MODIFIED
+[ \"\$(candidate_count)\" -eq 1 ] && echo own-candidate-clean || echo CANDIDATE-LEAK" 2>&1 | tail -4 | tr '\n' ' ')"
+assert_eq "backup ignores stale candidates and cleans only its own" "$out" "rc=1 previous-intact stale-ignored own-candidate-clean "
 
 # two owned keys, one divergent -> refuse both
 out="$(bash -c "$PRE; mkdir -p \"\$HOME/.ssh\"; mkkey \"\$HOME/.ssh/id_work\" '' w
@@ -381,7 +498,8 @@ assert_eq "two owned keys, one divergent: backup refuses both" "$out" "rc=1 none
 # ---------------------------------------------------------------------------
 BACKED="$OWNED"'
 setpass ATLAS_BACKUP_PASSPHRASE bp
-run_hook backup >/dev/null 2>&1
+require_hook backup >/dev/null 2>&1
+require_artifact
 keyhash=$(sha256sum "$HOME/.ssh/id_ed25519" | cut -d" " -f1)'
 
 out="$(bash -c "$BACKED; rm -rf \"\$HOME/.ssh\" \"\$ATLAS_CONFIG_HOME/ssh\"
@@ -633,7 +751,7 @@ out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
 $PERMISSIVE_GPG
 run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
 [ -e \"\$(artifact)\" ] && echo KEPT || echo discarded
-[ -e \"\$(artifact).tmp\" ] && echo TMP-LEFT || echo no-tmp" 2>&1 | tail -3 | tr '\n' ' ')"
+[ \"\$(candidate_count)\" -eq 0 ] && echo no-tmp || echo TMP-LEFT" 2>&1 | tail -3 | tr '\n' ' ')"
 assert_eq "a gpg that accepts an empty passphrase: artifact refused and discarded" "$out" "rc=1 discarded no-tmp "
 
 # --- a gpg whose read-back fails: the previous artifact must survive -------
@@ -648,19 +766,19 @@ gpg() {
     esac; shift
   done
   case "$mode" in
-    enc) cat > "$out"; return 0 ;;
+    enc) cat > "$out"; return 2 ;;              # nonempty candidate, nonzero encrypt status
     dec) return 2 ;;                            # encryption works; verification does not
   esac
 }'
 
 out="$(bash -c "$OWNED; setpass ATLAS_BACKUP_PASSPHRASE bp
-run_hook backup >/dev/null 2>&1                 # a real, good artifact
+require_hook backup >/dev/null 2>&1; require_artifact  # a real, good artifact
 good=\$(sha256sum \"\$(artifact)\" | cut -d' ' -f1)
 $FAILING_READBACK
 run_hook backup >/dev/null 2>&1; echo \"rc=\$?\"
 now=\$(sha256sum \"\$(artifact)\" | cut -d' ' -f1)
 [ \"\$good\" = \"\$now\" ] && echo previous-intact || echo PREVIOUS-DESTROYED
-[ -e \"\$(artifact).tmp\" ] && echo TMP-LEFT || echo no-tmp" 2>&1 | tail -3 | tr '\n' ' ')"
+[ \"\$(candidate_count)\" -eq 0 ] && echo no-tmp || echo TMP-LEFT" 2>&1 | tail -3 | tr '\n' ' ')"
 assert_eq "read-back failure: previous artifact intact, tmp removed" "$out" "rc=1 previous-intact no-tmp "
 
 # --- the discard-probe earns its place by naming the cause -----------------

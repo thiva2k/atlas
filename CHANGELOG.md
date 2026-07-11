@@ -66,6 +66,14 @@ All notable changes to Atlas are documented here. Format loosely follows
 - Pure-Bash test harness under `tests/`.
 
 ### Fixed
+- **`core/ssh` backup no longer false-fails on a late GPG error after usable
+  ciphertext was written.** This surfaced when a restricted Fedora validation
+  environment denied `gpg-agent` its socket: GPG returned `2`, but emitted a
+  complete, decryptable candidate. Atlas now requires `tar` success and a fresh
+  candidate, then makes cryptographic and structural read-back authoritative before
+  atomic replacement. Each run uses a unique same-directory candidate, so concurrent
+  backups cannot swap partially written files. Invalid output still fails closed,
+  stale candidates cannot be promoted, and the late GPG status is surfaced as a warning.
 - **`set -e` never applied inside a module hook, and nothing said so.** The runner
   invokes hooks as `if ! "module::$hook"`, and Bash suspends `errexit` for a command
   in an `if` condition — recursively, into the function and everything it calls. `-u`
