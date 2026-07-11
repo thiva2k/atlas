@@ -6,6 +6,33 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `ssh` module** (see `RFC-0004`) — the first Atlas module that manages state
+  you cannot regenerate. It installs the OpenSSH client, and then mostly *refuses*:
+  on a machine that already has keys, `atlas install core/ssh` changes nothing. It
+  generates an ed25519 identity **only** when you supply `ATLAS_SSH_KEY_PASSPHRASE`
+  (supplying it *is* the opt-in), adopts an existing key only via
+  `ATLAS_SSH_IMPORT_KEY`, and never chmods, rewrites or deletes a file it did not
+  create. It registers your public key with GitHub best-effort, and it never touches
+  `~/.ssh/known_hosts` — Atlas keeps its own, with GitHub's host key pinned from
+  `api.github.com/meta` rather than learned by `ssh-keyscan`, because
+  trust-on-first-use during automated provisioning is trust-on-first-attacker.
+- **Real `backup` / `restore`**, and the contract every later stateful module
+  inherits (`docs/conventions.md`). One platform-wide `ATLAS_BACKUP_PASSPHRASE`; a
+  deterministic tar streamed straight into `gpg`, so no plaintext archive ever
+  touches the disk; a `.tmp` artifact that is read back — and asserted *not* to
+  decrypt with an empty passphrase — before it replaces the previous good one; and a
+  restore that validates the whole archive and every destination *before* writing a
+  single byte, so one conflict means nothing at all is written.
+- An **ownership manifest** bound to the bytes on disk by two values: a public
+  fingerprint and a hash of the private file. One is not enough — `ssh-keygen -lf
+  <private-key>` silently reads the sibling `.pub` and never looks at the private
+  half, so a fingerprint check alone is defeated by swapping the private file.
+- No-op `backup` / `restore` for the `git` module, so every module answers every verb.
+- Four new static rules in `tests/test_secret_discipline.sh`: a secret file descriptor
+  may only be fed by `env::get_secret` (a process substitution inherits `xtrace`, so
+  `3< <(printf …)` leaks); `gpg` never takes a passphrase in `argv` or from a file;
+  `ssh-keygen -N` appears only in its empty-passphrase form; every `mktemp` is
+  failure-checked. Each rule is verified to fire on a planted violation.
 - **The `github-cli` module** (see `RFC-0003`) — installs `gh` and, only from a
   token you supplied out of band, authenticates it without ever prompting. It
   **owns no `gh` configuration**: an early draft set `git_protocol = ssh` on a
@@ -39,6 +66,21 @@ All notable changes to Atlas are documented here. Format loosely follows
 - Pure-Bash test harness under `tests/`.
 
 ### Fixed
+- **`set -e` never applied inside a module hook, and nothing said so.** The runner
+  invokes hooks as `if ! "module::$hook"`, and Bash suspends `errexit` for a command
+  in an `if` condition — recursively, into the function and everything it calls. `-u`
+  and `pipefail` survive; `-e` does not. So an unchecked `d="$(mktemp -d)"` left `d`
+  empty and turned a later `rm -rf "$d"/` into `rm -rf /`. Now documented in
+  `docs/conventions.md`, and `core/ssh` checks every fallible command explicitly.
+  `core/git` and `development/github-cli` predate the discovery and still need an
+  audit against it.
+- **A `trap … EXIT` set inside a hook is subshell-global**, and for `atlas install`
+  the `check`, `install` and `verify` hooks share one subshell — so a trap set by a
+  later hook silently *replaced* an earlier one, leaking its temp directory. Worse, a
+  trap body naming a hook `local` fires after that local has died: under `set -u` the
+  trap itself errors and the subshell exits 1, turning a module whose hook
+  *succeeded* into a reported failure. The convention is now one module-scope array
+  and one idempotent trap whose body touches only globals.
 - **`atlas.env` secrets no longer leak into a `bash -x` trace.** `env::get` walks
   every line of `atlas.env` looking for one key, so running Atlas under `set -x`
   traced `line=ATLAS_GH_TOKEN=ghp_…` — a credential belonging to one module,
@@ -64,3 +106,10 @@ All notable changes to Atlas are documented here. Format loosely follows
   the fix above, it deliberately is not.
 
 [Keep a Changelog]: https://keepachangelog.com/
+
+### Changed
+- `docs/conventions.md` gains sections on `set -e` inside hooks, temp-directory
+  cleanup, stdout as the runner's control channel, owning persistent state, and the
+  backup contract. "Never add a runtime dependency" is relaxed to "adding one needs a
+  reason in an RFC": `gpg` is the first, for local backup encryption (RFC-0004).
+- `tests/test_module_git.sh` and the module inventory reflect `core/ssh` (ten modules).

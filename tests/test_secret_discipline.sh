@@ -86,3 +86,82 @@ shadowed="$( cd "$ATLAS_ROOT" && git ls-files | while IFS= read -r f; do
   git check-ignore -q "$f" && printf '%s\n' "$f"
 done )"
 assert_eq "no tracked file is shadowed by .gitignore" "$shadowed" ""
+
+# ---------------------------------------------------------------------------
+# RFC-0004 additions. Each rule below was learned by probing, and each is
+# verified further down to fire on a planted violation.
+# ---------------------------------------------------------------------------
+
+# 7. A process substitution runs in a subshell that INHERITS xtrace. So
+#    `3< <(printf '%s' "$pass")` traces `++ printf '%s' hunter2`, while
+#    `3< <(env::get_secret KEY)` does not — the guard lives inside the resolver.
+#    Therefore the producer feeding a secret file descriptor must be
+#    env::get_secret and nothing else.
+hits="$(_sources | xargs grep -nE '[0-9]<[[:space:]]*<\(' 2>/dev/null | _code_only \
+  | grep -v '<(env::get_secret' || true)"
+assert_eq "a secret fd is only ever fed by env::get_secret" "$hits" ""
+
+# 8. gpg must take the passphrase on a file descriptor. `--passphrase` puts it in
+#    argv (world-readable in /proc); `--passphrase-file` puts it on disk.
+hits="$(_sources | xargs grep -nE 'gpg[^|]*--passphrase(-file)?[[:space:]]' 2>/dev/null \
+  | _code_only || true)"
+assert_eq "gpg never takes a passphrase in argv or from a file" "$hits" ""
+
+# 9. `ssh-keygen -N` places the passphrase in argv. It is admissible ONLY as the
+#    documented empty-passphrase form, `-N ''` / `-N ""`.
+hits="$(_sources | xargs grep -nE "ssh-keygen[^|]*-N[[:space:]]+" 2>/dev/null | _code_only \
+  | grep -vE "\-N[[:space:]]+(''|\"\")" || true)"
+assert_eq "ssh-keygen -N appears only as the empty-passphrase form" "$hits" ""
+
+# 10. `mktemp` must never be used unchecked: `set -e` is suspended inside hooks
+#     (RFC-0004 §4.0), so a failed `d=$(mktemp -d)` yields an empty string and a
+#     later `rm -rf "$d"/` becomes `rm -rf /`. Every mktemp must be followed by a
+#     `||` on the same line, or be the subject of an `if !`.
+hits="$(_sources | xargs grep -nE '\$\(mktemp' 2>/dev/null | _code_only \
+  | grep -vE '\|\||^[^:]+:[0-9]+:[[:space:]]*if[[:space:]]+!' || true)"
+assert_eq "every mktemp is failure-checked (set -e is off inside hooks)" "$hits" ""
+
+# --- the rules must FIRE, not merely exist -------------------------------
+# A static rule nobody has seen fail is a rule nobody knows works. Plant each
+# violation in a scratch tree and assert the corresponding grep catches it.
+_plant() { # <filename> <line> -> echoes the rule's hit count
+  local f="$1" line="$2" d
+  d="$(mktemp -d)"; mkdir -p "$d/modules/x/y" "$d/internal"
+  printf '#!/usr/bin/env bash\n%s\n' "$line" > "$d/modules/x/y/module.sh"
+  printf '%s' "$d"
+}
+
+d="$(_plant m 'gpg --symmetric --passphrase-fd 3 -o out.gpg 3< <(printf "%s" "$pass")')"
+hits="$(find "$d" -name '*.sh' | xargs grep -nE '[0-9]<[[:space:]]*<\(' 2>/dev/null | _code_only \
+  | grep -v '<(env::get_secret' || true)"
+assert_contains "rule 7 fires on a planted printf-fed secret fd" "$hits" 'printf'
+rm -rf "$d"
+
+d="$(_plant m 'gpg --batch --symmetric --passphrase "$pass" -o out.gpg in.tar')"
+hits="$(find "$d" -name '*.sh' | xargs grep -nE 'gpg[^|]*--passphrase(-file)?[[:space:]]' 2>/dev/null | _code_only || true)"
+assert_contains "rule 8 fires on a planted gpg --passphrase" "$hits" '--passphrase'
+rm -rf "$d"
+
+d="$(_plant m 'ssh-keygen -t ed25519 -f "$k" -N "$pass" -q')"
+hits="$(find "$d" -name '*.sh' | xargs grep -nE "ssh-keygen[^|]*-N[[:space:]]+" 2>/dev/null | _code_only \
+  | grep -vE "\-N[[:space:]]+(''|\"\")" || true)"
+assert_contains "rule 9 fires on a planted ssh-keygen -N \$pass" "$hits" 'ssh-keygen'
+rm -rf "$d"
+
+d="$(_plant m 'staging="$(mktemp -d)"')"
+hits="$(find "$d" -name '*.sh' | xargs grep -nE '\$\(mktemp' 2>/dev/null | _code_only \
+  | grep -vE '\|\||^[^:]+:[0-9]+:[[:space:]]*if[[:space:]]+!' || true)"
+assert_contains "rule 10 fires on a planted unchecked mktemp" "$hits" 'mktemp'
+rm -rf "$d"
+
+# …and rule 9 must NOT fire on the legitimate empty-passphrase form.
+d="$(_plant m "ssh-keygen -t ed25519 -f \"\$k\" -N '' -q")"
+hits="$(find "$d" -name '*.sh' | xargs grep -nE "ssh-keygen[^|]*-N[[:space:]]+" 2>/dev/null | _code_only \
+  | grep -vE "\-N[[:space:]]+(''|\"\")" || true)"
+assert_eq "rule 9 does not fire on the documented -N '' form" "$hits" ""
+rm -rf "$d"
+
+# 11. The backup passphrase is platform-wide (RFC-0004 Decision 5). No module may
+#     invent its own — one secret, one verb.
+hits="$(_modules | xargs grep -nE 'ATLAS_[A-Z]+_BACKUP_PASSPHRASE' 2>/dev/null | _code_only || true)"
+assert_eq "no module invents a per-module backup passphrase" "$hits" ""

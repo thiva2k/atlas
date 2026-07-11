@@ -1,0 +1,16 @@
+# Atlas-owned known_hosts. NOT the user's ~/.ssh/known_hosts — Atlas never writes there.
+#
+# This file pins the host keys Atlas uses for its own connectivity checks. It is
+# deliberately NOT built with ssh-keyscan: trust-on-first-use during automated
+# provisioning records whatever answers as legitimate, forever. A MITM at install
+# time would be pinned by a scan. So the keys below are copied verbatim from the
+# vendor's published source and verified against the vendor's published fingerprint.
+#
+# Source:   https://api.github.com/meta  ->  .ssh_keys[]
+# Verified: .ssh_key_fingerprints.SHA256_ED25519 == SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+# Retrieved: 2026-07-10
+#
+# To rotate: re-fetch from the URL above, re-verify the fingerprint, and commit the
+# change. `atlas update core/ssh` then propagates it to every workstation.
+# Never edit this file from memory, and never from ssh-keyscan output.
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl

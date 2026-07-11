@@ -10,7 +10,54 @@ These keep Atlas readable enough to understand in ten minutes.
 - Small functions, one job each. If a function needs a comment to explain a
   second responsibility, split it.
 - No global mutable state beyond documented `ATLAS_*` variables.
-- Prefer Bash builtins and coreutils; never add a runtime dependency.
+- Prefer Bash builtins and coreutils. Adding a runtime dependency needs a reason in an
+  RFC — `gpg` is the only one so far, for local backup encryption (RFC-0004).
+
+### `set -e` is NOT in effect inside a hook
+
+`internal/runner.sh` invokes every hook as `if ! "module::$hook"`, and Bash suspends
+`errexit` for a command in an `if` condition — recursively, into the function and
+everything it calls. `-u` and `pipefail` survive; `-e` does not. So:
+
+- **Never rely on `set -e` to abort a hook.** Every fallible command needs an explicit
+  `|| { log::error …; return 1; }`. The canonical disaster is `d="$(mktemp -d)"` failing,
+  `d` becoming empty, and a later `rm -rf "$d"/` expanding to `rm -rf /`.
+- **A hook returns its last statement's status.** An `A && B` in final position silently
+  becomes the hook's exit code.
+- **A pipeline's failure reaches nothing on its own.** `pipefail` shapes `$?` of the
+  pipeline, but if the pipeline is not the hook's last statement, nobody reads it. Wrap
+  it: `if ! a | b; then … return 1; fi`.
+- **Test hooks the way the runner calls them** (`if ! module::x`), never bare under
+  `set -e`. A bare-under-`-e` test is *stricter* than production and will pass a hook
+  that marches on in the field.
+
+### Temp directories: one trap, over a global
+
+A `trap … EXIT` set inside a hook is **subshell-global** and fires at subshell exit, not
+at hook return — and for `atlas install`, `check`/`install`/`verify` share one subshell,
+so a trap set by a later hook **silently replaces** an earlier one. Worse, a trap body
+that names a hook `local` runs after that local has died: under `set -u` the trap itself
+errors and the subshell exits **1**, turning a module whose hook *succeeded* into a
+reported failure.
+
+So a module that needs temp directories keeps one module-scope array and registers one
+idempotent trap whose body touches only globals:
+
+```sh
+_X_CLEANUP=()
+_x_cleanup() { local p; for p in "${_X_CLEANUP[@]:-}"; do [ -n "$p" ] && rm -rf -- "$p"; done; return 0; }
+_x_track()   { [ -n "${_X_TRAP_SET:-}" ] || { trap _x_cleanup EXIT; _X_TRAP_SET=1; }; _X_CLEANUP+=("$1"); }
+```
+
+The trap is a safety net for failure paths. If a directory holds secret material, delete
+it explicitly the moment you are done — do not leave it on disk until the subshell exits.
+`modules/core/ssh/` is the reference.
+
+### Stdout is a control channel
+
+The runner reads a hook's stdout looking for the `__SKIP__` token. All user-facing output
+goes through `log::*`, which writes to stderr. A hook that prints to stdout corrupts the
+runner's bookkeeping.
 
 ## Naming
 
@@ -119,8 +166,97 @@ The standing rules for every credentialed module (RFC-0003 §4.4):
   credential is the user's to supply. Only a credential the user *did* supply, and
   the tool then rejected, is a hard failure.
 
-Beware tools that print secrets. `gh auth token` writes the token to stdout, so
-Atlas invokes it only as a predicate — `gh auth token >/dev/null 2>&1` — and never
-captures its output.
+- **A process substitution inherits `xtrace`.** `3< <(printf '%s' "$pass")` traces
+  `++ printf '%s' hunter2`; `3< <(env::get_secret KEY)` does not, because the guard lives
+  inside the resolver and the trace shows only the call. **The producer feeding a secret
+  file descriptor must always be `env::get_secret`** — never an inline `echo`, `printf`
+  or `cat`.
 
-`modules/development/github-cli/` is the reference implementation.
+Beware tools that print secrets, and tools that take them in `argv`:
+
+| Tool | Never | Instead |
+|---|---|---|
+| `gh auth token` | capture it — it prints the token | `gh auth token >/dev/null 2>&1`, as a predicate |
+| `gh auth login` | `--with-token <tok>` | pipe the resolver into it on stdin |
+| `gpg` | `--passphrase`, `--passphrase-file` | `--passphrase-fd 3` with `3< <(env::get_secret …)` |
+| `ssh-keygen` | `-N "$pass"` (argv is world-readable in `/proc`) | `SSH_ASKPASS` + `SSH_ASKPASS_REQUIRE=force` |
+
+`ssh-keygen -N ''` is admissible — an empty passphrase is not a secret.
+
+**Never trust an exit code where a property is what you mean.** `ssh-keygen -t ed25519
+-f k </dev/null` with no `-N` neither hangs nor fails: it silently produces an
+*unencrypted* key and exits 0. Assert the property instead — Atlas checks that the key it
+just generated really does reject an empty passphrase, and deletes it if not. Likewise
+`backup` asserts its artifact does *not* open without a passphrase.
+
+`tests/test_secret_discipline.sh` enforces these rules statically across the repo, and
+each rule is itself verified to fire on a planted violation.
+
+`modules/development/github-cli/` is the reference for credentials;
+`modules/core/ssh/` for secrets that are also *state*.
+
+## Owning persistent state
+
+Some modules manage state the user cannot regenerate — a private key, a token they
+minted by hand. `modules/core/ssh/` is the reference implementation (RFC-0004).
+
+**Atlas owns only what Atlas created, or what the user explicitly handed it** through a
+documented workflow. Ownership is *recorded*, never inferred from a path, and the record
+is bound to the bytes on disk so the claim can be re-checked on every run:
+
+- a manifest under `$ATLAS_CONFIG_HOME/<module>/`, mode `600`, plain text;
+- each record carries **two** bindings — an identity (a fingerprint) and an integrity
+  hash of the file's actual bytes. One is not enough: `ssh-keygen -lf <private-key>`
+  silently reads the sibling `.pub`, so a fingerprint alone never sees the private half;
+- owned paths must be **regular files, not symlinks**, must live under `$HOME`, and must
+  contain no whitespace or control characters. Such paths are *refused, not escaped*;
+- the manifest is user-editable, so its parser is a **trust boundary**: it rejects
+  unknown records, bad field counts, duplicates, orphans and missing headers rather than
+  repairing or ignoring them. Strip trailing `\r` — a file edited on Windows must parse;
+- when the manifest and the disk disagree, the module is **divergent**: it stops touching
+  that state, fails `verify`, and refuses `backup`/`restore` **entirely** — not just for
+  the offending record. Fail closed;
+- **never `chmod`, rewrite, or delete a file the module did not create.** Report the
+  fault and print the command the user should run.
+
+## The backup contract
+
+`atlas backup` and `atlas restore` are generic platform verbs that fan out to every
+module. The runner has no special cases. A module with no persistent state implements
+no-op hooks (or omits them — the runner treats an absent optional hook identically).
+
+A module that *does* hold state follows this contract:
+
+1. **One secret per platform verb.** The passphrase is `ATLAS_BACKUP_PASSPHRASE`, resolved
+   with `env::get_secret`. No per-module override: one verb must not demand N secrets.
+2. **Artifact:** `$ATLAS_STATE_DIR/backup/<category>-<name>.tar.gpg`, directory `700`,
+   file `600`. Fixed name.
+3. **Never truncate a good artifact with an unverified one.** Write `<artifact>.tmp`,
+   read it back, and only then `mv -f` into place. `gpg --yes -o "$artifact"` truncates the
+   target *before* the new artifact exists — a failed backup would otherwise leave the
+   user with none.
+4. **Archive layout** is flat and self-describing, so a restore onto a different `$HOME`
+   works: members live under `home/` (relative to `$HOME`) or `config/` (relative to
+   `$ATLAS_CONFIG_HOME`). No absolute paths, no `..`, no symlink or device members.
+5. **Only module-owned state.** Never `$HOME`. Never a file the module did not create or
+   explicitly import.
+6. **Encrypt locally; never upload.** Print the path. Moving it off-box is the user's job.
+7. **Read the artifact back** before reporting success — and assert it does **not** decrypt
+   with an empty passphrase.
+8. **No plaintext copy.** Stage a farm of symlinks and let `tar --dereference` stream
+   straight into `gpg`. Decrypt into a `700` directory on tmpfs (`/dev/shm`) where
+   available. Warn — keyed on the filesystem *type* (`stat -f`), not on how the base was
+   chosen — whenever staging lands on a real disk, so an operator override to a disk
+   directory warns exactly like the involuntary `$TMPDIR` fallback. A module may accept an
+   `ATLAS_<…>_STAGING_DIR`-style override for operators whose `/dev/shm` is too small.
+9. **Restore validates everything before writing anything.** List the archive with
+   `tar -tv` (`tar -t` prints names only and cannot see member types), reject anything
+   that is not a regular file or directory, then scan **every** destination for conflicts.
+   A destination that exists and differs — or that is a symlink — is a conflict, and a
+   single conflict means **nothing at all is written**. Byte-identical destinations are
+   skipped, which is what makes a second `restore` a no-op.
+10. **Determinism belongs to the archive, not the ciphertext.** `tar --sort=name --mtime=@0
+    --owner=0 --group=0 --numeric-owner` is byte-reproducible; do **not** add
+    `--format=posix`, whose pax `atime`/`ctime` headers destroy it. The GPG artifact is
+    *not* reproducible, because symmetric encryption draws a fresh salt — and it must not
+    be, or an observer could prove two backups are equal.
