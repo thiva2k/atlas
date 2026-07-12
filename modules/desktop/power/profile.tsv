@@ -1,0 +1,3 @@
+powerdevilrc|AC|powerProfile|string|balanced
+powerdevilrc|Battery|powerProfile|string|power-saver
+powerdevilrc|LowBattery|powerProfile|string|power-saver

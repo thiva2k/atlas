@@ -6,6 +6,14 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `codex` module** (see `RFC-0026`) — installs OpenAI's official
+  `@openai/codex` npm package into the fixed `/usr/local` prefix, verifies the
+  fixed `/usr/local/bin/codex` command without resolving Codex from `PATH`,
+  depends on `development/node`, and records ownership with an Atlas marker. The
+  module never manages authentication, API keys, conversations, project state,
+  prompts, user configuration, MCP servers, skills, plugins, memory,
+  `~/.codex`, or `/etc/codex`; existing user-owned Codex installations remain
+  valid unmanaged state.
 - **The `claude` module** (see `RFC-0016`) — installs Anthropic's signed
   `claude-code` RPM package from the stable Fedora/RHEL repository, vendors and
   validates the RPM signing key, verifies the fixed `/usr/bin/claude` command,

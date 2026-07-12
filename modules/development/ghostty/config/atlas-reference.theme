@@ -1,0 +1,22 @@
+# Atlas reference Ghostty theme.
+background = 0f141b
+foreground = e6edf3
+cursor-color = 4ea1ff
+selection-background = 243247
+selection-foreground = f8fafc
+palette = 0=#0f141b
+palette = 1=#d76f72
+palette = 2=#8bd17c
+palette = 3=#e6c36a
+palette = 4=#4ea1ff
+palette = 5=#b39ddb
+palette = 6=#7dd3fc
+palette = 7=#d7dde8
+palette = 8=#657286
+palette = 9=#f28b8e
+palette = 10=#a6e39a
+palette = 11=#f0d98a
+palette = 12=#82c4ff
+palette = 13=#c8b6ff
+palette = 14=#a5e4ff
+palette = 15=#f8fafc

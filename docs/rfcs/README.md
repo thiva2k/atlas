@@ -34,8 +34,24 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0004](RFC-0004-ssh-module.md) | SSH module — persistent state, ownership & the backup contract | Accepted |
 | [0005](RFC-0005-docker-module.md) | Docker module — container infrastructure ownership boundary | Accepted |
 | [0006](RFC-0006-python-module.md) | Python module — Fedora-packaged language runtime | Accepted |
+| [0007](RFC-0007-ghostty-module.md) | Ghostty module — developer desktop application lifecycle | Accepted |
+| [0008](RFC-0008-fonts-module.md) | Fonts module — typography foundation for the experience layer | Accepted |
 | [0009](RFC-0009-uv-module.md) | uv module — Fedora-packaged Python package manager CLI | Accepted |
+| [0010](RFC-0010-fastfetch-module.md) | Fastfetch module — workstation identity | Accepted |
+| [0011](RFC-0011-starship-module.md) | Starship prompt theme module | Accepted |
+| [0012](RFC-0012-kde-profile-module.md) | KDE workstation profile module | Accepted |
 | [0013](RFC-0013-node-module.md) | Node.js module — Fedora-packaged JavaScript runtime | Accepted |
 | [0014](RFC-0014-fish-module.md) | Fish module — shell installation and isolated config contract | Accepted |
 | [0015](RFC-0015-pnpm-module.md) | pnpm module — Fedora-packaged JavaScript package-manager CLI | Accepted |
 | [0016](RFC-0016-claude-module.md) | Claude Code module — signed RPM package boundary for AI coding CLI | Accepted |
+| [0017](RFC-0017-theme-module.md) | Atlas theme module | Accepted |
+| [0018](RFC-0018-icons-module.md) | Icons module | Accepted |
+| [0019](RFC-0019-cursor-module.md) | Cursor module | Accepted |
+| [0020](RFC-0020-utilities-module.md) | Engineering utilities module | Accepted |
+| [0021](RFC-0021-wallpapers-module.md) | Wallpapers module | Accepted |
+| [0022](RFC-0022-power-module.md) | Power module | Accepted |
+| [0023](RFC-0023-notifications-module.md) | Notifications module | Accepted |
+| [0024](RFC-0024-plymouth-module.md) | Plymouth module | Accepted |
+| [0025](RFC-0025-sddm-module.md) | SDDM module | Accepted |
+| [0026](RFC-0026-codex-module.md) | Codex module — npm-packaged AI coding CLI lifecycle | Accepted |
+| [0027](RFC-0027-atlas-self-management.md) | Atlas self-management and self-update command | Accepted |

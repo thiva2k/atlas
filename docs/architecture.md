@@ -115,8 +115,8 @@ atlas/
 │   └── runner.sh         # the verbs, implemented on top of the above
 ├── modules/              # every capability lives here, grouped by category
 │   ├── core/             #   fundamentals (git, base packages, shell)
-│   ├── development/      #   dev tooling (docker, language runtimes, claude, codex)
-│   ├── apps/             #   applications (brave, ghostty)
+│   ├── development/      #   dev tooling (docker, language runtimes, terminals, AI CLIs)
+│   ├── apps/             #   applications (brave)
 │   └── desktop/          #   desktop environment (kde, fonts)
 ├── docs/                 # architecture, conventions, module-authoring guide
 ├── tests/                # pure-Bash test harness (no external framework)

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Atlas
+Description=Minimal Atlas boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/atlas
+ScriptFile=/usr/share/plymouth/themes/atlas/atlas.script

@@ -1,0 +1,10 @@
+# file|group|key|type|value
+kdeglobals|KDE|AnimationDurationFactor|string|0.5
+kwinrc|Windows|FocusPolicy|string|ClickToFocus
+kwinrc|Windows|DelayFocusInterval|string|0
+kwinrc|Windows|FocusStealingPreventionLevel|string|1
+kwinrc|Plugins|blurEnabled|bool|false
+kwinrc|Plugins|wobblywindowsEnabled|bool|false
+kwinrc|Plugins|magiclampEnabled|bool|false
+kwinrc|Plugins|slidingpopupsEnabled|bool|false
+kwinrc|Plugins|squashEnabled|bool|false
