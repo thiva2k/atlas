@@ -38,3 +38,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0013](RFC-0013-node-module.md) | Node.js module — Fedora-packaged JavaScript runtime | Accepted |
 | [0014](RFC-0014-fish-module.md) | Fish module — shell installation and isolated config contract | Accepted |
 | [0015](RFC-0015-pnpm-module.md) | pnpm module — Fedora-packaged JavaScript package-manager CLI | Accepted |
+| [0016](RFC-0016-claude-module.md) | Claude Code module — signed RPM package boundary for AI coding CLI | Accepted |

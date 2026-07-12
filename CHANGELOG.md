@@ -6,6 +6,14 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `claude` module** (see `RFC-0016`) — installs Anthropic's signed
+  `claude-code` RPM package from the stable Fedora/RHEL repository, vendors and
+  validates the RPM signing key, verifies the fixed `/usr/bin/claude` command,
+  writes one Atlas-owned managed-settings drop-in to disable background
+  self-updates, and records ownership with an Atlas marker. The module never
+  manages authentication, API keys, OAuth sessions, MCP servers, `~/.claude`,
+  `~/.claude.json`, project instructions, hooks, skills, subagents,
+  conversations, history, or user personalization.
 - **The `pnpm` module** (see `RFC-0015`) — installs Fedora's `pnpm` package,
   verifies the fixed `/usr/bin/pnpm` command, depends on `development/node`, and
   records ownership with an Atlas marker. The module owns only Fedora package
