@@ -5,6 +5,8 @@ All notable changes to Atlas are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [v1.0.0-beta] - 2026-07-12
+
 ### Added
 - **The `codex` module** (see `RFC-0026`) — installs OpenAI's official
   `@openai/codex` npm package into the fixed `/usr/local` prefix, verifies the
