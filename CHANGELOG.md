@@ -6,6 +6,13 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `python` module** (see `RFC-0006`) — installs Fedora's `python3` and
+  `python3-pip` packages, verifies the fixed `/usr/bin/python3` and
+  `/usr/bin/pip3` runtime paths, and records ownership with an Atlas marker. The
+  module owns only Fedora package intent and never manages virtual environments,
+  user packages, pip configuration, pipx, Poetry, uv, pyenv, Conda, project
+  dependencies, or application state. Existing Fedora Python remains valid
+  unmanaged state until Atlas writes its marker.
 - **The `docker` module** (see `RFC-0005`) — installs Docker CE from Docker's
   Fedora repository, enables the rootful `docker.service`, and records ownership
   with an Atlas marker. The module owns only the installation boundary: repository
