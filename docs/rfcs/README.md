@@ -36,3 +36,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0006](RFC-0006-python-module.md) | Python module — Fedora-packaged language runtime | Accepted |
 | [0009](RFC-0009-uv-module.md) | uv module — Fedora-packaged Python package manager CLI | Accepted |
 | [0013](RFC-0013-node-module.md) | Node.js module — Fedora-packaged JavaScript runtime | Accepted |
+| [0014](RFC-0014-fish-module.md) | Fish module — shell installation and isolated config contract | Accepted |

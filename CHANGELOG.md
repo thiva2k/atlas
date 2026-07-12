@@ -6,6 +6,12 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `fish` module** (see `RFC-0014`) — installs Fedora's `fish` package,
+  verifies fixed `/usr/bin/fish`, writes one isolated Atlas-owned
+  `fish/conf.d/00-atlas.fish` snippet, and records ownership with an Atlas
+  marker. The module never changes the login shell, edits `config.fish`, edits
+  `/etc/shells`, or manages aliases, functions, completions, plugins, universal
+  variables, terminal profiles, or Starship prompt configuration.
 - **The `node` module** (see `RFC-0013`) — installs Fedora's Node.js 24 LTS
   package family (`nodejs24`, `nodejs24-bin`, `nodejs24-npm`,
   `nodejs24-npm-bin`), verifies fixed `/usr/bin/node` and `/usr/bin/npm`
