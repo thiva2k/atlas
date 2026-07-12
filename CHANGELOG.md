@@ -6,6 +6,12 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `uv` module** (see `RFC-0009`) — installs Fedora's `uv` package,
+  verifies the fixed `/usr/bin/uv` command, depends on `development/python`, and
+  records ownership with an Atlas marker. The module owns only Fedora package
+  intent and never manages uv caches, project virtual environments, project
+  dependencies, uv-managed Python versions, uv tools, package indexes,
+  credentials, uv configuration, or shell integration.
 - **The `python` module** (see `RFC-0006`) — installs Fedora's `python3` and
   `python3-pip` packages, verifies the fixed `/usr/bin/python3` and
   `/usr/bin/pip3` runtime paths, and records ownership with an Atlas marker. The

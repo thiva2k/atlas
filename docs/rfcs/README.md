@@ -34,3 +34,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0004](RFC-0004-ssh-module.md) | SSH module — persistent state, ownership & the backup contract | Accepted |
 | [0005](RFC-0005-docker-module.md) | Docker module — container infrastructure ownership boundary | Accepted |
 | [0006](RFC-0006-python-module.md) | Python module — Fedora-packaged language runtime | Accepted |
+| [0009](RFC-0009-uv-module.md) | uv module — Fedora-packaged Python package manager CLI | Accepted |
