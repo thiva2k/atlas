@@ -6,6 +6,13 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `node` module** (see `RFC-0013`) — installs Fedora's Node.js 24 LTS
+  package family (`nodejs24`, `nodejs24-bin`, `nodejs24-npm`,
+  `nodejs24-npm-bin`), verifies fixed `/usr/bin/node` and `/usr/bin/npm`
+  commands, and records ownership with an Atlas marker. The module owns only
+  Fedora package intent and never manages pnpm, bun, yarn, corepack, version
+  managers, global npm packages, npm configuration, npm credentials, npm cache,
+  or project dependency state.
 - **The `uv` module** (see `RFC-0009`) — installs Fedora's `uv` package,
   verifies the fixed `/usr/bin/uv` command, depends on `development/python`, and
   records ownership with an Atlas marker. The module owns only Fedora package

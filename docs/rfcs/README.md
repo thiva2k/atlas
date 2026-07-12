@@ -35,3 +35,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0005](RFC-0005-docker-module.md) | Docker module — container infrastructure ownership boundary | Accepted |
 | [0006](RFC-0006-python-module.md) | Python module — Fedora-packaged language runtime | Accepted |
 | [0009](RFC-0009-uv-module.md) | uv module — Fedora-packaged Python package manager CLI | Accepted |
+| [0013](RFC-0013-node-module.md) | Node.js module — Fedora-packaged JavaScript runtime | Accepted |
