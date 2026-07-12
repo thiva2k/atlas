@@ -6,6 +6,12 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **The `pnpm` module** (see `RFC-0015`) — installs Fedora's `pnpm` package,
+  verifies the fixed `/usr/bin/pnpm` command, depends on `development/node`, and
+  records ownership with an Atlas marker. The module owns only Fedora package
+  intent and never manages `node_modules`, lockfiles, project dependencies, the
+  pnpm store, caches, global packages, configuration, credentials, Corepack
+  shims, or shell integration.
 - **The `fish` module** (see `RFC-0014`) — installs Fedora's `fish` package,
   verifies fixed `/usr/bin/fish`, writes one isolated Atlas-owned
   `fish/conf.d/00-atlas.fish` snippet, and records ownership with an Atlas
