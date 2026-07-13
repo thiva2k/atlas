@@ -5,6 +5,7 @@ set -uo pipefail
 
 ATLAS_REPO="${ATLAS_REPO:-https://github.com/thiva2k/atlas.git}"
 ATLAS_HOME="${ATLAS_HOME:-$HOME/atlas}"
+ATLAS_REMOTE_IDENTITY="github.com/thiva2k/atlas"
 
 usage() {
   cat <<EOF
@@ -17,6 +18,86 @@ Prepares a fresh machine, then hands off to Atlas:
 
 Usage: bootstrap.sh [--help]
 EOF
+}
+
+remote_identity_from_url() {
+  local url="$1" rest host path
+  url="${url%.git}"
+  case "$url" in
+    git@*:*)
+      host="${url#git@}"
+      host="${host%%:*}"
+      path="${url#*:}"
+      printf '%s/%s\n' "$host" "$path"
+      ;;
+    ssh://*|https://*|http://*)
+      rest="${url#*://}"
+      rest="${rest#*@}"
+      host="${rest%%/*}"
+      path="${rest#*/}"
+      printf '%s/%s\n' "$host" "$path"
+      ;;
+    *)
+      printf '%s\n' "$url"
+      ;;
+  esac
+}
+
+record_self_management_marker() {
+  local identity state_dir marker dir tmp branch
+  identity="$(remote_identity_from_url "$ATLAS_REPO")"
+  [ "$identity" = "$ATLAS_REMOTE_IDENTITY" ] || {
+    echo "custom Atlas repository detected — not recording self-management marker."
+    return 0
+  }
+  branch="$(git -C "$ATLAS_HOME" symbolic-ref --short HEAD 2>/dev/null)" || {
+    echo "cannot determine Atlas branch — not recording self-management marker." >&2
+    return 0
+  }
+  [ "$branch" = "main" ] || {
+    echo "Atlas branch is not main — not recording self-management marker."
+    return 0
+  }
+  state_dir="${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}"
+  marker="$state_dir/installed/atlas-self"
+  dir="$(dirname "$marker")"
+  mkdir -p "$dir" || {
+    echo "cannot create Atlas self-management marker directory: $dir" >&2
+    return 0
+  }
+  chmod 700 "$dir" || {
+    echo "cannot secure Atlas self-management marker directory: $dir" >&2
+    return 0
+  }
+  tmp="$(mktemp "$dir/.atlas-self.XXXXXX")" || {
+    echo "cannot create Atlas self-management marker temp file" >&2
+    return 0
+  }
+  {
+    printf 'schema=1\n'
+    printf 'state=installed\n'
+    printf 'source=git\n'
+    printf 'path=%s\n' "$ATLAS_HOME"
+    printf 'remote=origin\n'
+    printf 'remote_identity=%s\n' "$ATLAS_REMOTE_IDENTITY"
+    printf 'branch=main\n'
+    printf 'ref=refs/heads/main\n'
+    printf 'executable=%s/atlas\n' "$ATLAS_HOME"
+  } > "$tmp" || {
+    rm -f "$tmp"
+    echo "cannot write Atlas self-management marker" >&2
+    return 0
+  }
+  chmod 600 "$tmp" || {
+    rm -f "$tmp"
+    echo "cannot secure Atlas self-management marker" >&2
+    return 0
+  }
+  mv -f "$tmp" "$marker" || {
+    rm -f "$tmp"
+    echo "cannot record Atlas self-management marker" >&2
+    return 0
+  }
 }
 
 main() {
@@ -41,6 +122,7 @@ main() {
       echo "failed to clone Atlas from $ATLAS_REPO into $ATLAS_HOME" >&2
       return 1
     fi
+    record_self_management_marker
   else
     echo "Atlas already present at $ATLAS_HOME — leaving it as is."
   fi

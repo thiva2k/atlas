@@ -28,6 +28,7 @@ cd ~/atlas
 | `atlas restore` | re-apply captured state |
 | `atlas doctor`  | diagnose the workstation |
 | `atlas status`  | show what is / isn't installed |
+| `atlas self-update` | update Atlas itself from a managed checkout |
 
 ## How it works
 
@@ -43,9 +44,9 @@ Bash, GNU coreutils, Git, and a Fedora base system. Nothing else.
 
 ## Status
 
-v1 is the **skeleton**: the architecture, CLI, runner, and placeholder modules
-are in place; real installation logic lands module by module. See
-[`CHANGELOG.md`](CHANGELOG.md).
+Atlas is in the v1 beta track. The module architecture is stable, the Core &
+Development workstation modules are implemented, and Atlas self-management is
+available for checkouts created by `bootstrap.sh`. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

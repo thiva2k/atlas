@@ -6,3 +6,53 @@ assert_status "bootstrap --help exits 0"   0 bash "$BOOT" --help
 
 out="$(bash "$BOOT" --help 2>&1)"
 assert_contains "help mentions atlas install" "$out" "atlas install"
+
+_bootstrap_fake_git() {
+  local dir="$1"
+  mkdir -p "$dir" || return 1
+  cat > "$dir/git" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+if [ "${1:-}" = "clone" ]; then
+  mkdir -p "$3/.git" || exit 1
+  printf '#!/usr/bin/env bash\nprintf "0.1.0-dev\\n"\n' > "$3/atlas" || exit 1
+  chmod +x "$3/atlas" || exit 1
+  exit 0
+fi
+if [ "${1:-}" = "-C" ]; then
+  shift 2
+fi
+if [ "${1:-}" = "symbolic-ref" ] && [ "${2:-}" = "--short" ] && [ "${3:-}" = "HEAD" ]; then
+  printf 'main\n'
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$dir/git" || return 1
+}
+
+home="$(mktemp -d)"
+bin="$home/bin"
+_bootstrap_fake_git "$bin"
+ATLAS_HOME="$home/atlas" ATLAS_STATE_DIR="$home/state/atlas" HOME="$home" PATH="$bin:$PATH" \
+  bash "$BOOT" >/dev/null 2>&1
+marker="$home/state/atlas/installed/atlas-self"
+assert_eq "bootstrap records self-management marker for fresh canonical clone" "$(grep -c '^remote_identity=github.com/thiva2k/atlas$' "$marker" 2>/dev/null)" "1"
+assert_eq "bootstrap self-management marker records executable" "$(grep -c "^executable=$home/atlas/atlas$" "$marker" 2>/dev/null)" "1"
+assert_eq "bootstrap self-management marker mode is 600" "$(stat -c '%a' "$marker" 2>/dev/null)" "600"
+assert_eq "bootstrap self-management marker parent mode is 700" "$(stat -c '%a' "$(dirname "$marker")" 2>/dev/null)" "700"
+
+home="$(mktemp -d)"
+bin="$home/bin"
+_bootstrap_fake_git "$bin"
+mkdir -p "$home/atlas/.git"
+ATLAS_HOME="$home/atlas" ATLAS_STATE_DIR="$home/state/atlas" HOME="$home" PATH="$bin:$PATH" \
+  bash "$BOOT" >/dev/null 2>&1
+assert_eq "bootstrap does not adopt an existing checkout" "$([ -e "$home/state/atlas/installed/atlas-self" ] && echo yes || echo no)" "no"
+
+home="$(mktemp -d)"
+bin="$home/bin"
+_bootstrap_fake_git "$bin"
+ATLAS_REPO="https://github.com/example/atlas.git" ATLAS_HOME="$home/atlas" ATLAS_STATE_DIR="$home/state/atlas" HOME="$home" PATH="$bin:$PATH" \
+  bash "$BOOT" >/dev/null 2>&1
+assert_eq "bootstrap does not mark custom repositories as self-managed" "$([ -e "$home/state/atlas/installed/atlas-self" ] && echo yes || echo no)" "no"

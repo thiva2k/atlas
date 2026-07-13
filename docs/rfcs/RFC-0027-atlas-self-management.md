@@ -258,7 +258,9 @@ Accepted decisions:
 6. The full test suite is optional via `atlas self-update --verify` or
    `atlas self-update --full-test`.
 
-Remaining implementation detail:
+Implementation resolution:
 
-- Define the explicit adoption/install action that creates the self-management
-  marker for an Atlas checkout.
+- `bootstrap.sh` records the self-management marker only when it creates a fresh
+  canonical `github.com/thiva2k/atlas` checkout on `main`.
+- Existing checkouts are not adopted automatically.
+- Custom repositories are not recorded as Atlas-managed self-update targets.

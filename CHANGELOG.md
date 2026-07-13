@@ -5,6 +5,17 @@ All notable changes to Atlas are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- Implemented `atlas self-update` from `RFC-0027` for explicitly managed Atlas
+  checkouts. The command verifies the self-management marker, current executable,
+  canonical remote identity, branch, clean working tree, and fast-forward
+  possibility before mutating the checkout. It performs fast-forward-only Git
+  updates, runs post-update validation, and supports `--verify` / `--full-test`
+  for the full test suite.
+- `bootstrap.sh` now records the Atlas self-management marker only when it
+  creates a fresh canonical `github.com/thiva2k/atlas` checkout on `main`.
+  Existing checkouts and custom repositories are not adopted automatically.
+
 ## [v1.0.0-beta] - 2026-07-12
 
 ### Added

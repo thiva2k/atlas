@@ -54,6 +54,7 @@ Atlas has two lifecycles that never bleed into each other.
 ```
 atlas install    atlas update    atlas verify    atlas backup
 atlas restore    atlas doctor     atlas status
+atlas self-update
 ```
 
 **Module hooks** — what each *module* implements:
@@ -68,11 +69,15 @@ atlas restore    atlas doctor     atlas status
 | `backup`  | optional | Capture this module's irreplaceable state.        |
 | `restore` | optional | Re-apply previously captured state.               |
 
-A platform verb is nothing more than the **runner fanning that verb out across
-the selected modules**. `atlas backup` means "call every module's `backup`
-hook." That is why backup and restore are verbs, not folders — they are
+A module lifecycle platform verb is nothing more than the **runner fanning that
+verb out across the selected modules**. `atlas backup` means "call every module's
+`backup` hook." That is why backup and restore are verbs, not folders — they are
 cross-cutting operations expressed once in the runner and contributed to by
 modules.
+
+`atlas self-update` is the exception by design: it is an engine lifecycle verb
+for updating Atlas itself, not a module lifecycle verb. It never resolves
+`atlas` or `core/atlas` as a module and does not change the module contract.
 
 **The runner never depends on a module's internals.** It only ever calls hooks
 through the module contract (§7).
@@ -112,7 +117,8 @@ atlas/
 │   ├── error.sh          # error handling + exit codes (§8)
 │   ├── os.sh             # Fedora / dnf / flatpak / privilege helpers
 │   ├── module.sh         # module discovery, contract, dependency resolution
-│   └── runner.sh         # the verbs, implemented on top of the above
+│   ├── runner.sh         # module lifecycle verbs, implemented on the contract
+│   └── self.sh           # Atlas engine self-management (self-update)
 ├── modules/              # every capability lives here, grouped by category
 │   ├── core/             #   fundamentals (git, base packages, shell)
 │   ├── development/      #   dev tooling (docker, language runtimes, terminals, AI CLIs)
