@@ -176,7 +176,7 @@ installations are outside this module.
 
 ### 5.3 `verify` and `doctor`
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0015
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0015
 preserves that contract and does not add a new engine hook.
 
 With no marker, `verify` returns `0`. It logs whether system pnpm appears absent
@@ -285,12 +285,12 @@ Unit tests must cover:
 Real Fedora validation must include:
 
 ```
-atlas install development/pnpm
+atlasctl install development/pnpm
 pnpm --version
-atlas verify development/pnpm
-atlas doctor development/pnpm
-atlas status development/pnpm
-atlas install development/pnpm
+atlasctl verify development/pnpm
+atlasctl doctor development/pnpm
+atlasctl status development/pnpm
+atlasctl install development/pnpm
 ```
 
 The second install must perform no work.

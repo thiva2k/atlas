@@ -34,7 +34,7 @@ everything it calls. `-u` and `pipefail` survive; `-e` does not. So:
 ### Temp directories: one trap, over a global
 
 A `trap … EXIT` set inside a hook is **subshell-global** and fires at subshell exit, not
-at hook return — and for `atlas install`, `check`/`install`/`verify` share one subshell,
+at hook return — and for `atlasctl install`, `check`/`install`/`verify` share one subshell,
 so a trap set by a later hook **silently replaces** an earlier one. Worse, a trap body
 that names a hook `local` runs after that local has died: under `set -u` the trap itself
 errors and the subshell exits **1**, turning a module whose hook *succeeded* into a
@@ -221,7 +221,7 @@ is bound to the bytes on disk so the claim can be re-checked on every run:
 
 ## The backup contract
 
-`atlas backup` and `atlas restore` are generic platform verbs that fan out to every
+`atlasctl backup` and `atlasctl restore` are generic platform verbs that fan out to every
 module. The runner has no special cases. A module with no persistent state implements
 no-op hooks (or omits them — the runner treats an absent optional hook identically).
 

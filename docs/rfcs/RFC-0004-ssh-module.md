@@ -64,7 +64,7 @@ merely correct is not good enough here; it must be **refusing by default**.
 So this module inverts Atlas's usual posture. Elsewhere Atlas installs and
 configures. Here Atlas **detects, verifies, and reports**, and acts only when the
 user has explicitly asked it to — by supplying a passphrase, or by naming a key to
-import. The default behaviour of `atlas install core/ssh` on a machine that
+import. The default behaviour of `atlasctl install core/ssh` on a machine that
 already has SSH keys is to change *nothing*.
 
 ---
@@ -278,7 +278,7 @@ developer's machine.
 
 ### 4.5 Key generation — opt-in, never a default
 
-`atlas install core/ssh` on a machine with no key generates **nothing** unless asked.
+`atlasctl install core/ssh` on a machine with no key generates **nothing** unless asked.
 Generation is requested by supplying a passphrase:
 
 | Variable | Effect |
@@ -427,7 +427,7 @@ The owner's ruling makes this module the reference. A reference that specifies o
 its own behaviour is not one. So the following is the **contract**, and belongs in
 `docs/conventions.md`:
 
-1. **One secret per platform verb.** `atlas backup` fans out to every module; it must
+1. **One secret per platform verb.** `atlasctl backup` fans out to every module; it must
    not demand N passphrases. The passphrase is `ATLAS_BACKUP_PASSPHRASE`, resolved with
    `env::get_secret`. There is deliberately **no per-module override** — one secret, one
    verb, until a second stateful module demonstrates a need. (Decision 5.)
@@ -663,7 +663,7 @@ That is the documented recovery, and the error message says so:
 - to **disown** a key (make it external again): delete its line. Atlas stops managing it;
   the key on disk is untouched.
 - to **re-adopt** it at its current bytes: delete the line, then set
-  `ATLAS_SSH_IMPORT_KEY=<path>` and re-run `atlas install core/ssh`.
+  `ATLAS_SSH_IMPORT_KEY=<path>` and re-run `atlasctl install core/ssh`.
 
 There is no `ATLAS_SSH_FORGET_KEY` knob. Deleting a line from a file the user owns is
 already the simplest possible interface, and a knob that mutates the manifest is a knob
@@ -685,7 +685,7 @@ The runner maps `install → check install verify` and **skips `install` (and th
 RFC broke both:
 
 > **Everything `check` asserts must be work `install` can perform.**
-> **`check` performs no network I/O and no mutation.** (`atlas status` must be fast and
+> **`check` performs no network I/O and no mutation.** (`atlasctl status` must be fast and
 > must work on a plane.)
 
 The manifest may name **several** keys, so the predicate is quantified over them. `K` is
@@ -728,7 +728,7 @@ from the quantifiers and are deliberate:
 **A known limit of row 5.** `ghauth` tests that a token *exists* in `hosts.yml`, not
 that it is valid — `gh auth token` validates nothing (RFC-0003 §6.1). With a revoked or
 expired token, `check` fails on every run, `install` warns and returns 0 on every run,
-and `atlas status` reports `core/ssh` as "not installed" until the user re-authenticates.
+and `atlasctl status` reports `core/ssh` as "not installed" until the user re-authenticates.
 That is loud and honest, but it never converges on its own. Documented in the README.
 
 | # | State | `check` | `install` | Why |
@@ -751,12 +751,12 @@ plus a passphrase in `atlas.env` makes `check` fail on **every** run forever whi
 `install` refuses to overwrite — a module that never converges. This is precisely the
 "box with pre-existing keys" the acceptance criteria require.
 
-Row 10 is a permanent red `atlas install` **by design**, and it is not a bricked machine:
+Row 10 is a permanent red `atlasctl install` **by design**, and it is not a bricked machine:
 the runner tallies failures per module and continues, so every other module still installs
 and only `core/ssh` reports `fail` (exit 4 overall). Recovery is one edit (§4.14). Atlas
 must not report a provisioned workstation while its recorded identity does not match disk.
 
-Row 9's warning is only visible under `atlas verify` / `atlas doctor`, because the runner
+Row 9's warning is only visible under `atlasctl verify` / `atlasctl doctor`, because the runner
 skips `install` — and with it `verify` — when `check` passes. That is the known engine gap
 already recorded against `development/github-cli`: the runner has `ok`/`skip`/`fail` but no
 `warn`. It needs its own RFC. Listed in §11.
@@ -778,7 +778,7 @@ already recorded against `development/github-cli`: the runner has `ok`/`skip`/`f
 - row 9 → **warn**: a passphrase is set but the default path holds a key Atlas does not own
 - reports external keys by fingerprint and path; touches none
 - GitHub connectivity: **reported, never fatal** (below), and skipped entirely when
-  `ATLAS_SSH_NO_NETWORK=1` so `atlas verify` is fast and offline-safe
+  `ATLAS_SSH_NO_NETWORK=1` so `atlasctl verify` is fast and offline-safe
 
 **`update`:** refresh Atlas's `known_hosts` from `config/` (the pinned key may be rotated
 by a commit). Touches nothing else. Mirrors `core/git`'s fragment refresh.
@@ -838,7 +838,7 @@ Two hooks in this module create temp directories that may contain key material �
 askpass tmpdir (§4.5) and the restore staging dir (§4.12). The obvious pattern is
 wrong, in two ways that were probed against the real runner:
 
-1. **A later `trap … EXIT` silently replaces an earlier one**, and for `atlas install`
+1. **A later `trap … EXIT` silently replaces an earlier one**, and for `atlasctl install`
    the `check`, `install` and `verify` hooks share **one subshell**. A trap registered
    in `install` therefore discards a trap registered in `check`, and that `check` temp
    dir — possibly holding a private key — is never removed.
@@ -1001,7 +1001,7 @@ if it does not.
 12. **An `ATLAS_SSH_FORGET_KEY` knob.** Rejected: the manifest is a text file; deleting a
     line is a simpler interface than a knob that can mutate it by accident (§4.14).
 13. **`verify` performs the GitHub registration** (so ordering never matters). Rejected:
-    `verify` backs `atlas doctor`, and a *doctor* run that writes to the user's GitHub
+    `verify` backs `atlasctl doctor`, and a *doctor* run that writes to the user's GitHub
     account is a category error. It would also not help — `core/ssh`'s `verify` still runs
     before `development/github-cli`'s `install` in the same pass.
 14. **A soft `MODULE_AFTER` ordering array.** An engine change; the sprint freezes the
@@ -1041,25 +1041,25 @@ Definition of Done explicitly permits `gh auth login` as a **manual** step. In t
 flow — fresh box, no pre-staged token, `gh auth login` by hand — registration lands on a
 later run *whether or not the dependency is declared*. The dependency buys a one-pass
 install only for the user who pre-staged **both** secrets in `atlas.env`; that user gets a
-free, idempotent second `atlas install` anyway.
+free, idempotent second `atlasctl install` anyway.
 
 Meanwhile `check` row 5 already makes the module self-healing: the run after `gh auth login`
 registers the key. Registration converges on *authentication* — which `MODULE_DEPENDS`
 cannot order — rather than on *installation*, which it can but which does not matter.
 
-The costs of declaring are real: `atlas install core/ssh` on a GitHub-less box would drag in
+The costs of declaring are real: `atlasctl install core/ssh` on a GitHub-less box would drag in
 `gh`, contradicting this module's own refusing-by-default posture; and `core` → `development`
 is a layering inversion that, shipped in the reference stateful module, becomes precedent.
 
 **Recommendation: do not declare.** The README carries one line — *"if you authenticate `gh`
-after the first run, run `atlas install` again to register the key"* — which is needed in the
+after the first run, run `atlasctl install` again to register the key"* — which is needed in the
 manual-auth flow regardless, and is the tell that the dependency buys nearly nothing.
 
 ### 9.2 Decision 2 — generation is opt-in
 
 **Owner ruling (2026-07-10): generation is opt-in.**
 
-A brand-new Fedora box finishes `atlas install` **without an SSH key** unless the user set
+A brand-new Fedora box finishes `atlasctl install` **without an SSH key** unless the user set
 one variable. This is "the minimal manual step where security demands it", applied to the
 most security-demanding artifact on the machine. *Recommend: accept.*
 
@@ -1084,7 +1084,7 @@ success and needs no passphrase. *Recommend: accept.*
 
 **Owner ruling (2026-07-10): one platform-wide `ATLAS_BACKUP_PASSPHRASE`; no per-module override.**
 
-`atlas backup` fans out to every module. If each stateful module minted its own
+`atlasctl backup` fans out to every module. If each stateful module minted its own
 `ATLAS_<MODULE>_BACKUP_PASSPHRASE`, one verb would eventually demand N secrets. So:
 **`ATLAS_BACKUP_PASSPHRASE` is the platform-wide secret**, and there is no per-module
 override until a second stateful module proves it needs one.
@@ -1145,7 +1145,7 @@ than quietly contradicted. *Recommend: accept.*
 - [ ] Restore into a conflicting `$HOME` writes **zero** bytes and exits 4.
 - [ ] A swapped private half is detected; the key is left untouched.
 - [ ] An external key is byte-identical before and after `install`, `verify`, `backup`.
-- [ ] `atlas verify` passes offline.
+- [ ] `atlasctl verify` passes offline.
 - [ ] `core/git` answers `backup`/`restore` as no-ops.
 - [ ] Manual acceptance on clean Fedora **and** on a box with pre-existing keys, with real
       `gh`, real GitHub, real `gpg` — recorded in the production-readiness report.
@@ -1153,7 +1153,7 @@ than quietly contradicted. *Recommend: accept.*
 ### Follow-up work this RFC surfaces (not blocking)
 
 - **Engine:** the runner has `ok`/`skip`/`fail` but no `warn`. Rows 4 and 9 are invisible in
-  an `atlas install` summary. Needs its own RFC.
+  an `atlasctl install` summary. Needs its own RFC.
 - **Engine/audit:** `set -e` is suspended inside every hook (§4.0). `core/git` and
   `development/github-cli` were written without knowing this and must be audited for any
   fallible command that relies on it — and for any `trap … EXIT` set inside a hook (§5.1),
@@ -1178,7 +1178,7 @@ not silently edited). None changes a design decision.
   reported by path only.** Corrected in code — `verify` now logs both the fingerprint and
   the path — and the wording above is fixed. (RFC-compliance review.)
 - **`ATLAS_SSH_NO_NETWORK=1` was implemented and documented in the README but not named in
-  this RFC.** It skips the GitHub connectivity probe so `atlas verify` is offline-safe.
+  this RFC.** It skips the GitHub connectivity probe so `atlasctl verify` is offline-safe.
   Added to §4.15's `verify` list.
 - **`ATLAS_SSH_STAGING_DIR` is a knob this RFC did not anticipate.** It overrides the base
   directory for key-material staging — for an operator whose `/dev/shm` is too small for a

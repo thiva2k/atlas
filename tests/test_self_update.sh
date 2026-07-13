@@ -12,7 +12,7 @@ _self_test_marker() {
 }
 
 _self_write_marker() {
-  local home="$1" root="$2" executable="$3" remote_identity="${4:-github.com/thiva2k/atlas}" branch="${5:-main}"
+  local home="$1" root="$2" executable="$3" remote_identity="${4:-github.com/thiva2k/atlas}" branch="${5:-main}" launcher="${6:-}"
   local marker dir
   marker="$(_self_test_marker "$home")"
   dir="$(dirname "$marker")"
@@ -27,6 +27,7 @@ _self_write_marker() {
     printf 'remote_identity=%s\n' "$remote_identity"
     printf 'branch=%s\n' "$branch"
     printf 'ref=refs/heads/%s\n' "$branch"
+    [ -n "$launcher" ] && printf 'launcher=%s\n' "$launcher"
     printf 'executable=%s\n' "$executable"
   } > "$marker" || return 1
   chmod 600 "$marker" || return 1
@@ -109,11 +110,13 @@ _self_run() {
   FAKE_GIT_ROOT="$ATLAS_ROOT" \
   FAKE_GIT_LOG="$home/git.log" \
   PATH="$fake_bin:$PATH" \
-  atlas "$@"
+  atlasctl "$@"
 }
 
 out="$(bash "$ATLAS" --help 2>&1)"
 assert_contains "help lists self-update" "$out" "self-update"
+assert_contains "help lists self-version" "$out" "self-version"
+assert_contains "help lists self-verify" "$out" "self-verify"
 
 out="$(bash "$ATLAS" self-update --help 2>&1)"
 assert_contains "self-update help shows usage" "$out" "Usage: atlas self-update"
@@ -121,7 +124,20 @@ assert_contains "self-update help shows usage" "$out" "Usage: atlas self-update"
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
+out="$(PATH="$bin:$PATH" atlasctl --help 2>&1)"
+assert_contains "atlasctl help uses launcher name" "$out" "Usage: atlasctl <command>"
+assert_contains "atlasctl help lists self-version" "$out" "self-version"
+assert_contains "atlasctl help lists self-verify" "$out" "self-verify"
+out="$(PATH="$bin:$PATH" atlasctl self-update --help 2>&1)"
+assert_contains "atlasctl self-update help uses launcher name" "$out" "Usage: atlasctl self-update"
+out="$(PATH="$bin:$PATH" atlasctl self-version 2>&1)"
+assert_eq "atlasctl self-version prints version" "$out" "$(bash "$ATLAS" version)"
+
+home="$(_self_test_home)"
+bin="$home/bin"
+mkdir -p "$bin"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
 assert_eq "self-update refuses unmanaged checkout" "$rc" "1"
@@ -132,7 +148,7 @@ assert_eq "self-update unmanaged checkout does not fetch" "$(grep -c '^fetch' "$
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$home/bin/not-atlas"
 out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
@@ -143,7 +159,7 @@ assert_eq "self-update executable mismatch does not fetch" "$(grep -c '^fetch' "
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(FAKE_GIT_STATUS=" M atlas" _self_run "$home" "$bin" self-update 2>&1)"; rc=$?
@@ -153,7 +169,41 @@ assert_eq "self-update dirty checkout does not fetch" "$(grep -c '^fetch' "$home
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+launcher="$bin/atlasctl"
+ln -s "$ATLAS" "$launcher"
+printf '#!/bin/sh\nprintf "ariga atlas\\n"\n' > "$bin/atlas"
+chmod +x "$bin/atlas"
+_self_fake_git "$bin" "$home/git.log"
+_self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS" "github.com/thiva2k/atlas" "main" "$launcher"
+out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
+assert_eq "self-update accepts recorded managed launcher" "$rc" "0"
+assert_eq "self-update with launcher fetches recorded remote" "$(grep -c '^fetch origin' "$home/git.log")" "1"
+assert_eq "self-update ignores unrelated atlas command" "$(PATH="$bin:$PATH" atlas)" "ariga atlas"
+
+out="$(_self_run "$home" "$bin" self-verify 2>&1)"; rc=$?
+assert_eq "self-verify accepts recorded managed launcher" "$rc" "0"
+assert_contains "self-verify reports healthy self-management" "$out" "Atlas self-management is healthy"
+assert_eq "self-verify does not fetch" "$(grep -c '^fetch origin' "$home/git.log")" "1"
+assert_eq "self-verify does not merge" "$(grep -c '^merge --ff-only origin/main' "$home/git.log")" "1"
+
+home="$(_self_test_home)"
+bin="$home/bin"
+mkdir -p "$bin"
+launcher="$bin/atlasctl"
+cat > "$launcher" <<EOF
+#!/usr/bin/env bash
+exec "$ATLAS" "\$@"
+EOF
+chmod +x "$launcher"
+_self_fake_git "$bin" "$home/git.log"
+_self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS" "github.com/thiva2k/atlas" "main" "$launcher"
+out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
+assert_eq "self-update accepts recorded wrapper launcher" "$rc" "0"
+
+home="$(_self_test_home)"
+bin="$home/bin"
+mkdir -p "$bin"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS" "github.com/thiva2k/not-atlas"
 out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
@@ -163,7 +213,7 @@ assert_eq "self-update mismatched remote does not fetch" "$(grep -c '^fetch' "$h
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(FAKE_GIT_BRANCH="DETACHED" _self_run "$home" "$bin" self-update 2>&1)"; rc=$?
@@ -173,7 +223,7 @@ assert_eq "self-update detached HEAD does not fetch" "$(grep -c '^fetch' "$home/
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(FAKE_GIT_FF="no" _self_run "$home" "$bin" self-update 2>&1)"; rc=$?
@@ -184,19 +234,19 @@ assert_eq "self-update non-fast-forward does not merge" "$(grep -c '^merge --ff-
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(_self_run "$home" "$bin" self-update 2>&1)"; rc=$?
 assert_eq "self-update fast-forwards managed checkout" "$rc" "0"
 assert_eq "self-update fetches recorded remote" "$(grep -c '^fetch origin' "$home/git.log")" "1"
 assert_eq "self-update applies fast-forward only" "$(grep -c '^merge --ff-only origin/main' "$home/git.log")" "1"
-assert_contains "self-update runs post-update status" "$out" "atlas status"
+assert_contains "self-update runs post-update status" "$out" "atlasctl status"
 
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(_self_run "$home" "$bin" self-update --verify 2>&1)"; rc=$?
@@ -206,7 +256,7 @@ assert_contains "self-update --verify runs full suite" "$out" "passed, 0 failed"
 home="$(_self_test_home)"
 bin="$home/bin"
 mkdir -p "$bin"
-ln -s "$ATLAS" "$bin/atlas"
+ln -s "$ATLAS" "$bin/atlasctl"
 _self_fake_git "$bin" "$home/git.log"
 _self_write_marker "$home" "$ATLAS_ROOT" "$ATLAS"
 out="$(FAKE_GIT_REMOTE_URL="https://user:secret-token@evil.example/thiva2k/atlas.git" _self_run "$home" "$bin" self-update 2>&1)"; rc=$?

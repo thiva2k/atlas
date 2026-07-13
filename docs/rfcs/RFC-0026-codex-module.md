@@ -196,7 +196,7 @@ marker.
 
 With an `installing` marker, `verify` fails and tells the user to rerun install.
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0026
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0026
 preserves that contract. Atlas does not run interactive Codex commands because
 they may read authentication, project, memory, network, or user configuration
 state outside Atlas's ownership boundary.
@@ -263,12 +263,12 @@ Unit tests must cover:
 Fedora acceptance tests:
 
 ```
-atlas install development/codex
+atlasctl install development/codex
 /usr/local/bin/codex --version
-atlas verify development/codex
-atlas doctor development/codex
-atlas status development/codex
-atlas install development/codex
+atlasctl verify development/codex
+atlasctl doctor development/codex
+atlasctl status development/codex
+atlasctl install development/codex
 ```
 
 The second install must perform no work. If a user-owned `codex` appears earlier

@@ -15,8 +15,8 @@
 "Cleanly remove it" — but its **platform verb** list omits it:
 
 ```
-atlas install    atlas update    atlas verify    atlas backup
-atlas restore    atlas doctor    atlas status
+atlasctl install    atlas update    atlasctl verify    atlasctl backup
+atlasctl restore    atlasctl doctor    atlasctl status
 ```
 
 `_runner_hooks_for_verb` in `internal/runner.sh` has no `remove` case, so

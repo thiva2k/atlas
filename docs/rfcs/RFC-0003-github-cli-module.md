@@ -67,7 +67,7 @@ No `config/` directory. `core/git` has one because it owns a config fragment;
 this module owns no file at all.
 
 Category `development/`, id **`development/github-cli`**. The binary is `gh`; the
-module id is spelled out so `atlas install development/github-cli` reads clearly.
+module id is spelled out so `atlasctl install development/github-cli` reads clearly.
 
 ### 4.2 Metadata
 
@@ -313,11 +313,11 @@ distinction `core/git` draws: it asserts its include is *first*, an Atlas-owned
 property `install` can restore, not that Atlas's values *win*, a user-owned
 outcome it must not force.
 
-Note the consequence of the last row: on `atlas install`, a passing `check` skips
+Note the consequence of the last row: on `atlasctl install`, a passing `check` skips
 the module **including its `verify` hook** (`internal/runner.sh`: the `check`
 branch prints `__SKIP__` and exits), so the "installed but unauthenticated"
-warning is **not** printed during that run. It surfaces under `atlas verify` and
-`atlas doctor`, which is where a user looks for the health of an
+warning is **not** printed during that run. It surfaces under `atlasctl verify` and
+`atlasctl doctor`, which is where a user looks for the health of an
 already-provisioned box.
 
 **`install`** —
@@ -448,7 +448,7 @@ The mock encodes behaviour observed on **gh 2.45.0 (Ubuntu/WSL)** and **gh 2.93.
 Atlas no longer calls it.)
 
 A mocked `gh` proves Atlas's logic, not `gh`'s. **Named follow-up gate before the
-v1.1 tag:** one manual pass of `atlas install development/github-cli` against real
+v1.1 tag:** one manual pass of `atlasctl install development/github-cli` against real
 `gh` on the clean Fedora acceptance box, recorded in the production-readiness
 report. If any assumption above breaks on Fedora's `gh`, the mock and this section
 are wrong together and must be corrected together.
@@ -527,7 +527,7 @@ that, (b) that `gh auth setup-git` is the user's to run, and (c) that an exporte
 
 ## 11. Acceptance criteria
 
-- On a fresh Fedora box, `atlas install development/github-cli` installs `gh` and
+- On a fresh Fedora box, `atlasctl install development/github-cli` installs `gh` and
   either authenticates from a supplied token or warns clearly — with no prompt and
   no manual step inside Atlas.
 - `gh`'s configuration is untouched: no `config.yml` is created, on any path.

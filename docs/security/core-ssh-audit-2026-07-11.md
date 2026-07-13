@@ -44,7 +44,7 @@ under `$HOME`. Because the manifest also carries the recorded `privhash`, the fi
   same-uid access to `$HOME`, which already permits writing `~/.bashrc` directly — no
   escalation. The realistic vector is the artifact's *intended portability*: it is meant
   to be copied off-box, where a tamperer who also knows the passphrase could plant a
-  payload that fires on a later `atlas restore`.
+  payload that fires on a later `atlasctl restore`.
 - **Fix:** owned keys are constrained to live directly in `~/.ssh` (SSH keys' natural
   home). `import` and `restore` both refuse any other path. The generated key
   (`.ssh/id_ed25519`) and normal imports are unaffected. Regression-tested (restore and

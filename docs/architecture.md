@@ -52,10 +52,15 @@ Atlas has two lifecycles that never bleed into each other.
 **Platform verbs** — what the *user* runs:
 
 ```
-atlas install    atlas update    atlas verify    atlas backup
-atlas restore    atlas doctor     atlas status
-atlas self-update
+atlasctl install       atlasctl update        atlasctl verify
+atlasctl backup        atlasctl restore       atlasctl doctor
+atlasctl status        atlasctl self-update   atlasctl self-version
+atlasctl self-verify
 ```
+
+Repository-local execution remains available as `./atlas <command>`. The
+managed global launcher is `atlasctl` so Atlas does not conflict with other
+software distributions that provide an `atlas` executable.
 
 **Module hooks** — what each *module* implements:
 
@@ -70,12 +75,12 @@ atlas self-update
 | `restore` | optional | Re-apply previously captured state.               |
 
 A module lifecycle platform verb is nothing more than the **runner fanning that
-verb out across the selected modules**. `atlas backup` means "call every module's
+verb out across the selected modules**. `atlasctl backup` means "call every module's
 `backup` hook." That is why backup and restore are verbs, not folders — they are
 cross-cutting operations expressed once in the runner and contributed to by
 modules.
 
-`atlas self-update` is the exception by design: it is an engine lifecycle verb
+`atlasctl self-update` is the exception by design: it is an engine lifecycle verb
 for updating Atlas itself, not a module lifecycle verb. It never resolves
 `atlas` or `core/atlas` as a module and does not change the module contract.
 
@@ -279,10 +284,10 @@ log::error "failed to write ~/.gitconfig"
 
 ## 10. How a command flows through the system
 
-Walkthrough of `atlas install`:
+Walkthrough of `atlasctl install`:
 
-1. **`atlas`** parses global flags (`--verbose`, `--quiet`, …) and the verb,
-   then calls into `internal/runner.sh`.
+1. The CLI entrypoint parses global flags (`--verbose`, `--quiet`, …) and the
+   verb, then calls into `internal/runner.sh`.
 2. **`runner.sh`** asks `internal/module.sh` to **discover** modules by scanning
    `modules/<category>/<name>/module.sh`.
 3. **`module.sh`** reads each module's `MODULE_DEPENDS`, builds a dependency
@@ -295,7 +300,7 @@ Walkthrough of `atlas install`:
 5. The runner prints a **summary** (installed / skipped / failed) and exits with
    a meaningful code.
 
-`atlas verify`, `atlas backup`, etc. follow the same shape — only the hook that
+`atlasctl verify`, `atlasctl backup`, etc. follow the same shape — only the hook that
 gets fanned out changes. This uniformity is the point: to learn one verb is to
 learn them all.
 

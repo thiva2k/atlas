@@ -179,7 +179,7 @@ User-selected runtimes and package managers are outside this module.
 
 ### 5.3 `verify` and `doctor`
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0013
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0013
 preserves that contract and does not add a new engine hook.
 
 With no marker, `verify` returns `0`. It logs whether system Node.js appears
@@ -290,13 +290,13 @@ functions for system paths. They must cover:
 Integration/Fedora acceptance must run:
 
 ```
-atlas install development/node
+atlasctl install development/node
 node --version
 npm --version
-atlas verify development/node
-atlas doctor development/node
-atlas status development/node
-atlas install development/node
+atlasctl verify development/node
+atlasctl doctor development/node
+atlasctl status development/node
+atlasctl install development/node
 ```
 
 The repeated install must be idempotent.

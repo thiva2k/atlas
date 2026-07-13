@@ -13,5 +13,10 @@ out="$(bash "$ATLAS" --help 2>&1)"
 assert_contains "help shows usage"    "$out" "Usage: atlas"
 assert_contains "help lists install"  "$out" "install"
 
+tmp="$(mktemp -d)"
+ln -s "$ATLAS" "$tmp/atlasctl"
+out="$(PATH="$tmp:$PATH" atlasctl --help 2>&1)"
+assert_contains "help uses invoked launcher name" "$out" "Usage: atlasctl"
+
 out="$(bash "$ATLAS" --version 2>&1)"
 assert_contains "version prints a number" "$out" "0.1.0"

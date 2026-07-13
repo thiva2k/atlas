@@ -258,12 +258,12 @@ functions for system paths. They must cover:
 Integration/Fedora acceptance must run:
 
 ```
-atlas install development/fish
+atlasctl install development/fish
 fish --version
-atlas verify development/fish
-atlas doctor development/fish
-atlas status development/fish
-atlas install development/fish
+atlasctl verify development/fish
+atlasctl doctor development/fish
+atlasctl status development/fish
+atlasctl install development/fish
 ```
 
 The repeated install must be idempotent.

@@ -164,12 +164,18 @@ _self_marker_load() {
 }
 
 _self_current_executable_matches() {
-  local current marker_current
-  current="$(command -v atlas 2>/dev/null)" || return 1
+  local current marker_current marker_launcher
+  current="${ATLAS_EXECUTABLE_PATH:-}"
+  [ -n "$current" ] || current="$(command -v "${PROGRAM_NAME:-atlas}" 2>/dev/null)" || return 1
   current="$(_self_abs_path "$current")"
   current="$(_self_canonical_path "$current")" || return 1
   marker_current="$(_self_canonical_path "$_SELF_MARKER_EXECUTABLE")" || return 1
-  [ "$current" = "$marker_current" ]
+  [ "$current" = "$marker_current" ] && return 0
+  if [ -n "$_SELF_MARKER_LAUNCHER" ]; then
+    marker_launcher="$(_self_canonical_path "$_SELF_MARKER_LAUNCHER")" || return 1
+    [ "$current" = "$marker_launcher" ] && return 0
+  fi
+  return 1
 }
 
 _self_validate_preflight() {
@@ -220,7 +226,7 @@ _self_post_update_validate() {
   _self_validate_shell || { log::error "self-update validation failed: shell syntax"; return 1; }
   "$_SELF_MARKER_EXECUTABLE" version >/dev/null || { log::error "self-update validation failed: atlas version"; return 1; }
   "$_SELF_MARKER_EXECUTABLE" help >/dev/null || { log::error "self-update validation failed: atlas help"; return 1; }
-  log::info "atlas status"
+  log::info "${PROGRAM_NAME:-atlas} status"
   "$_SELF_MARKER_EXECUTABLE" status >/dev/null || { log::error "self-update validation failed: atlas status"; return 1; }
 }
 
@@ -231,7 +237,7 @@ _self_full_test() {
 
 self::usage() {
   cat <<EOF
-Usage: atlas self-update [--verify|--full-test]
+Usage: ${PROGRAM_NAME:-atlas} self-update [--verify|--full-test]
 
 Updates the managed Atlas checkout with a fast-forward-only Git update.
 
@@ -242,13 +248,32 @@ Options:
 EOF
 }
 
+self::version() {
+  [ "$#" -eq 0 ] || die "$ATLAS_EXIT_USAGE" "self-version takes no arguments" "" "run '${PROGRAM_NAME:-atlas} self-version'"
+  printf '%s\n' "$ATLAS_VERSION"
+}
+
+self::verify() {
+  [ "$#" -eq 0 ] || die "$ATLAS_EXIT_USAGE" "self-verify takes no arguments" "" "run '${PROGRAM_NAME:-atlas} self-verify'"
+  local preflight_rc
+  _self_validate_preflight
+  preflight_rc=$?
+  case "$preflight_rc" in
+    0) ;;
+    2) _self_refuse_executable; return 1 ;;
+    *) _self_refuse_unmanaged; return 1 ;;
+  esac
+  _self_post_update_validate || return 1
+  log::info "Atlas self-management is healthy"
+}
+
 self::update() {
   local full_test=0 arg
   for arg in "$@"; do
     case "$arg" in
       --help) self::usage; return 0 ;;
       --verify|--full-test) full_test=1 ;;
-      *) die "$ATLAS_EXIT_USAGE" "unknown self-update option: $arg" "" "run 'atlas self-update --help'" ;;
+      *) die "$ATLAS_EXIT_USAGE" "unknown self-update option: $arg" "" "run '${PROGRAM_NAME:-atlas} self-update --help'" ;;
     esac
   done
 

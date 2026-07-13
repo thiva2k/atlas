@@ -11,6 +11,10 @@ while [ -h "$_src" ]; do
 done
 ATLAS_ROOT="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
 export ATLAS_ROOT
+ATLAS_EXECUTABLE_PATH="$0"
+export ATLAS_EXECUTABLE_PATH
+PROGRAM_NAME="$(basename "$0")"
+export PROGRAM_NAME
 
 ATLAS_VERSION="0.1.0-dev"
 
@@ -26,7 +30,7 @@ usage() {
   cat <<EOF
 Atlas — workstation lifecycle manager (v$ATLAS_VERSION)
 
-Usage: atlas <command> [modules...] [options]
+Usage: $PROGRAM_NAME <command> [modules...] [options]
 
 Commands:
   install    ensure modules are present & configured
@@ -38,6 +42,10 @@ Commands:
   status     show what is / isn't installed
   self-update
              update Atlas itself (managed checkouts only)
+  self-version
+             show Atlas engine version
+  self-verify
+             verify Atlas self-management state
   help       show this help
   version    show the version
 
@@ -71,6 +79,10 @@ main() {
       runner::run "$verb" "${rest[@]}" ;;
     self-update)
       self::update "${rest[@]}" ;;
+    self-version)
+      self::version "${rest[@]}" ;;
+    self-verify)
+      self::verify "${rest[@]}" ;;
     *) die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'" ;;
   esac
 }

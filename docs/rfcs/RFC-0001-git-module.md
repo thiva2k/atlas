@@ -330,7 +330,7 @@ One focused change, TDD, small commits:
 
 ## 11. Acceptance criteria
 
-- On a fresh Fedora box, `atlas install core/git` installs Git, writes the
+- On a fresh Fedora box, `atlasctl install core/git` installs Git, writes the
   managed fragment, wires the include line, and (given `atlas.env`/env) sets
   identity — with no manual steps.
 - Re-running is a clean no-op (`check` returns satisfied; state unchanged).
@@ -353,7 +353,7 @@ positionally (last value wins) and expands an include at the position of the dir
 A bottom include is therefore read **last**, so the Atlas fragment would silently
 override any value the user had already set above it: a user with
 `[pull] rebase = false` would find `git config pull.rebase` reporting `true` after
-`atlas install`.
+`atlasctl install`.
 
 That is the exact opposite of the guarantee stated in the same section — "the include
 is added near the top … Atlas provides defaults, **the user always wins**" — which is

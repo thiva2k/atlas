@@ -12,15 +12,17 @@
 ## 1. Summary
 
 Atlas needs a first-class way to update Atlas itself without weakening the
-module ownership model. The canonical operator interface is:
+module ownership model. Repository-local execution remains available as
+`./atlas`, while the managed global launcher is `atlasctl`. The canonical
+operator interface is:
 
 ```
-atlas self-update
+atlasctl self-update
 ```
 
 The current engine cannot provide this command through a module-local change:
 
-- `atlas self-update` is not a supported platform verb;
+- `atlasctl self-update` is not a supported platform verb;
 - `atlas update atlas` is intentionally rejected because `update` is a module
   lifecycle verb and self-update is an engine lifecycle verb;
 - `atlas update core/atlas` is intentionally rejected because it would expose
@@ -40,7 +42,7 @@ must preserve the module lifecycle contract unchanged.
   Atlas already requires for source-controlled operation.
 - Make self-update idempotent and auditable.
 - Keep normal module lifecycle contracts unchanged.
-- Establish a future `atlas self-*` namespace for Atlas engine lifecycle
+- Establish an `atlasctl self-*` namespace for Atlas engine lifecycle
   operations.
 
 ## 3. Non-goals
@@ -48,7 +50,7 @@ must preserve the module lifecycle contract unchanged.
 - Managing user dotfiles or project repositories.
 - Replacing Git as the source transport.
 - Adding an auto-update daemon or background updater.
-- Updating Atlas during every `atlas install`.
+- Updating Atlas during every `atlasctl install`.
 - Resolving local merge conflicts automatically.
 - Force-resetting a dirty working tree.
 - Managing authentication to the Git remote.
@@ -85,7 +87,7 @@ No marker means Atlas must not mutate the current repository as owned state.
 Canonical operator command:
 
 ```
-atlas self-update
+atlasctl self-update
 ```
 
 Explicitly unsupported:
@@ -94,7 +96,7 @@ Explicitly unsupported:
 atlas update atlas
 ```
 
-`atlas self-update` is a platform verb because it updates the Atlas engine, not a
+`atlasctl self-update` is a platform verb because it updates the Atlas engine, not a
 workstation capability module. `atlas update atlas` must not be implemented,
 because `update` is a module lifecycle verb. Keeping those concepts separate
 preserves the architecture and avoids a special case in module resolution.
@@ -102,20 +104,20 @@ preserves the architecture and avoids a special case in module resolution.
 This RFC also reserves a future Atlas self-management namespace:
 
 ```
-atlas self-update
-atlas self-version
-atlas self-verify
+atlasctl self-update
+atlasctl self-version
+atlasctl self-verify
 ```
 
-Only `atlas self-update` is in scope for this RFC. `self-version` and
-`self-verify` are reserved for future RFCs or implementation phases.
+`self-version` and `self-verify` are implemented as engine lifecycle commands so
+the self-management namespace is reserved before v1.0.
 
 ## 6. Engine changes required
 
 This RFC requires changes to the CLI/runner layer:
 
-1. Add `self-update` to the top-level command parser.
-2. Add help text for `atlas self-update`.
+1. Add `self-update`, `self-version`, and `self-verify` to the top-level command parser.
+2. Add help text for the self-management commands.
 3. Add a dedicated self-management implementation path.
 4. Keep `module::discover` and normal module lifecycle resolution unchanged.
 5. Add tests proving that `atlas update atlas` is rejected as normal module
@@ -128,7 +130,7 @@ module contract.
 
 ## 7. Lifecycle and safety contract
 
-`atlas self-update` must:
+`atlasctl self-update` must:
 
 1. Verify the current Atlas checkout is an explicitly managed checkout.
 2. Verify the current Atlas executable resolves to the managed executable or
@@ -147,12 +149,12 @@ module contract.
 11. Re-run post-update validation:
    - `bash -n atlas`;
    - `bash -n` over `internal/*.sh` and module scripts;
-   - `atlas version`;
-   - `atlas help`;
-   - `atlas status`.
+   - `atlasctl version` or repository-local `./atlas version`;
+   - `atlasctl help` or repository-local `./atlas help`;
+   - `atlasctl status` or repository-local `./atlas status`.
 12. Run the full test suite only when explicitly requested with:
-   - `atlas self-update --verify`; or
-   - `atlas self-update --full-test`.
+   - `atlasctl self-update --verify`; or
+   - `atlasctl self-update --full-test`.
 13. Leave the previous checkout untouched if preflight fails.
 
 The managed-state check is intentionally strict. A typical accepted state is:
@@ -235,10 +237,12 @@ Tests must cover:
 - remote URL with credentials is redacted in logs;
 - non-fast-forward update refuses;
 - syntax validation failure after update is detected;
-- `atlas version`, `atlas help`, and `atlas status` run after update;
-- `atlas self-update --verify` runs the full suite;
-- `atlas self-update --full-test` runs the full suite;
-- `atlas self-update` command dispatch;
+- version, help, and status validation run after update;
+- `atlasctl self-update --verify` runs the full suite;
+- `atlasctl self-update --full-test` runs the full suite;
+- `atlasctl self-update` command dispatch;
+- `atlasctl self-version` command dispatch;
+- `atlasctl self-verify` command dispatch without fetch/merge;
 - `atlas update atlas` is rejected and does not dispatch self-update;
 - normal module resolution remains unchanged.
 
@@ -246,17 +250,29 @@ Tests must cover:
 
 Accepted decisions:
 
-1. The only public command is `atlas self-update`.
+1. The public self-management commands are `atlasctl self-update`,
+   `atlasctl self-version`, and `atlasctl self-verify`; repository-local
+   `./atlas ...` remains supported.
 2. `atlas update atlas` must not be implemented.
-3. `atlas self-update` belongs to an engine self-management namespace, separate
+3. `atlasctl self-update` belongs to an engine self-management namespace, separate
    from module lifecycle verbs.
 4. The update must verify exact recorded remote, exact recorded branch, clean
    working tree, current executable identity, and fast-forward possibility
    before mutation.
-5. Default post-update validation runs syntax checks plus `atlas version`,
-   `atlas help`, and `atlas status`.
-6. The full test suite is optional via `atlas self-update --verify` or
-   `atlas self-update --full-test`.
+5. Default post-update validation runs syntax checks plus version, help, and
+   status through the managed executable.
+6. The full test suite is optional via `atlasctl self-update --verify` or
+   `atlasctl self-update --full-test`.
+
+Erratum — managed launcher name:
+
+- The repository-local executable remains `./atlas`.
+- Bootstrap installs the managed global launcher at `~/.local/bin/atlasctl`.
+- The launcher name avoids collision with existing software distributions that
+  provide an `atlas` executable, including Fedora's Ariga Atlas package.
+- Self-management operations validate the actual invoked executable or the
+  recorded `atlasctl` launcher path, not a hardcoded `atlas` PATH lookup.
+- The `atlas` command namespace remains available for other software.
 
 Implementation resolution:
 

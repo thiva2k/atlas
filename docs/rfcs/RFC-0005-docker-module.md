@@ -36,9 +36,9 @@ it does **not** implement the Docker module.
   maintained Fedora.
 - Manage only the Atlas-created vendor repository definition, installation
   markers, and rootful system-service enablement.
-- Make `atlas verify` distinguish valid unmanaged/pre-install state from a
+- Make `atlasctl verify` distinguish valid unmanaged/pre-install state from a
   broken Atlas-managed installation.
-- Provide read-only diagnostic output through the existing `atlas doctor`
+- Provide read-only diagnostic output through the existing `atlasctl doctor`
   dispatch.
 - Preserve Docker workloads, user configuration, and application data under all
   lifecycle operations.
@@ -255,7 +255,7 @@ SELinux, add a user to `docker`, or write daemon policy.
 
 ### 5.3 `verify` and `doctor`
 
-The current runner dispatches `atlas doctor` to `module::verify`; it has no
+The current runner dispatches `atlasctl doctor` to `module::verify`; it has no
 separate `module::doctor` hook. RFC-0005 preserves that contract rather than
 adding an engine abstraction during a module RFC. Docker `verify` therefore
 emits the read-only diagnostic report required by doctor.

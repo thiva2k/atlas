@@ -174,7 +174,7 @@ installations are outside this module.
 
 ### 5.3 `verify` and `doctor`
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0009
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0009
 preserves that contract and does not add a new engine hook.
 
 With no marker, `verify` returns `0`. It logs whether system uv appears absent
@@ -287,12 +287,12 @@ functions for system paths. They must cover:
 Integration/Fedora acceptance must run:
 
 ```
-atlas install development/uv
+atlasctl install development/uv
 uv --version
-atlas verify development/uv
-atlas doctor development/uv
-atlas status development/uv
-atlas install development/uv
+atlasctl verify development/uv
+atlasctl doctor development/uv
+atlasctl status development/uv
+atlasctl install development/uv
 ```
 
 The repeated install must be idempotent.

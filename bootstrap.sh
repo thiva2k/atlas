@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Atlas bootstrap — the only thing you run on a truly fresh machine.
-# Ensures Git, fetches Atlas, and hands off to `atlas install`.
+# Ensures Git, fetches Atlas, and hands off to `atlasctl install`.
 set -uo pipefail
 
 ATLAS_REPO="${ATLAS_REPO:-https://github.com/thiva2k/atlas.git}"
@@ -15,6 +15,7 @@ Prepares a fresh machine, then hands off to Atlas:
   1. ensure Git is installed
   2. clone Atlas into $ATLAS_HOME (if not already there)
   3. run:  cd $ATLAS_HOME && ./atlas install
+     or:   atlasctl install
 
 Usage: bootstrap.sh [--help]
 EOF
@@ -43,8 +44,64 @@ remote_identity_from_url() {
   esac
 }
 
+canonical_path() {
+  local p="$1" dir base resolved
+  if [ -d "$p" ]; then
+    ( cd -P "$p" >/dev/null 2>&1 && pwd ) || return 1
+    return 0
+  fi
+  dir="$(dirname "$p")"
+  base="$(basename "$p")"
+  dir="$(cd -P "$dir" >/dev/null 2>&1 && pwd)" || return 1
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$dir/$base" 2>/dev/null)" && [ -n "$resolved" ] && {
+      printf '%s\n' "$resolved"
+      return 0
+    }
+  fi
+  [ -e "$dir/$base" ] || return 1
+  printf '%s/%s\n' "$dir" "$base"
+}
+
+install_self_launcher() {
+  local target launcher_dir launcher target_c launcher_c
+  target="$ATLAS_HOME/atlas"
+  launcher_dir="$HOME/.local/bin"
+  launcher="$launcher_dir/atlasctl"
+
+  [ -x "$target" ] || {
+    echo "Atlas executable is not runnable at $target — not recording self-management marker." >&2
+    return 1
+  }
+
+  mkdir -p "$launcher_dir" || {
+    echo "cannot create Atlas launcher directory: $launcher_dir" >&2
+    return 1
+  }
+
+  if [ -e "$launcher" ] || [ -L "$launcher" ]; then
+    target_c="$(canonical_path "$target")" || return 1
+    launcher_c="$(canonical_path "$launcher")" || {
+      echo "atlasctl launcher already exists at $launcher — not recording self-management marker." >&2
+      return 1
+    }
+    [ "$launcher_c" = "$target_c" ] || {
+      echo "atlasctl launcher already exists at $launcher — not recording self-management marker." >&2
+      return 1
+    }
+    printf '%s\n' "$launcher"
+    return 0
+  fi
+
+  ln -s "$target" "$launcher" || {
+    echo "cannot create Atlas launcher at $launcher" >&2
+    return 1
+  }
+  printf '%s\n' "$launcher"
+}
+
 record_self_management_marker() {
-  local identity state_dir marker dir tmp branch
+  local identity state_dir marker dir tmp branch launcher
   identity="$(remote_identity_from_url "$ATLAS_REPO")"
   [ "$identity" = "$ATLAS_REMOTE_IDENTITY" ] || {
     echo "custom Atlas repository detected — not recording self-management marker."
@@ -58,6 +115,7 @@ record_self_management_marker() {
     echo "Atlas branch is not main — not recording self-management marker."
     return 0
   }
+  launcher="$(install_self_launcher)" || return 0
   state_dir="${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}"
   marker="$state_dir/installed/atlas-self"
   dir="$(dirname "$marker")"
@@ -82,6 +140,7 @@ record_self_management_marker() {
     printf 'remote_identity=%s\n' "$ATLAS_REMOTE_IDENTITY"
     printf 'branch=main\n'
     printf 'ref=refs/heads/main\n'
+    printf 'launcher=%s\n' "$launcher"
     printf 'executable=%s/atlas\n' "$ATLAS_HOME"
   } > "$tmp" || {
     rm -f "$tmp"
@@ -130,6 +189,9 @@ main() {
   echo
   echo "Bootstrap complete. Next:"
   echo "  cd $ATLAS_HOME && ./atlas install"
+  echo
+  echo "If $HOME/.local/bin is on PATH, you can also run:"
+  echo "  atlasctl install"
 }
 
 main "$@"

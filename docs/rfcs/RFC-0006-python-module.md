@@ -20,7 +20,7 @@ Python version managers, pip configuration, or user-installed packages.
 
 Python is different from Docker: a Fedora workstation commonly already has
 `/usr/bin/python3` because Fedora itself uses Python. Atlas must therefore not
-treat pre-existing Python as a conflict. Running `atlas install
+treat pre-existing Python as a conflict. Running `atlasctl install
 development/python` enrolls the Fedora package intent by invoking DNF
 idempotently, validating the fixed system commands, and writing a marker. Without
 that marker, Python remains unmanaged and `verify` succeeds as valid pre-install
@@ -180,7 +180,7 @@ fixed system paths Atlas will later trust.
 
 ### 5.3 `verify` and `doctor`
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0006
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0006
 preserves that contract and does not add a new engine hook.
 
 With no marker, `verify` returns `0`. It logs whether system Python appears
@@ -299,12 +299,12 @@ functions for system paths. They must cover:
 Integration/Fedora acceptance must run:
 
 ```
-atlas install development/python
+atlasctl install development/python
 /usr/bin/python3 --version
 /usr/bin/pip3 --version
-atlas verify development/python
-atlas doctor development/python
-atlas install development/python
+atlasctl verify development/python
+atlasctl doctor development/python
+atlasctl install development/python
 ```
 
 The repeated install must be idempotent.

@@ -53,8 +53,8 @@ depends on.
 ## 5. Test it
 
 ```bash
-bash atlas status <category>/<name>
-bash atlas install <category>/<name>
+bash atlasctl status <category>/<name>
+bash atlasctl install <category>/<name>
 bash tests/run.sh
 ```
 

@@ -198,7 +198,7 @@ tampering, or invalid marker.
 
 With an `installing` marker, `verify` fails and tells the user to rerun install.
 
-The current runner dispatches `atlas doctor` to `module::verify`; RFC-0016
+The current runner dispatches `atlasctl doctor` to `module::verify`; RFC-0016
 preserves that contract. Atlas does not run `claude doctor` because it may read
 authentication, project, network, or user configuration state outside Atlas's
 ownership boundary.
@@ -263,12 +263,12 @@ Unit tests must cover:
 Real Fedora validation must include:
 
 ```
-atlas install development/claude
+atlasctl install development/claude
 claude --version
-atlas verify development/claude
-atlas doctor development/claude
-atlas status development/claude
-atlas install development/claude
+atlasctl verify development/claude
+atlasctl doctor development/claude
+atlasctl status development/claude
+atlasctl install development/claude
 ```
 
 The second install must perform no work. Authentication is explicitly outside

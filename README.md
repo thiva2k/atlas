@@ -15,25 +15,34 @@ Those are *capabilities*, expressed as modules.
 curl -fsSL https://raw.githubusercontent.com/thiva2k/atlas/main/bootstrap.sh | bash
 cd ~/atlas
 ./atlas install
+
+# after bootstrap, if ~/.local/bin is on PATH
+atlasctl install
 ```
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `atlas install` | ensure modules are present & configured |
-| `atlas update`  | bring modules to their latest desired state |
-| `atlas verify`  | check modules are healthy |
-| `atlas backup`  | capture irreplaceable module state |
-| `atlas restore` | re-apply captured state |
-| `atlas doctor`  | diagnose the workstation |
-| `atlas status`  | show what is / isn't installed |
-| `atlas self-update` | update Atlas itself from a managed checkout |
+| `atlasctl install` | ensure modules are present & configured |
+| `atlasctl update`  | bring modules to their latest desired state |
+| `atlasctl verify`  | check modules are healthy |
+| `atlasctl backup`  | capture irreplaceable module state |
+| `atlasctl restore` | re-apply captured state |
+| `atlasctl doctor`  | diagnose the workstation |
+| `atlasctl status`  | show what is / isn't installed |
+| `atlasctl self-update` | update Atlas itself from a managed checkout |
+| `atlasctl self-version` | show Atlas engine version |
+| `atlasctl self-verify` | verify Atlas self-management state |
+
+Inside the repository, `./atlas <command>` remains supported. The managed global
+launcher is `atlasctl` to avoid conflicting with other software that already
+uses the `atlas` executable name.
 
 ## How it works
 
 Everything is a **module** under `modules/<category>/<name>/`, and every module
-implements the same lifecycle hooks. The `atlas` CLI dispatches a **platform
+implements the same lifecycle hooks. The CLI dispatches a **platform
 verb** to those modules through a small engine in `internal/`. Read
 [`docs/architecture.md`](docs/architecture.md) for the full picture and
 [`docs/module-authoring.md`](docs/module-authoring.md) to add one.
