@@ -6,7 +6,16 @@ All notable changes to Atlas are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
-- Implemented `atlas self-update` from `RFC-0027` for explicitly managed Atlas
+- Added release-grade user and contributor documentation: Quick Start,
+  Installation, Philosophy, Roadmap, documentation index, expanded Module
+  Authoring guidance, and an updated Architecture Overview.
+- Added GitHub Actions CI to run Bash syntax checks, whitespace validation, and
+  the full Atlas test suite on every push and pull request.
+
+## [v1.0.0] - 2026-07-13
+
+### Added
+- Implemented `atlasctl self-update` from `RFC-0027` for explicitly managed Atlas
   checkouts. The command verifies the self-management marker, current executable,
   canonical remote identity, branch, clean working tree, and fast-forward
   possibility before mutating the checkout. It performs fast-forward-only Git
@@ -15,6 +24,8 @@ All notable changes to Atlas are documented here. Format loosely follows
 - `bootstrap.sh` now records the Atlas self-management marker only when it
   creates a fresh canonical `github.com/thiva2k/atlas` checkout on `main`.
   Existing checkouts and custom repositories are not adopted automatically.
+- `bootstrap.sh` installs the managed global launcher as `atlasctl` so Atlas does
+  not conflict with unrelated software that provides `/usr/bin/atlas`.
 
 ## [v1.0.0-beta] - 2026-07-12
 

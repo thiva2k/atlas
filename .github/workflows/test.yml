@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Bash validation and test suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Syntax check entrypoints
+        run: |
+          bash -n atlas
+          bash -n bootstrap.sh
+
+      - name: Syntax check shell files
+        run: |
+          find internal modules tests -name "*.sh" -exec bash -n {} \;
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Run test suite
+        run: bash tests/run.sh

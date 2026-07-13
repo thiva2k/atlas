@@ -324,15 +324,18 @@ See `docs/module-authoring.md` for the annotated template.
 
 ## 12. Scope of v1
 
-v1 delivers the **architecture and skeleton**, not installation logic:
+v1.0.0 delivers the stable Atlas architecture and the first production Fedora
+workstation baseline:
 
-- finalized architecture (this document),
-- repository layout,
-- the module contract,
-- the `atlas` CLI skeleton and runner skeleton,
-- placeholder modules that make future implementation obvious,
-- coding conventions and architecture documentation.
+- finalized engine and module lifecycle architecture;
+- marker-based ownership model;
+- repository-local `./atlas` and managed global `atlasctl`;
+- self-management through `atlasctl self-update`, `self-version`, and
+  `self-verify`;
+- Core, Development, and current UX/Desktop module implementations;
+- pure-Bash test harness and CI quality gate;
+- RFC-governed module expansion.
 
-Placeholder hooks are real functions that log "not yet implemented" and return
-cleanly, so the skeleton runs end-to-end while doing no work. Real installation
-logic lands module by module in subsequent milestones.
+Some future application and desktop surface area may still be intentionally
+unimplemented or skipped by a module. That is valid only when the module reports
+the state explicitly and does not claim ownership.
