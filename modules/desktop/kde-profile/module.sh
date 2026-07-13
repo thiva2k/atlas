@@ -113,11 +113,10 @@ _kde_profile_for_each() {
 
 _kde_profile_read_value() {
   local file="$1" group="$2" key="$3" type="$4" default="$5"
-  if [ "$type" = "bool" ]; then
-    kreadconfig6 --file "$file" --group "$group" --key "$key" --default "$default" --type bool
-  else
-    kreadconfig6 --file "$file" --group "$group" --key "$key" --default "$default"
-  fi
+  # Reads use an Atlas sentinel default to distinguish absent user-owned keys
+  # from existing settings. Do not combine that sentinel with `--type bool`:
+  # kreadconfig6 validates typed defaults and rejects non-boolean sentinels.
+  kreadconfig6 --file "$file" --group "$group" --key "$key" --default "$default"
 }
 
 _kde_profile_write_value() {

@@ -17,11 +17,35 @@ _notifications_delete_value() { grep -Fv "$1|$2|$3|$4|" "$KDE_STATE" > "$KDE_STA
 '
 PRE="${PRE%$'\n'}"
 
+PRE_PROD_READ='
+set -euo pipefail
+HOME="$(mktemp -d)"; export HOME
+trap "rm -rf \"$HOME\"" EXIT
+ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
+source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/os.sh"; source "$ATLAS_ROOT/modules/desktop/notifications/module.sh"
+kreadconfig6() {
+  local default="" type="" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --default) default="$2"; shift 2 ;;
+      --type) type="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  if [ "$type" = bool ]; then
+    case "$default" in true|false) ;; *) return 64 ;; esac
+  fi
+  printf "%s\n" "$default"
+}
+'
+PRE_PROD_READ="${PRE_PROD_READ%$'\n'}"
+
 assert_status "notifications verify passes before install" 0 bash -c "$PRE; module::verify"
+assert_status "notifications bool reads do not pass sentinel as typed default" 0 bash -c "$PRE_PROD_READ; [ \"\$(_notifications_read_value plasmanotifyrc Notifications LowPriorityPopups bool \"\$_NOTIFICATIONS_ABSENT\")\" = \"\$_NOTIFICATIONS_ABSENT\" ]"
 assert_status "notifications install refuses existing key" 1 bash -c "$PRE; _notifications_record plasmanotifyrc Notifications LowPriorityPopups bool true > \"\$KDE_STATE\"; module::install"
 assert_status "notifications install writes quiet profile" 0 bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF \"plasmanotifyrc|Notifications|LowPriorityPopups|bool|false\" \"\$KDE_STATE\"; grep -qxF \"plasmanotifyrc|Notifications|CriticalAlwaysOnTop|bool|true\" \"\$KDE_STATE\"; module::verify"
 assert_status "notifications update restores drift" 0 bash -c "$PRE; module::install >/dev/null 2>&1; grep -Fv \"plasmanotifyrc|Notifications|LowPriorityPopups|bool|\" \"\$KDE_STATE\" > \"\$KDE_STATE.tmp\"; mv \"\$KDE_STATE.tmp\" \"\$KDE_STATE\"; _notifications_record plasmanotifyrc Notifications LowPriorityPopups bool true >> \"\$KDE_STATE\"; module::update >/dev/null 2>&1; module::verify"
 assert_status "notifications remove detaches and deletes keys" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_notifications_marker)\"; [ ! -s \"\$KDE_STATE\" ]"
 assert_status "notifications backup no-op" 0 bash -c "$PRE; module::backup"
 assert_status "notifications restore no-op" 0 bash -c "$PRE; module::restore"
-

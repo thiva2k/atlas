@@ -46,6 +46,38 @@ _kde_profile_delete_value() {
 '
 PRE="${PRE%$'\n'}"
 
+PRE_PROD_READ='
+set -euo pipefail
+HOME="$(mktemp -d)"; export HOME
+trap "rm -rf \"$HOME\"" EXIT
+ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
+
+source "$ATLAS_ROOT/internal/error.sh"
+source "$ATLAS_ROOT/internal/log.sh"
+source "$ATLAS_ROOT/internal/os.sh"
+source "$ATLAS_ROOT/modules/desktop/kde-profile/module.sh"
+
+kreadconfig6() {
+  local default="" type="" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --default) default="$2"; shift 2 ;;
+      --type) type="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  if [ "$type" = bool ]; then
+    case "$default" in true|false) ;; *) return 64 ;; esac
+  fi
+  printf "%s\n" "$default"
+}
+'
+PRE_PROD_READ="${PRE_PROD_READ%$'\n'}"
+
+assert_status "kde-profile bool reads do not pass sentinel as typed default" 0 \
+  bash -c "$PRE_PROD_READ; [ \"\$(_kde_profile_read_value kwinrc Plugins blurEnabled bool \"\$_KDE_PROFILE_ABSENT\")\" = \"\$_KDE_PROFILE_ABSENT\" ]"
+
 assert_status "kde-profile verify passes before install" 0 \
   bash -c "$PRE; module::verify"
 
