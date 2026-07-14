@@ -29,9 +29,12 @@ assert_eq "no source logs the result of env::get_secret" "$hits" ""
 
 # 3. No MODULE may enable xtrace. Tracing expands arguments, so a secret would go
 #    straight to stderr. (The resolvers in internal/env.sh legitimately *restore*
-#    xtrace they themselves disabled; modules have no such business.)
+#    xtrace they themselves disabled; modules have no such business.) Fish
+#    set-exports emitted inside shell-config snippets (`set -gx`/`set -lx`) are not
+#    bash xtrace — `g`/`l` are invalid flags for bash `set`, so a cluster
+#    containing one is unambiguously fish and excluded.
 hits="$(_modules | xargs grep -nE '\bset[[:space:]]+-[a-z]*x\b|set[[:space:]]+-o[[:space:]]+xtrace' \
-  2>/dev/null | _code_only || true)"
+  2>/dev/null | _code_only | grep -vE '\bset[[:space:]]+-[a-z]*[gl]' || true)"
 assert_eq "no module enables xtrace" "$hits" ""
 
 # 4. `gh auth token` prints the token. It may only ever appear as a discarded
