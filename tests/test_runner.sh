@@ -18,6 +18,14 @@ assert_status "runner rejects unknown verb" 2 \
 out="$(runner::run install core/alpha 2>&1 || true)"
 assert_contains "install reaches placeholder hook" "$out" "not yet implemented"
 
+# RFC-0029: activate/deactivate over hookless modules are SKIPPED, not counted ok
+assert_status "runner activate exits 0 on hookless modules" 0 \
+  runner::run activate core/alpha apps/beta
+out="$(runner::run activate core/alpha apps/beta 2>&1 || true)"
+assert_contains "activate skips hookless modules, does not count them ok" "$out" "0 ok, 2 skipped"
+out="$(runner::run deactivate core/alpha 2>&1 || true)"
+assert_contains "deactivate skips hookless modules" "$out" "0 ok, 1 skipped"
+
 # a module whose check passes is skipped
 out="$(ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules_satisfied" \
        bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; source "$ATLAS_ROOT/internal/module.sh"; source "$ATLAS_ROOT/internal/runner.sh"; runner::run install core/sat' 2>&1 || true)"

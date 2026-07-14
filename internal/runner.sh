@@ -11,6 +11,8 @@ _runner_hooks_for_verb() {
     restore) echo "restore" ;;
     status)  echo "check"   ;;
     doctor)  echo "verify"  ;;
+    activate)   echo "activate"   ;;
+    deactivate) echo "deactivate" ;;
     *) return 1 ;;
   esac
 }
@@ -44,6 +46,12 @@ _runner_run_module() {
           log::info "not installed"
           printf '__SKIP__'
         fi
+        exit 0
+      fi
+      # activate/deactivate: a module with no such hook is genuinely skipped, not "ok"
+      if { [ "$verb" = "activate" ] || [ "$verb" = "deactivate" ]; } \
+           && ! module::has_hook "$hook"; then
+        printf '__SKIP__'
         exit 0
       fi
       module::has_hook "$hook" || { log::debug "no $hook hook"; continue; }

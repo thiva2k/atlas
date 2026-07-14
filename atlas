@@ -40,6 +40,8 @@ Commands:
   restore    re-apply previously captured state
   doctor     diagnose the workstation
   status     show what is / isn't installed
+  activate   <module> switch a user setting to the Atlas asset (reversible, opt-in)
+  deactivate <module> restore the recorded prior setting
   self-update
              update Atlas itself (managed checkouts only)
   self-version
@@ -75,7 +77,7 @@ main() {
   case "${verb:-help}" in
     help)    usage ;;
     version) echo "$ATLAS_VERSION" ;;
-    install|update|verify|backup|restore|doctor|status)
+    install|update|verify|backup|restore|doctor|status|activate|deactivate)
       runner::run "$verb" "${rest[@]}" ;;
     self-update)
       self::update "${rest[@]}" ;;

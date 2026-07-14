@@ -52,6 +52,9 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0022](RFC-0022-power-module.md) | Power module | Accepted |
 | [0023](RFC-0023-notifications-module.md) | Notifications module | Accepted |
 | [0024](RFC-0024-plymouth-module.md) | Plymouth module | Accepted |
+| [0024a](RFC-0024a-plymouth-plugin-dependency.md) | Plymouth — script-plugin dependency (amends 0024) | Accepted |
 | [0025](RFC-0025-sddm-module.md) | SDDM module | Accepted |
 | [0026](RFC-0026-codex-module.md) | Codex module — npm-packaged AI coding CLI lifecycle | Accepted |
 | [0027](RFC-0027-atlas-self-management.md) | Atlas self-management and self-update command | Accepted |
+| [0028](RFC-0028-rpm-query-cache.md) | RPM query cache — engine `os::pkg_*` helpers | Accepted |
+| [0029](RFC-0029-activation-framework.md) | Activation framework — `activate`/`deactivate`, `desktop/theme` reference | Accepted |
