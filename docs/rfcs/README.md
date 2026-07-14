@@ -53,8 +53,13 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0023](RFC-0023-notifications-module.md) | Notifications module | Accepted |
 | [0024](RFC-0024-plymouth-module.md) | Plymouth module | Accepted |
 | [0024a](RFC-0024a-plymouth-plugin-dependency.md) | Plymouth — script-plugin dependency (amends 0024) | Accepted |
+| [0024b](RFC-0024b-plymouth-passphrase-prompt.md) | Plymouth — LUKS passphrase prompt (amends 0024) | Proposed |
 | [0025](RFC-0025-sddm-module.md) | SDDM module | Accepted |
 | [0026](RFC-0026-codex-module.md) | Codex module — npm-packaged AI coding CLI lifecycle | Accepted |
 | [0027](RFC-0027-atlas-self-management.md) | Atlas self-management and self-update command | Accepted |
 | [0028](RFC-0028-rpm-query-cache.md) | RPM query cache — engine `os::pkg_*` helpers | Accepted |
 | [0029](RFC-0029-activation-framework.md) | Activation framework — `activate`/`deactivate`, `desktop/theme` reference | Accepted |
+| [0030](RFC-0030-kde-look-activation.md) | KDE look activation — icons/cursor/fonts (reuses 0029) | Accepted |
+| [0031](RFC-0031-starship-prompt-activation.md) | Starship prompt activation — reversible fish conf.d wiring | Accepted |
+| [0032](RFC-0032-plymouth-boot-activation.md) | Plymouth boot-splash activation — default theme + initramfs | Accepted |
+| [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — deferred problem statement | Deferred |
