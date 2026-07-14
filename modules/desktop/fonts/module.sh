@@ -355,3 +355,99 @@ module::restore() {
   log::info "nothing to restore: reinstall desktop/fonts to reconstruct Atlas-owned typography"
   return 0
 }
+
+# --- RFC-0030 activation (kdeglobals [General] font + fixed, two-key resumable) --
+_FONTS_ACT_GENERAL="Inter,10,-1,5,50,0,0,0,0,0"
+_FONTS_ACT_FIXED="JetBrainsMono Nerd Font,10,-1,5,50,0,0,0,0,0"
+_FONTS_ACT_ABSENT="__ATLAS_ABSENT__"
+_fonts_act_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/activated/desktop-fonts"; }
+_fonts_read_general() { kreadconfig6 --file kdeglobals --group General --key font --default "$_FONTS_ACT_ABSENT"; }
+_fonts_read_fixed() { kreadconfig6 --file kdeglobals --group General --key fixed --default "$_FONTS_ACT_ABSENT"; }
+_fonts_act_init() { _FONTS_ACT_STATE=absent; _FONTS_ACT_PRIOR_GENERAL=; _FONTS_ACT_PRIOR_FIXED=; }
+_fonts_act_load() {
+  _fonts_act_init
+  local marker line key val seen_schema=0 seen_state=0 seen_pg=0 seen_pf=0
+  marker="$(_fonts_act_marker)"; [ -e "$marker" ] || return 0
+  [ -f "$marker" ] && [ ! -L "$marker" ] && [ -r "$marker" ] || { log::error "fonts activation marker not a readable regular file: $marker"; return 1; }
+  [ "$(stat -c '%a' "$marker" 2>/dev/null)" = "600" ] || { log::error "fonts activation marker mode must be 600: $marker"; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"; [ -z "$line" ] && continue
+    case "$line" in *=*) key="${line%%=*}"; val="${line#*=}" ;; *) log::error "fonts activation marker invalid line: $line"; return 1 ;; esac
+    case "$key" in
+      schema) [ "$val" = 1 ] || { log::error "fonts activation schema unsupported: $val"; return 1; }; seen_schema=1 ;;
+      state) case "$val" in activating|active|inactive) _FONTS_ACT_STATE="$val" ;; *) log::error "fonts activation state invalid: $val"; return 1 ;; esac; seen_state=1 ;;
+      prior_font_general) _FONTS_ACT_PRIOR_GENERAL="$val"; seen_pg=1 ;;
+      prior_font_fixed) _FONTS_ACT_PRIOR_FIXED="$val"; seen_pf=1 ;;
+      *) log::error "fonts activation marker unknown key: $key"; return 1 ;;
+    esac
+  done < "$marker"
+  [ "$seen_schema" -eq 1 ] && [ "$seen_state" -eq 1 ] || { log::error "fonts activation marker missing schema/state"; return 1; }
+  case "$_FONTS_ACT_STATE" in
+    inactive) [ "$seen_pg" -eq 0 ] && [ "$seen_pf" -eq 0 ] || { log::error "fonts activation marker has prior_* under inactive"; return 1; } ;;
+    activating|active) { [ "$seen_pg" -eq 1 ] && [ "$seen_pf" -eq 1 ]; } || { log::error "fonts activation marker missing a prior_* under $_FONTS_ACT_STATE"; return 1; } ;;
+  esac
+}
+_fonts_act_write() {
+  local state="$1" pg="${2:-}" pf="${3:-}" marker dir tmp
+  marker="$(_fonts_act_marker)"; dir="$(dirname "$marker")"
+  mkdir -p "$dir" || return 1; chmod 700 "$dir" || return 1
+  tmp="$(mktemp "$dir/.desktop-fonts.act.XXXXXX")" || return 1
+  { printf 'schema=1\nstate=%s\n' "$state"; case "$state" in activating|active) printf 'prior_font_general=%s\nprior_font_fixed=%s\n' "$pg" "$pf" ;; esac; } > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }; mv -f "$tmp" "$marker" || { rm -f "$tmp"; return 1; }
+}
+module::activate() {
+  _fonts_marker_load || return 1
+  [ "$_FONTS_MARKER_STATE" = installed ] || { log::error "desktop/fonts is not installed; run 'atlas install desktop/fonts' before activating"; return 1; }
+  { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found"; return 1; }
+  _fonts_act_load || return 1
+  local cur_g cur_f; cur_g="$(_fonts_read_general)"; cur_f="$(_fonts_read_fixed)"
+  if [ "$_FONTS_ACT_STATE" = active ]; then
+    if [ "$cur_g" = "$_FONTS_ACT_GENERAL" ] && [ "$cur_f" = "$_FONTS_ACT_FIXED" ]; then log::info "Atlas fonts already active"; return 0; fi
+    # per-key drift: a key that is neither its Atlas value nor its recorded prior is user drift.
+    if { [ "$cur_g" != "$_FONTS_ACT_GENERAL" ] && [ "$cur_g" != "$_FONTS_ACT_PRIOR_GENERAL" ]; } \
+       || { [ "$cur_f" != "$_FONTS_ACT_FIXED" ] && [ "$cur_f" != "$_FONTS_ACT_PRIOR_FIXED" ]; }; then
+      log::error "fonts changed since activation (font: $cur_g, fixed: $cur_f); refusing to clobber — delete $(_fonts_act_marker) to disown"; return 1
+    fi
+    # otherwise resumable: re-drive both keys to Atlas, reusing the recorded priors.
+  fi
+  # Reuse the recorded priors write-once (present under activating|active); only
+  # record the current values when transitioning from absent|inactive.
+  local pg="$_FONTS_ACT_PRIOR_GENERAL" pf="$_FONTS_ACT_PRIOR_FIXED"
+  case "$_FONTS_ACT_STATE" in activating|active) ;; *) pg="$cur_g"; pf="$cur_f" ;; esac
+  _fonts_act_write activating "$pg" "$pf" || return 1
+  kwriteconfig6 --file kdeglobals --group General --key font "$_FONTS_ACT_GENERAL" >/dev/null 2>&1 || { log::error "failed to set the general font"; return 1; }
+  kwriteconfig6 --file kdeglobals --group General --key fixed "$_FONTS_ACT_FIXED" >/dev/null 2>&1 || { log::error "failed to set the fixed font"; return 1; }
+  _fonts_act_write active "$pg" "$pf" || return 1
+  log::info "Atlas fonts activated (applies at next login; priors recorded: $pg / $pf)"
+}
+module::deactivate() {
+  _fonts_act_load || return 1
+  case "$_FONTS_ACT_STATE" in absent|inactive) log::info "desktop/fonts is not activated by Atlas"; return 0 ;; esac
+  command -v kwriteconfig6 >/dev/null 2>&1 || { log::error "kwriteconfig6 not found"; return 1; }
+  local cur_g cur_f pg="$_FONTS_ACT_PRIOR_GENERAL" pf="$_FONTS_ACT_PRIOR_FIXED"
+  cur_g="$(_fonts_read_general)"; cur_f="$(_fonts_read_fixed)"
+  # Per-key classification: 1=restore (holds Atlas), 2=skip (already at prior), 3=drift.
+  local do_g do_f
+  case "$cur_g" in "$_FONTS_ACT_GENERAL") do_g=restore ;; "$pg") do_g=skip ;; *) do_g=drift ;; esac
+  case "$cur_f" in "$_FONTS_ACT_FIXED") do_f=restore ;; "$pf") do_f=skip ;; *) do_f=drift ;; esac
+  # Evaluate drift across BOTH keys BEFORE touching either (no partial restore).
+  if [ "$do_g" = drift ] || [ "$do_f" = drift ]; then
+    log::error "fonts changed since activation (font: $cur_g, fixed: $cur_f); refusing to restore — delete $(_fonts_act_marker) to disown"; return 1
+  fi
+  if [ "$do_g" = restore ]; then
+    if [ "$pg" = "$_FONTS_ACT_ABSENT" ]; then
+      kwriteconfig6 --file kdeglobals --group General --key font --delete "" >/dev/null 2>&1 || { log::error "failed to remove the general font key; state left unchanged"; return 1; }
+    else
+      kwriteconfig6 --file kdeglobals --group General --key font "$pg" >/dev/null 2>&1 || { log::error "failed to restore prior general font '$pg'; state left unchanged"; return 1; }
+    fi
+  fi
+  if [ "$do_f" = restore ]; then
+    if [ "$pf" = "$_FONTS_ACT_ABSENT" ]; then
+      kwriteconfig6 --file kdeglobals --group General --key fixed --delete "" >/dev/null 2>&1 || { log::error "failed to remove the fixed font key; state left unchanged"; return 1; }
+    else
+      kwriteconfig6 --file kdeglobals --group General --key fixed "$pf" >/dev/null 2>&1 || { log::error "failed to restore prior fixed font '$pf'; state left unchanged"; return 1; }
+    fi
+  fi
+  _fonts_act_write inactive || return 1
+  log::info "desktop/fonts deactivated; restored $pg / $pf (applies at next login)"
+}
