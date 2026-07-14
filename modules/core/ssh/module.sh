@@ -436,6 +436,35 @@ _ssh_report_connectivity() {
   return 0
 }
 
+# --- pinned known_hosts (managed state) --------------------------------------
+# Durable evidence that Atlas has installed core/ssh state: an owned key, or a
+# manifest file on disk. A no-passphrase install that pinned ONLY known_hosts
+# leaves no other trace — so if that file is later deleted, Atlas cannot know it
+# ran, and treating the machine as never-installed is correct. Requires the
+# manifest to have been loaded (the _SSH_K_* arrays populated) — every caller
+# does so first.
+_ssh_has_install_state() {
+  [ "${#_SSH_K_PATH[@]}" -gt 0 ] && return 0
+  [ -f "$(_ssh_manifest)" ] && return 0
+  return 1
+}
+
+# Health of the Atlas-owned known_hosts (never the user's ~/.ssh/known_hosts).
+# install writes it unconditionally from the pinned module source, so:
+#   present  -> must be a regular, non-symlink file matching the pinned bytes
+#   absent   -> a fault only if Atlas demonstrably installed core/ssh state
+# Silent (check() must not log); verify() reports the reason. Returns 0 healthy.
+_ssh_known_hosts_healthy() {
+  local kh src; kh="$(_ssh_known_hosts)"; src="$_SSH_MODULE_DIR/config/known_hosts"
+  if [ -e "$kh" ] || [ -L "$kh" ]; then
+    [ -f "$kh" ] && [ ! -L "$kh" ] || return 1
+    [ "$(_ssh_hash_of "$kh")" = "$(_ssh_hash_of "$src")" ] || return 1
+    return 0
+  fi
+  _ssh_has_install_state && return 1
+  return 0
+}
+
 # =============================================================================
 # hooks
 # =============================================================================
@@ -445,6 +474,10 @@ module::check() {
   os::has_cmd ssh-keygen || return 1
   _ssh_manifest_load >/dev/null 2>&1 || return 1        # unparseable => divergent
   if _ssh_any_divergent; then return 1; fi
+
+  # install writes the pinned known_hosts; a missing/drifted one means install
+  # would re-pin it, so the module is not already satisfied. (Silent by design.)
+  _ssh_known_hosts_healthy || return 1
 
   local gm; gm="$(_ssh_gen_mode)"
   [ "$gm" = "conflict" ] && return 1
@@ -567,6 +600,19 @@ module::verify() {
       log::warn "$abs.pub has mode $mode (644 is conventional)"
     fi
   done
+
+  # The Atlas-owned known_hosts (never the user's ~/.ssh/known_hosts) is pinned
+  # state install writes unconditionally. A drift or loss here means Atlas's own
+  # connectivity checks would trust an unpinned host key — report it, never repair.
+  if ! _ssh_known_hosts_healthy; then
+    if [ -e "$(_ssh_known_hosts)" ] || [ -L "$(_ssh_known_hosts)" ]; then
+      log::error "the Atlas-owned known_hosts is not the pinned file: $(_ssh_known_hosts)"
+    else
+      log::error "Atlas installed core/ssh but its pinned known_hosts is gone: $(_ssh_known_hosts)"
+    fi
+    log::error "  fix: re-run 'atlas install core/ssh' (or 'atlas update core/ssh') to re-pin it"
+    fail=1
+  fi
 
   [ "$fail" -eq 0 ] || return 1
 
