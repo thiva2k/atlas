@@ -36,3 +36,6 @@ assert_status "plymouth check passes when theme and plugin both present" 0 bash 
 # Field-machine self-heal: marker=installed + theme matches but plugin absent (the
 # exact shipped-bug state) -> check fails, so install re-runs and installs the plugin.
 assert_status "plymouth field machine self-heals: check fails then install installs plugin" 0 bash -c "$PRE; module::install >/dev/null 2>&1; rm -f \"\$PLUGIN_STATE\"; : > \"\$DNF_LOG\"; if module::check; then exit 1; fi; module::install >/dev/null 2>&1; grep -qw plymouth-plugin-script \"\$DNF_LOG\"; module::check"
+# RFC-0024b: the shipped theme must keep a passphrase handler, else an encrypted
+# boot shows the splash with no way to type the LUKS passphrase.
+assert_status "plymouth theme ships a passphrase handler" 0 bash -c "grep -q SetDisplayPasswordFunction \"\$ATLAS_ROOT/modules/desktop/plymouth/assets/atlas.script\""
