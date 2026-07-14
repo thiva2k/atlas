@@ -199,7 +199,7 @@ _docker_import_key() {
 _docker_packages_installed() {
   local pkg
   for pkg in "${_DOCKER_PACKAGES[@]}"; do
-    rpm -q "$pkg" >/dev/null 2>&1 || return 1
+    os::pkg_installed "$pkg" || return 1
   done
   return 0
 }
@@ -208,7 +208,7 @@ _docker_cli_present() {
   local cli owner
   cli="$(_docker_cli)"
   [ -x "$cli" ] || return 1
-  owner="$(rpm -qf "$cli" 2>/dev/null)" || return 1
+  owner="$(os::pkg_owner "$cli")" || return 1
   case "$owner" in
     docker-ce-cli-*) return 0 ;;
     *) return 1 ;;
@@ -347,7 +347,7 @@ _docker_desktop_present() {
 }
 
 _docker_pkg_present() {
-  rpm -q "$1" >/dev/null 2>&1
+  os::pkg_installed "$1"
 }
 
 _docker_service_active_named() {

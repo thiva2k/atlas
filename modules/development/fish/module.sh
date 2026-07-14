@@ -153,7 +153,7 @@ _fish_config_ok() {
 }
 
 _fish_pkg_present() {
-  rpm -q "$1" >/dev/null 2>&1
+  os::pkg_installed "$1"
 }
 
 _fish_packages_installed() {
@@ -167,7 +167,7 @@ _fish_packages_installed() {
 _fish_path_owned_by() {
   local path="$1" prefix="$2" owner
   [ -x "$path" ] || return 1
-  owner="$(rpm -qf "$path" 2>/dev/null)" || return 1
+  owner="$(os::pkg_owner "$path")" || return 1
   case "$owner" in
     "$prefix"-*) return 0 ;;
     *) return 1 ;;

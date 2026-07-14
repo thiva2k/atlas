@@ -6,7 +6,7 @@ MODULE_DEPENDS=()
 
 _CURSOR_PACKAGE="adwaita-cursor-theme"
 _cursor_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/desktop-cursor"; }
-_cursor_package_installed() { rpm -q "$1" >/dev/null 2>&1; }
+_cursor_package_installed() { os::pkg_installed "$1"; }
 _cursor_marker_init() { _CURSOR_MARKER_STATE=absent; }
 _cursor_marker_load() {
   _cursor_marker_init

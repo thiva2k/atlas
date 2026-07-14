@@ -6,7 +6,7 @@ MODULE_DEPENDS=()
 
 _ICONS_PACKAGE="papirus-icon-theme"
 _icons_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/desktop-icons"; }
-_icons_package_installed() { rpm -q "$1" >/dev/null 2>&1; }
+_icons_package_installed() { os::pkg_installed "$1"; }
 _icons_marker_init() { _ICONS_MARKER_STATE=absent; }
 _icons_marker_load() {
   _icons_marker_init

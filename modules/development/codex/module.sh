@@ -137,7 +137,7 @@ _codex_npm_ok() {
   local npm owner
   npm="$(_codex_npm_bin)"
   [ -x "$npm" ] || return 1
-  owner="$(rpm -qf "$npm" 2>/dev/null)" || return 1
+  owner="$(os::pkg_owner "$npm")" || return 1
   case "$owner" in
     "$_CODEX_NPM_OWNER"-*) ;;
     *) return 1 ;;

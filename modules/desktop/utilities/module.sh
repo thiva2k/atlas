@@ -6,7 +6,7 @@ MODULE_DEPENDS=()
 
 _UTILITIES_PACKAGES=(btop bat fd-find ripgrep eza zoxide)
 _utilities_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/desktop-utilities"; }
-_utilities_package_installed() { rpm -q "$1" >/dev/null 2>&1; }
+_utilities_package_installed() { os::pkg_installed "$1"; }
 _utilities_marker_init() { _UTILITIES_MARKER_STATE=absent; }
 _utilities_marker_load() {
   _utilities_marker_init

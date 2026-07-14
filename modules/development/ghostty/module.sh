@@ -215,7 +215,7 @@ _ghostty_managed_config_ok() {
 _ghostty_binary_ok() {
   local bin="$(_ghostty_binary)" owner
   [ -x "$bin" ] || { log::error "Ghostty binary is missing or not executable: $bin"; return 1; }
-  if owner="$(rpm -qf "$bin" 2>/dev/null)"; then
+  if owner="$(os::pkg_owner "$bin")"; then
     case "$owner" in
       ghostty-*) ;;
       *) log::error "Ghostty binary is not owned by the ghostty RPM: $bin"; return 1 ;;

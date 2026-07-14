@@ -199,6 +199,7 @@ assert_status "docker CLI helper accepts docker-ce-cli RPM ownership" 0 \
   bash -c '
     set -euo pipefail
     HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
+    source "$ATLAS_ROOT/internal/os.sh"
     source "$ATLAS_ROOT/modules/development/docker/module.sh"
     _docker_cli() { printf "%s\n" "$HOME/docker"; }
     : > "$HOME/docker"; chmod +x "$HOME/docker"
@@ -210,6 +211,7 @@ assert_status "docker CLI helper rejects missing RPM ownership" 1 \
   bash -c '
     set -euo pipefail
     HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
+    source "$ATLAS_ROOT/internal/os.sh"
     source "$ATLAS_ROOT/modules/development/docker/module.sh"
     _docker_cli() { printf "%s\n" "$HOME/docker"; }
     : > "$HOME/docker"; chmod +x "$HOME/docker"
@@ -221,6 +223,7 @@ assert_status "docker CLI helper rejects non-RPM replacement owner" 1 \
   bash -c '
     set -euo pipefail
     HOME="$(mktemp -d)"; trap "rm -rf \"$HOME\"" EXIT
+    source "$ATLAS_ROOT/internal/os.sh"
     source "$ATLAS_ROOT/modules/development/docker/module.sh"
     _docker_cli() { printf "%s\n" "$HOME/docker"; }
     : > "$HOME/docker"; chmod +x "$HOME/docker"
