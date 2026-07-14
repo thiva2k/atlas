@@ -62,4 +62,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0030](RFC-0030-kde-look-activation.md) | KDE look activation — icons/cursor/fonts (reuses 0029) | Accepted |
 | [0031](RFC-0031-starship-prompt-activation.md) | Starship prompt activation — reversible fish conf.d wiring | Accepted |
 | [0032](RFC-0032-plymouth-boot-activation.md) | Plymouth boot-splash activation — default theme + initramfs | Accepted |
-| [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — deferred problem statement | Deferred |
+| [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — per-containment, discovery-based (reuses 0029) | Accepted |

@@ -1,80 +1,265 @@
-# RFC-0033: Wallpaper Activation — deferred, problem statement
+# RFC-0033: Wallpaper Activation — Atlas-owned, reversible, per-containment
 
-Status: Deferred (problem statement — not yet a design)
+Status: Accepted
 
 Date: 2026-07-14
 
-Split from: [RFC-0030](RFC-0030-kde-look-activation.md) Rev 2
+Extends: RFC-0029 (Activation framework)
 
-## 1. Why this is its own RFC
+## 0. Revision history
 
-RFC-0030 Rev 1 tried to activate the Atlas wallpaper alongside icons/cursor/fonts
-using the RFC-0029 activation contract (record prior → apply → restore verbatim).
-An adversarial review found the wallpaper case, unlike the other three, cannot be
-made safe by reusing the single-value KConfig escrow — it needs a redesign. So it
-was split out here and RFC-0030 Rev 2 covers only icons/cursor/fonts.
+- **Deferred (problem statement)**: split out of RFC-0030 Rev 2 because the
+  original attempt was unsound — it hardcoded containment `[1]`, misread a stale
+  slideshow group + a panel as "two screens," compared a `file://` URL against a
+  plain path (permanent spurious drift), and knowingly activated when the prior was
+  unrestorable (deferring the refusal to `deactivate` — a one-way door that breaks
+  RFC-0029's record-before-switch invariant).
+- **Proposed (this)**: a real design meeting the deferral's §4 requirements —
+  containment **discovery** (not a hardcoded id), **per-containment** capture that
+  handles multi-monitor, **refuse-at-activate** (never at deactivate) whenever a
+  containment's wallpaper is anything other than a single capturable image, and
+  **URL normalization** for every comparison. Grounded in the real
+  `plasma-org.kde.plasma.desktop-appletsrc` on a live machine.
 
-This document records the concrete problems so a future accepted design does not
-rediscover them. It intentionally proposes no implementation yet.
+## 1. Summary
 
-## 2. What makes wallpaper different from a KConfig key
+`desktop/wallpapers` installs a *collection* of Atlas SVGs
+(`~/.local/share/backgrounds/atlas/{atlas-gradient,atlas-grid,atlas-orbit}.svg`)
+and deliberately never changes the user's selection. This RFC adds reversible,
+opt-in activation that switches every desktop's wallpaper to the Atlas primary
+image (`atlas-gradient.svg`) and restores the exact prior on `deactivate`, reusing
+RFC-0029's write-once escrow — extended from one scalar to **one prior per desktop
+containment** so a multi-monitor setup round-trips faithfully.
 
-Verified against the live machine's
-`~/.config/plasma-org.kde.plasma.desktop-appletsrc`:
+## 2. Goals
 
-1. **The wallpaper is not one value.** It lives across multiple
-   `[Containments][N][Wallpaper][org.kde.image][General] Image=` groups — one per
-   desktop containment — plus separate groups for the slideshow plugin
-   (`org.kde.slideshow`), solid-colour plugin, etc. A single `prior_wallpaper`
-   value cannot faithfully capture a multi-monitor or multi-desktop setup.
-2. **Containment IDs are session-generated, not stable.** Hardcoding
-   `[Containments][1]` as "the primary desktop" is a machine-specific accident: on
-   this host `[Containments][1]` is the desktop but `[Containments][2]` is a
-   *panel* that also carries a `wallpaperplugin=org.kde.image` group; on another
-   machine the desktop containment may be `[8]` or `[25]` while `[1]` is a deleted
-   panel. Reading a fixed containment number mis-identifies the wallpaper on most
-   machines and wedges the activation state machine (the post-activate drift check
-   reads a different key than `plasma-apply-wallpaperimage` wrote).
-3. **Value format mismatch.** The stored value is a `file://` URL
-   (`Image=file:///home/user/.local/share/backgrounds/atlas/atlas-gradient.svg`),
-   while the Atlas asset is a plain filesystem path. Without normalisation,
-   "current == Atlas asset" is never true even right after a successful apply,
-   producing a permanent spurious refuse-to-clobber.
-4. **The active plugin may not be an image at all.** A user may be on a slideshow,
-   a solid colour, or a third-party wallpaper plugin. Switching to the Atlas image
-   destroys that selection, and a single recorded image cannot restore it.
+- **Explicit, opt-in, exactly reversible.** Each desktop's prior wallpaper image is
+  recorded write-once and restored verbatim; a drifted desktop is reported, never
+  clobbered.
+- **Honest capture boundary.** Activation is refused *up front* if any desktop's
+  wallpaper is not a single, capturable `org.kde.image` (e.g. a slideshow, a solid
+  colour, or a third-party plugin) — Atlas never switches a setting it cannot put
+  back.
+- **Multi-monitor faithful.** N desktops with N different wallpapers are captured
+  and restored per-containment.
 
-## 3. Why the RFC-0029 contract cannot be reused as-is
+## 3. Non-goals
 
-RFC-0029's core invariant is *record the exact prior, then switch, then restore
-verbatim*. For wallpaper, the "exact prior" is a structured, per-screen,
-per-plugin object, not a scalar. Recording only the primary image and deferring
-the refusal to `deactivate` (RFC-0030 Rev 1's approach) is a **designed one-way
-door**: Atlas switches while already knowing at activate time it cannot restore,
-which violates the record-before-switch invariant and can silently overwrite a
-multi-monitor or non-image configuration. That is the opposite of what the
-framework guarantees, so it must not ship under the reversible-activation banner.
+- No activation inside `install`. No change to what `desktop/wallpapers` installs.
+- No support for reversibly activating *over* a slideshow / colour / third-party
+  wallpaper plugin — those are refused at activate (§5.3), not half-captured.
+- No engine change: RFC-0029 already added `activate`/`deactivate`, the hook
+  mapping, `__SKIP__` skip-accounting, and the `usage()` lines.
 
-## 4. Requirements a future accepted design must meet
+## 4. What is switched, and the capture model
 
-1. **Containment discovery**, not a hardcoded ID: enumerate desktop containments
-   (e.g. by `plugin=org.kde.plasma.folder`/`desktop` and `activityId`/`lastScreen`)
-   and ignore panels. Consider the ScreenMapping data or a DBus query to
-   `org.kde.plasma.shell` rather than parsing the appletsrc directly.
-2. **Full-fidelity prior capture or honest refusal at ACTIVATE time.** Either
-   record enough to restore every screen and the active plugin verbatim, or refuse
-   to *activate* (not deactivate) whenever the current config is anything other
-   than a single, uniform `org.kde.image` wallpaper that can be captured exactly.
-   No lossy prior may ever be recorded.
-3. **URL/path normalisation** so "current == Atlas asset" is reliable both for the
-   idempotence check and the drift/refuse logic.
-4. **Multi-monitor safety**: never restore one screen's image onto all screens; if
-   screens diverge and cannot be captured/restored per-screen, refuse to activate.
-5. Reuse the RFC-0029 write-once escrow, refuse-to-clobber, interrupted-deactivate
-   finalize, and disown mechanics once the prior can be captured faithfully.
+The wallpaper lives in `plasma-org.kde.plasma.desktop-appletsrc` under, per desktop
+containment `C`:
 
-## 5. Decision required
+```
+[Containments][C]
+plugin=org.kde.plasma.folder        # or org.kde.desktopcontainment  (a DESKTOP)
+wallpaperplugin=org.kde.image       # the ACTIVE wallpaper plugin
+[Containments][C][Wallpaper][org.kde.image][General]
+Image=file:///path/to/wallpaper     # the active image (a file:// URL)
+```
 
-None yet — this RFC is a deferral marker. A future revision moves it to Proposed
-with an actual design meeting §4, at which point it goes through the Fable judge
-like every other activation RFC.
+- **Desktop-containment discovery.** A desktop containment is one whose
+  `[Containments][C] plugin` is `org.kde.plasma.folder` **or**
+  `org.kde.desktopcontainment`. Panels (`org.kde.panel`) and applet-host
+  containments are ignored even though some carry a stray `wallpaperplugin` line.
+  Containment ids are session-generated and unstable, so they are **discovered** by
+  scanning the appletsrc for `^[Containments][C]$` headers and reading each
+  `plugin` — never hardcoded. (kreadconfig6 cannot enumerate groups, so discovery
+  reads the ini file directly; all *reads/writes of values* use
+  kreadconfig6/kwriteconfig6.)
+- **Per-containment capture.** For each discovered desktop containment `C`:
+  - read `wallpaperplugin`. If it is **not** `org.kde.image`, **refuse to activate**
+    (§5.3) — a slideshow/colour/plugin prior cannot be restored by setting one
+    image.
+  - read `[…][Wallpaper][org.kde.image][General] Image` with the absent sentinel as
+    default. The recorded prior for `C` is this value **verbatim** (including any
+    `file://`), or `__ATLAS_ABSENT__` if the key does not exist.
+- **URL normalization for comparisons only.** "Is `C` currently the Atlas image?"
+  and "is `C` currently its recorded prior?" compare *normalized* forms (strip a
+  leading `file://`, then compare filesystem paths). The **recorded** value and the
+  **written-back** value are always the verbatim stored form, so restore is exact.
+
+The Atlas primary image is `atlas-gradient.svg`; its stored form is
+`file://$(_wallpapers_dir)/atlas-gradient.svg`.
+
+## 5. The activation contract
+
+### 5.1 State file
+
+Per RFC-0029 §5.2, separate from the install marker:
+
+```
+$ATLAS_STATE_DIR/activated/desktop-wallpapers
+  schema=1
+  state=activating | active | inactive
+  containments=<space-separated desktop containment ids>   # present iff activating|active
+  prior_image_<C>=<verbatim Image value> | __ATLAS_ABSENT__ # one per id in `containments`
+```
+
+Mode 600, atomic write, strict parser: reject unknown keys/state/schema; enforce
+`containments` present iff state ∈ {activating, active}; require exactly one
+`prior_image_<C>` for each `C` listed in `containments` (and none for any other id);
+each `<C>` must be a non-negative integer; a `prior_image_*` under `inactive`, or a
+missing/extra one under active, is a parse error.
+
+### 5.2 `module::activate` (write-once escrow, transitional state)
+
+1. **Preconditions.** Install marker `installed` (asset present); `kreadconfig6` +
+   `kwriteconfig6` present; the appletsrc file exists. Tool stdout is redirected so
+   the runner reads only `__SKIP__`/exit.
+2. **Discover** the desktop containments (§4). If none are found, refuse with
+   guidance (no desktop to activate).
+3. **Refuse-at-activate capture check.** For every discovered containment, its
+   `wallpaperplugin` must be `org.kde.image`. If any is not, **refuse and stop**
+   before writing any state: "desktop <C> uses <plugin>; Atlas can only reversibly
+   activate over a single-image wallpaper — switch it to an image first, or leave
+   the wallpaper user-owned." (This is the record-before-switch guarantee: Atlas
+   never activates when it already knows it cannot restore.)
+4. **Load activation state.**
+   - If `state=active`: if **every** containment's current image (normalized) is the
+     Atlas image → no-op (idempotent). If **any** differs → **refuse-to-clobber**
+     ("the wallpaper changed since activation; delete
+     `$(…)/activated/desktop-wallpapers` to disown").
+   - Otherwise (inactive/activating/none) — the transition, possibly resumed.
+5. **Record prior write-once.** If the record already has `containments`/`prior_*`
+   (an interrupted `activating`), **reuse them unchanged** — never re-read the
+   current wallpapers into the escrow. Only if there is no recorded prior yet,
+   capture each containment's current `Image` verbatim (or the absent sentinel) and
+   the containment id list, then write `{schema=1, state=activating, containments=…,
+   prior_image_<C>=…}` atomically **before** applying.
+6. **Apply.** For each discovered containment, `kwriteconfig6` its
+   `[…][Wallpaper][org.kde.image][General] Image` to the Atlas image's `file://`
+   URL. Best-effort live nudge: if `plasma-apply-wallpaperimage` is present, call it
+   with the Atlas image path (applies live to all screens); otherwise the change
+   applies at next login. Report which happened. (`wallpaperplugin` is already
+   `org.kde.image` for every containment — guaranteed by step 3 — so no plugin
+   switch is needed.)
+7. On success, write `{schema=1, state=active, containments=…, prior_image_<C>=…}`
+   (same recorded priors).
+
+The transitional `activating` state makes recording write-once: a crash between
+recording and `state=active` leaves the true priors preserved; a re-run reuses them
+(step 5) and never launders the now-Atlas wallpaper into the escrow. Drift is judged
+only in step 4 under `state=active`.
+
+### 5.3 `module::deactivate`
+
+1. Load state. If no record or `state=inactive` → nothing to do (success).
+2. Require `kwriteconfig6` present. Re-discover is **not** needed — restore targets
+   exactly the containments recorded in `containments` (if a recorded containment no
+   longer exists, its restore is skipped with a warning; no data is at risk).
+3. **Per-containment classification (before any write).** For each recorded `C`,
+   read its current image and classify against the Atlas image and its recorded
+   prior (all normalized):
+   - current == Atlas image → **restore** this containment.
+   - current == recorded prior (normalized) → **skip** (already restored).
+   - otherwise (a real third value) → **drift**.
+   If **any** containment is drift **and** `state=active`, **refuse-to-clobber**
+   across the whole set before touching any containment (no partial restore); report
+   and stop with the disown instruction.
+4. **Restore** each containment classified `restore`: if its recorded prior is
+   `__ATLAS_ABSENT__`, `kwriteconfig6 --delete` its `Image` key; else `kwriteconfig6`
+   the verbatim recorded prior back. Best-effort live nudge via
+   `plasma-apply-wallpaperimage` only when every restored value is the same single
+   image and the tool is present; otherwise report "applies at next login."
+5. Write `{schema=1, state=inactive}` (no `containments`/`prior_*`) — escrow consumed.
+
+The `current == prior` skip makes an interrupted deactivate resumable (the finalize
+case): a crash after some containments were restored but before `state=inactive` is
+recovered on re-run — already-restored containments skip, the rest restore, and a
+half-finished restore is never misread as drift.
+
+### 5.4 Disown / refuse recovery
+
+Deleting `$ATLAS_STATE_DIR/activated/desktop-wallpapers` clears activation (RFC-0029
+§5.5); a later `activate` captures the then-current wallpapers as the new prior.
+Both refuse messages point at this file. There is no dead end.
+
+## 6. Ownership analysis
+
+Atlas owns the activation *transition* and the escrow record; each desktop's
+wallpaper is borrowed with its prior held in write-once escrow and returned exactly
+(or its key deleted if it was absent). Activation is refused up front whenever the
+prior cannot be captured faithfully, so Atlas never switches a setting it cannot
+restore — satisfying RFC-0029's record-before-switch invariant and AGENTS.md's
+"never silently overwrites user configuration." An un-activated machine is fully
+valid; `verify`/`install` of `desktop/wallpapers` is untouched.
+
+Honesty notes: (a) restore is by the recorded `Image` value; Atlas does not capture
+or restore unrelated wallpaper sub-keys (e.g. `FillMode`, `Color`) — it records what
+it switches (`Image`) and refuses whenever the active plugin is not a plain image,
+which is where those extra keys would matter. (b) Live apply depends on
+`plasma-apply-wallpaperimage` + a running session; without them the change applies
+at next login, and activation says so — it never claims "applied live" it cannot
+substantiate.
+
+## 7. Alternatives considered
+
+- **plasma-apply-wallpaperimage for everything.** Rejected as the capture/restore
+  primitive: it sets one uniform image across all screens and cannot restore
+  divergent per-monitor wallpapers, and it does not *read* the prior. It is used
+  only as a best-effort live nudge on top of the authoritative per-containment
+  kwriteconfig6.
+- **Refuse unless exactly one desktop containment.** Rejected as too restrictive —
+  per-containment capture handles multi-monitor correctly; the honest refusal is on
+  the *plugin type*, not the *count*.
+- **Half-capture a slideshow/colour prior and refuse at deactivate.** Rejected —
+  that is the Rev-deferred one-way door. Refusal must be at activate.
+
+## 8. Testing strategy
+
+New `tests/test_activation_wallpapers.sh`, mirroring `tests/test_activation.sh`.
+Mock `kreadconfig6`/`kwriteconfig6` as shell functions backed by a temp ini-like
+store (keyed by the group path), a discoverable set of containments seeded into a
+fake appletsrc, and `plasma-apply-wallpaperimage` as a recording stub. Install the
+module first so the marker is `installed`. Cases:
+
+1. Verb plumbing (activate/deactivate resolve; hookless skip is generic to RFC-0029).
+2. Requires installed; requires kreadconfig6/kwriteconfig6.
+3. **Discovery**: with a folder desktop `[1]`, a panel `[2]`, and an applet host,
+   only `[1]` is captured/applied; the panel is ignored.
+4. **Refuse-at-activate** when a desktop's `wallpaperplugin` is `org.kde.slideshow`
+   (and `org.kde.color`) — no state written, prior untouched.
+5. Records prior verbatim (incl. `file://`) and applies the Atlas image; idempotent
+   second activate is a no-op.
+6. **URL normalization**: a prior stored as `file://…/foo.png` and the Atlas image as
+   a `file://` URL compare correctly — no spurious drift right after activation.
+7. **Multi-monitor**: two desktop containments with two different images → both
+   captured with distinct `prior_image_<C>`, both set to Atlas, both restored to
+   their own prior on deactivate.
+8. Absent-sentinel: a containment with no `Image` key → `__ATLAS_ABSENT__`; restore
+   deletes the key.
+9. Restores exactly; deactivate writes `state=inactive`, drops `containments`/`prior_*`.
+10. Refuse-to-clobber (activate and deactivate) when a desktop's current image is a
+    third value; no partial restore.
+11. **Interrupted-activate write-once**: seed `state=activating` with recorded
+    priors and the images already set to Atlas; re-run reuses the priors, never
+    launders Atlas into the escrow, settles `active`.
+12. **Interrupted-deactivate finalize**: seed `state=active` with one containment
+    already restored (current == prior) and one still Atlas; deactivate finishes the
+    rest, skips the restored one, ends `inactive`, loses no prior.
+13. Disown: deleting the record makes a fresh activate capture the current wallpapers
+    as the new prior.
+14. Strict parser: `prior_image_*` under inactive; a `prior_image_<C>` with no
+    matching id in `containments`; a missing one for a listed id; non-integer id;
+    unknown key/state/schema.
+15. No-live path: without `plasma-apply-wallpaperimage`, activate/deactivate still
+    write config and report "applies at next login."
+16. Full suite stays green; `atlas install desktop/wallpapers` unchanged.
+
+## 9. Decision required
+
+1. Accept per-containment capture/restore keyed on **discovered** desktop
+   containments (§4), reusing RFC-0029's write-once escrow with one `prior_image_<C>`
+   per containment.
+2. Accept **refuse-at-activate** whenever any desktop's active wallpaper plugin is
+   not `org.kde.image` (the honest capture boundary), and URL-normalized comparisons
+   with verbatim record/restore.
+3. Accept the authoritative-kwriteconfig6 + best-effort-live-nudge apply model, with
+   `plasma-apply-wallpaperimage`/session absence degrading to next-login.
