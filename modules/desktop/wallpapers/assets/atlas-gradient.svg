@@ -8,5 +8,5 @@
   </defs>
   <rect width="3840" height="2160" fill="url(#g)"/>
   <path d="M0 1600 C850 1320 1280 1500 1900 1220 C2480 960 2980 1110 3840 760 L3840 2160 L0 2160 Z" fill="#0d1826" opacity="0.72"/>
-  <circle cx="3130" cy="520" r="180" fill="#4ea1ff" opacity="0.10"/>
+  <circle cx="3130" cy="520" r="180" fill="#5aa2ff" opacity="0.10"/>
 </svg>
