@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Atlas",
+                "Email": "atlas@localhost"
+            }
+        ],
+        "Category": "",
+        "Description": "Atlas lock-screen HUD: deep navy ground, a slow-drifting armillary, a giant thin clock in reticle brackets, and a bare hairline password field.",
+        "Id": "org.atlas.hud",
+        "License": "MIT",
+        "Name": "Atlas HUD",
+        "Website": "https://github.com/atlas"
+    },
+    "Keywords": "Desktop;Lock;LookAndFeel;",
+    "X-Plasma-APIVersion": "2"
+}

@@ -54,6 +54,7 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0024](RFC-0024-plymouth-module.md) | Plymouth module | Accepted |
 | [0024a](RFC-0024a-plymouth-plugin-dependency.md) | Plymouth — script-plugin dependency (amends 0024) | Accepted |
 | [0024b](RFC-0024b-plymouth-passphrase-prompt.md) | Plymouth — LUKS passphrase prompt (amends 0024) | Proposed |
+| [0024c](RFC-0024c-plymouth-visual-redesign.md) | Plymouth — HUD boot-ignition redesign (amends 0024) | Proposed |
 | [0025](RFC-0025-sddm-module.md) | SDDM module | Accepted |
 | [0026](RFC-0026-codex-module.md) | Codex module — npm-packaged AI coding CLI lifecycle | Accepted |
 | [0027](RFC-0027-atlas-self-management.md) | Atlas self-management and self-update command | Accepted |
@@ -64,3 +65,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0032](RFC-0032-plymouth-boot-activation.md) | Plymouth boot-splash activation — default theme + initramfs | Accepted |
 | [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — per-containment, discovery-based (reuses 0029) | Accepted |
 | [0034](RFC-0034-atlas-hud-identity-terminal.md) | Atlas HUD — identity (`desktop/identity`) + terminal; fish/fastfetch in-place-upgrade fix | Accepted |
+| [0035](RFC-0035-lockscreen-hud.md) | Lock-screen HUD — `desktop/lockscreen` LnF package + reversible activation | Accepted |
