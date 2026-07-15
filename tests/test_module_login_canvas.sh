@@ -12,6 +12,10 @@ source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/os.sh"
 source "$ATLAS_ROOT/modules/desktop/login-canvas/module.sh"
 os::is_fedora() { [ "${FEDORA_OK:-1}" = 1 ]; }
+# Sandbox the SOURCE asset: tests that simulate a source release must never write
+# the real repo asset. Copy it into the temp HOME and point the source there.
+mkdir -p "$HOME/src"; cp "$ATLAS_ROOT/modules/desktop/login-canvas/assets/atlas-login-canvas.png" "$HOME/src/atlas-login-canvas.png"
+_login_canvas_asset_source() { printf "%s\n" "$HOME/src/atlas-login-canvas.png"; }
 '
 PRE="${PRE%$'\n'}"
 
