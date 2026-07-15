@@ -66,3 +66,5 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — per-containment, discovery-based (reuses 0029) | Accepted |
 | [0034](RFC-0034-atlas-hud-identity-terminal.md) | Atlas HUD — identity (`desktop/identity`) + terminal; fish/fastfetch in-place-upgrade fix | Accepted |
 | [0035](RFC-0035-lockscreen-hud.md) | Lock-screen HUD — `desktop/lockscreen` LnF package + reversible activation | Accepted |
+| [0036](RFC-0036-login-canvas.md) | Login canvas — Atlas greeter wallpaper (plasma-login-manager `/etc`), reversible | Accepted |
+| [0037](RFC-0037-ksplash.md) | KSplash — Atlas startup splash in the `org.atlas.hud` package (reuses 0035) | Accepted |
