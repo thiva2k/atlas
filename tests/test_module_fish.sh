@@ -167,6 +167,20 @@ assert_status "fish update restores Atlas snippet drift" 0 \
 assert_status "fish update fails before install" 1 \
   bash -c "$PRE; module::update"
 
+# RFC-0034: in-place upgrade. When Atlas's OWN managed snippet changes after
+# install, the marker's recorded config_sha256 no longer matches the new source.
+# marker-load must NOT hard-fail on that (the fixed bug); update reconciles the
+# snippet AND refreshes the marker hash.
+assert_status "fish marker-load tolerates a changed source hash (in-place upgrade)" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; m=\"\$(_fish_marker)\"; sed -i 's/^config_sha256=.*/config_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \"\$m\"; chmod 600 \"\$m\"; _fish_marker_load; [ \"\$_FISH_MARKER_STATE\" = installed ]"
+assert_status "fish update reconciles a source change and refreshes the marker" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; m=\"\$(_fish_marker)\"; sed -i 's/^config_sha256=.*/config_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \"\$m\"; chmod 600 \"\$m\"; printf 'drift\\n' >> \"\$(_fish_config_file)\"; module::update >/dev/null 2>&1; module::verify >/dev/null 2>&1; grep -qxF \"config_sha256=\$(_fish_config_hash)\" \"\$m\""
+
+# RFC-0034: the snippet ships the blinking HUD cursor (Ghostty hands cursor
+# control to fish, so fish must set the blink or the config is overridden).
+assert_status "fish snippet sets the blinking HUD cursor" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF 'set -g fish_cursor_default line blink' \"\$(_fish_config_file)\""
+
 for hook in backup restore; do
   assert_status "fish $hook is a documented no-op" 0 \
     bash -c "$PRE; module::$hook"

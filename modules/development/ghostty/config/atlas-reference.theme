@@ -1,19 +1,21 @@
-# Atlas reference Ghostty theme.
+# Atlas HUD Ghostty theme (RFC-0034). Derived from desktop/identity tokens.
+# The cursor earns the scarce cyan (#57e5ff) as the one live element.
 background = 0f141b
 foreground = e6edf3
-cursor-color = 4ea1ff
-selection-background = 243247
+cursor-color = 57e5ff
+cursor-text = 0a0e14
+selection-background = 1f3252
 selection-foreground = f8fafc
 palette = 0=#0f141b
-palette = 1=#d76f72
+palette = 1=#ff6b5a
 palette = 2=#8bd17c
 palette = 3=#e6c36a
-palette = 4=#4ea1ff
+palette = 4=#5aa2ff
 palette = 5=#b39ddb
-palette = 6=#7dd3fc
+palette = 6=#57e5ff
 palette = 7=#d7dde8
 palette = 8=#657286
-palette = 9=#f28b8e
+palette = 9=#ff8577
 palette = 10=#a6e39a
 palette = 11=#f0d98a
 palette = 12=#82c4ff

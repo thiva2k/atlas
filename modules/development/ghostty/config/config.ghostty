@@ -3,6 +3,12 @@
 
 theme = atlas-reference
 
+# Atlas HUD "glass instrument" feel (RFC-0034): the navy desktop bleeds through so
+# the terminal reads as mounted IN the console. 0.94 keeps text crisp for all-day
+# reading; 20-radius blur gives depth without turning code to mush.
+background-opacity = 0.94
+background-blur-radius = 20
+
 # Font installation belongs to desktop/fonts. Ghostty falls back gracefully when
 # these family names are unavailable.
 font-family = "JetBrainsMono Nerd Font"
@@ -26,8 +32,13 @@ window-padding-y = 8
 window-padding-balance = true
 window-padding-color = background
 
+# Split seams read as HUD dividers; the unfocused pane dims like an idle instrument.
+split-divider-color = 243247
+unfocused-split-opacity = 0.82
+
+# The cursor is the one live element — a cyan bar that blinks as the single heartbeat.
 cursor-style = bar
-cursor-style-blink = false
+cursor-style-blink = true
 
 scrollback-limit = 50000000
 

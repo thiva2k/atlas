@@ -115,10 +115,19 @@ assert_status "ghostty user override seam remains last" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; [ \"\$(tail -n 1 \"\$GHOSTTY_CONFIG_DIR/config.ghostty\")\" = \"config-file = ?user.ghostty\" ]"
 
 assert_status "ghostty experience config includes developer defaults" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; cfg=\"\$GHOSTTY_CONFIG_DIR/config.ghostty\"; grep -qxF \"window-padding-x = 10\" \"\$cfg\"; grep -qxF \"window-padding-y = 8\" \"\$cfg\"; grep -qxF \"window-padding-balance = true\" \"\$cfg\"; grep -qxF \"adjust-cell-height = 6%\" \"\$cfg\"; grep -qxF \"font-feature = -calt, -liga, -dlig\" \"\$cfg\"; grep -qxF \"cursor-style = bar\" \"\$cfg\"; grep -qxF \"cursor-style-blink = false\" \"\$cfg\"; grep -qxF \"scrollback-limit = 50000000\" \"\$cfg\"; grep -qxF \"window-save-state = never\" \"\$cfg\"; grep -qxF \"window-inherit-working-directory = true\" \"\$cfg\"; grep -qxF \"tab-inherit-working-directory = true\" \"\$cfg\"; grep -qxF \"split-inherit-working-directory = true\" \"\$cfg\""
+  bash -c "$PRE; module::install >/dev/null 2>&1; cfg=\"\$GHOSTTY_CONFIG_DIR/config.ghostty\"; grep -qxF \"window-padding-x = 10\" \"\$cfg\"; grep -qxF \"window-padding-y = 8\" \"\$cfg\"; grep -qxF \"window-padding-balance = true\" \"\$cfg\"; grep -qxF \"adjust-cell-height = 6%\" \"\$cfg\"; grep -qxF \"font-feature = -calt, -liga, -dlig\" \"\$cfg\"; grep -qxF \"cursor-style = bar\" \"\$cfg\"; grep -qxF \"scrollback-limit = 50000000\" \"\$cfg\"; grep -qxF \"window-save-state = never\" \"\$cfg\"; grep -qxF \"window-inherit-working-directory = true\" \"\$cfg\"; grep -qxF \"tab-inherit-working-directory = true\" \"\$cfg\"; grep -qxF \"split-inherit-working-directory = true\" \"\$cfg\""
 
-assert_status "ghostty theme uses Atlas blue without transparency" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; theme=\"\$GHOSTTY_CONFIG_DIR/themes/atlas-reference\"; grep -qxF \"background = 0f141b\" \"\$theme\"; grep -qxF \"foreground = e6edf3\" \"\$theme\"; grep -qxF \"cursor-color = 4ea1ff\" \"\$theme\"; ! grep -q \"background-opacity\" \"\$theme\"; ! grep -q \"background-blur\" \"\$theme\""
+# RFC-0034: the HUD "glass instrument" feel — the cursor is the one live element
+# (a blinking cyan bar), the terminal is subtly translucent, split seams read as
+# dividers.
+assert_status "ghostty config carries the HUD glass + live cursor" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; cfg=\"\$GHOSTTY_CONFIG_DIR/config.ghostty\"; grep -qxF \"background-opacity = 0.94\" \"\$cfg\"; grep -qxF \"background-blur-radius = 20\" \"\$cfg\"; grep -qxF \"split-divider-color = 243247\" \"\$cfg\"; grep -qxF \"cursor-style = bar\" \"\$cfg\"; grep -qxF \"cursor-style-blink = true\" \"\$cfg\""
+
+# RFC-0034: the theme carries the locked HUD palette (cursor earns the scarce cyan;
+# blue migrated #4ea1ff->#5aa2ff, cyan #7dd3fc->#57e5ff, red ->#ff6b5a). Opacity is a
+# config concern, never in the theme file.
+assert_status "ghostty theme uses the locked HUD palette" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; theme=\"\$GHOSTTY_CONFIG_DIR/themes/atlas-reference\"; grep -qxF \"background = 0f141b\" \"\$theme\"; grep -qxF \"foreground = e6edf3\" \"\$theme\"; grep -qxF \"cursor-color = 57e5ff\" \"\$theme\"; grep -qxF \"palette = 4=#5aa2ff\" \"\$theme\"; grep -qxF \"palette = 6=#57e5ff\" \"\$theme\"; grep -qxF \"palette = 1=#ff6b5a\" \"\$theme\"; ! grep -q \"4ea1ff\" \"\$theme\"; ! grep -q \"background-opacity\" \"\$theme\"; ! grep -q \"background-blur\" \"\$theme\""
 
 assert_status "ghostty user override file is preserved" 0 \
   bash -c "$PRE; mkdir -p \"\$GHOSTTY_CONFIG_DIR\"; printf \"font-size = 99\n\" > \"\$GHOSTTY_CONFIG_DIR/config\"; printf \"font-size = 18\n\" > \"\$GHOSTTY_CONFIG_DIR/user.ghostty\"; module::install >/dev/null 2>&1; grep -qxF \"font-size = 18\" \"\$GHOSTTY_CONFIG_DIR/user.ghostty\"; grep -qxF \"font-size = 99\" \"\$GHOSTTY_CONFIG_DIR/config\""

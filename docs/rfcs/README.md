@@ -63,3 +63,4 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0031](RFC-0031-starship-prompt-activation.md) | Starship prompt activation — reversible fish conf.d wiring | Accepted |
 | [0032](RFC-0032-plymouth-boot-activation.md) | Plymouth boot-splash activation — default theme + initramfs | Accepted |
 | [0033](RFC-0033-wallpaper-activation.md) | Wallpaper activation — per-containment, discovery-based (reuses 0029) | Accepted |
+| [0034](RFC-0034-atlas-hud-identity-terminal.md) | Atlas HUD — identity (`desktop/identity`) + terminal; fish/fastfetch in-place-upgrade fix | Accepted |

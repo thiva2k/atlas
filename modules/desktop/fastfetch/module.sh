@@ -88,8 +88,7 @@ _fastfetch_marker_load() {
     log::error "Fastfetch marker config_path does not match this module"; return 1; }
   _fastfetch_hash_valid "$_FASTFETCH_MARKER_CONFIG_SHA" || {
     log::error "Fastfetch marker config_sha256 is invalid"; return 1; }
-  [ "$_FASTFETCH_MARKER_CONFIG_SHA" = "$(_fastfetch_sha256 "$(_fastfetch_config_source)")" ] || {
-    log::error "Fastfetch marker config_sha256 does not match Atlas source"; return 1; }
+  return 0
 }
 
 _fastfetch_marker_write() {
@@ -233,6 +232,7 @@ module::update() {
   _fastfetch_write_config || return 1
   _fastfetch_runnable || return 1
   _fastfetch_marker_write installed || return 1
+  log::info "restored Atlas Fastfetch config"
 }
 
 module::remove() {

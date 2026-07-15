@@ -1,5 +1,7 @@
 "$schema" = 'https://starship.rs/config-schema.json'
 
+# Atlas HUD prompt (RFC-0034): a console readout, not a powerline. Hairline color
+# separation; the character is the orbital node ◐ that ignites cyan when ready.
 add_newline = false
 scan_timeout = 10
 command_timeout = 250
@@ -7,23 +9,23 @@ palette = 'atlas'
 format = '$directory$git_branch$git_status$python$nodejs$docker_context$cmd_duration$time$line_break$character'
 
 [palettes.atlas]
-atlas_blue = '#4ea1ff'
-atlas_cyan = '#7dd3fc'
+atlas_blue = '#5aa2ff'
+atlas_cyan = '#57e5ff'
 atlas_green = '#8bd17c'
-atlas_muted = '#8a94a6'
-atlas_red = '#ff6b6b'
+atlas_muted = '#7d8aa0'
+atlas_red = '#ff6b5a'
 
 [directory]
 format = '[$path]($style) '
 style = 'bold atlas_blue'
 truncation_length = 3
 truncate_to_repo = true
-read_only = ' ro'
+read_only = ' '
 
 [git_branch]
-format = '[$branch]($style) '
+format = '[$symbol$branch]($style) '
 style = 'atlas_blue'
-symbol = ''
+symbol = ' '
 
 [git_status]
 format = '([$all_status$ahead_behind]($style) )'
@@ -49,9 +51,10 @@ format = '[node $version]($style) '
 style = 'atlas_green'
 symbol = ''
 
+# docker downshifts to structural blue so the ◐ node stays the single brightest cyan.
 [docker_context]
 format = '[docker $context]($style) '
-style = 'atlas_cyan'
+style = 'atlas_blue'
 symbol = ''
 only_with_files = true
 
@@ -66,7 +69,9 @@ format = '[$time]($style) '
 style = 'atlas_muted'
 time_format = '%H:%M'
 
+# The orbital node — the through-line. The same glyph ignites at boot, frames the
+# lock clock, and marks every ready shell line. Cyan when ready, warm on error.
 [character]
-success_symbol = '[>](bold atlas_blue)'
-error_symbol = '[>](bold atlas_red)'
-vimcmd_symbol = '[<](bold atlas_blue)'
+success_symbol = '[◐](bold atlas_cyan)'
+error_symbol = '[◐](bold atlas_red)'
+vimcmd_symbol = '[◑](bold atlas_blue)'

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Atlas">
+  <!-- Atlas Orbital Monogram "A" — RFC-0034 identity. An "A" whose legs are two
+       orbital arcs converging on a bright star node, one faint tilted orbit behind. -->
+  <defs>
+    <linearGradient id="atlasArm" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f7fe0"/>
+      <stop offset="1" stop-color="#57e5ff"/>
+    </linearGradient>
+    <radialGradient id="atlasNode">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#cfeaff"/>
+      <stop offset="0.7" stop-color="#57e5ff"/>
+      <stop offset="1" stop-color="#57e5ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="atlasGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- faint tilted orbit -->
+  <ellipse cx="32" cy="34" rx="22" ry="9" transform="rotate(-15 32 34)"
+           fill="none" stroke="#5aa2ff" stroke-width="1" opacity="0.22"/>
+  <!-- orbit chord (crossbar) -->
+  <path d="M 22 38 L 42 38" stroke="#5aa2ff" stroke-width="2" opacity="0.55" stroke-linecap="round"/>
+  <!-- glowing arms + star node -->
+  <g filter="url(#atlasGlow)">
+    <path d="M 14 52 C 20 30, 27 16, 32 12" stroke="url(#atlasArm)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M 32 12 C 37 16, 44 30, 50 52" stroke="url(#atlasArm)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <circle cx="32" cy="12" r="4.2" fill="url(#atlasNode)"/>
+  </g>
+</svg>

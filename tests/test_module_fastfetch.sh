@@ -67,11 +67,14 @@ assert_eq "fastfetch install uses exact package" \
 assert_status "fastfetch install writes installed marker" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_fastfetch_marker)\""
 
-assert_status "fastfetch install writes Atlas config" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; grep -q \"Thivarrakesh OS\" \"\$FASTFETCH_CONFIG\""
+assert_status "fastfetch install writes the Atlas config" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; grep -q \"workstation · online\" \"\$FASTFETCH_CONFIG\"; grep -q \"ATLAS ✓\" \"\$FASTFETCH_CONFIG\""
 
-assert_status "fastfetch config is an engineering health dashboard" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; grep -q \"✓ Python\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Node\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Docker\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Claude\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Codex\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Git\" \"\$FASTFETCH_CONFIG\"; grep -q \"✓ Atlas\" \"\$FASTFETCH_CONFIG\"; ! grep -q '\"kernel\"' \"\$FASTFETCH_CONFIG\"; ! grep -q '\"cpu\"' \"\$FASTFETCH_CONFIG\"; ! grep -q '\"gpu\"' \"\$FASTFETCH_CONFIG\""
+# RFC-0034: the SYSTEM ONLINE greeting — a fast telemetry readout (host/kernel/
+# uptime/shell) with the tool checks collapsed into ONE line, and the orbital-A
+# mark rendered in ASCII. No heavy hardware dump (cpu/gpu), no per-tool row wall.
+assert_status "fastfetch config is the SYSTEM ONLINE greeting" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; c=\"\$FASTFETCH_CONFIG\"; grep -q '\"kernel\"' \"\$c\"; grep -q '\"uptime\"' \"\$c\"; grep -q '\"shell\"' \"\$c\"; grep -q 'ATLAS ✓' \"\$c\"; grep -q 'python3 node docker claude git' \"\$c\"; grep -q '◐' \"\$c\"; ! grep -q '\"cpu\"' \"\$c\"; ! grep -q '\"gpu\"' \"\$c\"; ! grep -q '✓ Codex' \"\$c\""
 
 assert_status "fastfetch install validates with Atlas config" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF -- \"--config \$FASTFETCH_CONFIG\" \"\$FASTFETCH_ARGV_LOG\""
@@ -108,6 +111,15 @@ assert_status "fastfetch package failure leaves installing marker" 1 \
 
 assert_status "fastfetch update restores managed config drift" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; printf \"drift\n\" >> \"\$FASTFETCH_CONFIG\"; module::update >/dev/null 2>&1; module::verify"
+
+# RFC-0034: in-place upgrade. When Atlas's OWN managed config changes after
+# install, the marker's recorded config_sha256 no longer matches the new source.
+# marker-load must NOT hard-fail on that (the fixed bug); update reconciles the
+# config AND refreshes the marker hash.
+assert_status "fastfetch marker-load tolerates a changed source hash (in-place upgrade)" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; m=\"\$(_fastfetch_marker)\"; sed -i 's/^config_sha256=.*/config_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \"\$m\"; chmod 600 \"\$m\"; _fastfetch_marker_load; [ \"\$_FASTFETCH_MARKER_STATE\" = installed ]"
+assert_status "fastfetch update reconciles a source change and refreshes the marker" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; m=\"\$(_fastfetch_marker)\"; sed -i 's/^config_sha256=.*/config_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \"\$m\"; chmod 600 \"\$m\"; printf 'drift\\n' >> \"\$FASTFETCH_CONFIG\"; module::update >/dev/null 2>&1; module::verify >/dev/null 2>&1; grep -qxF \"config_sha256=\$(_fastfetch_sha256 \"\$(_fastfetch_config_source)\")\" \"\$m\""
 
 assert_status "fastfetch remove detaches and deletes only Atlas config" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_fastfetch_marker)\"; [ ! -e \"\$FASTFETCH_CONFIG\" ]; [ -x \"\$FASTFETCH_BIN\" ]"

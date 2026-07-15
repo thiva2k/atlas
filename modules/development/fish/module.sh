@@ -23,6 +23,17 @@ _fish_config_file() {
 _fish_config_content() {
   printf '%s\n' "# Managed by Atlas: development/fish. Do not edit."
   printf '%s\n' "set -g""x ATLAS_SHELL fish"
+  # RFC-0034: the cursor is the HUD's one live element — a blinking bar (Ghostty
+  # paints it cyan). Ghostty's shell-integration hands cursor control to fish, so
+  # fish must set the blink itself or the config setting is overridden.
+  printf '%s\n' "set -g fish_cursor_default line blink"
+  printf '%s\n' "set -g fish_cursor_insert line blink"
+  # RFC-0034: the SYSTEM ONLINE greeting. Fires only for a top-level interactive
+  # shell (a new terminal), never nested subshells, and only if fastfetch is
+  # present — so the wiring is loosely coupled to desktop/fastfetch.
+  printf '%s\n' "if status is-interactive; and test \"\$SHLVL\" -le 1; and command -q fastfetch"
+  printf '%s\n' "    fastfetch"
+  printf '%s\n' "end"
 }
 
 _fish_config_hash() {
@@ -31,6 +42,14 @@ _fish_config_hash() {
 
 _fish_file_hash() {
   sha256sum "$1" 2>/dev/null | awk '{print $1}'
+}
+
+_fish_hash_valid() {
+  [ "${#1}" -eq 64 ] || return 1
+  case "$1" in
+    *[!0-9a-f]*|"") return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 _fish_marker_init() {
@@ -108,8 +127,8 @@ _fish_marker_load() {
     log::error "Fish marker package set is unsupported: $_FISH_MARKER_PACKAGES"; return 1; }
   [ "$_FISH_MARKER_CONFIG_PATH" = "$(_fish_config_file)" ] || {
     log::error "Fish marker config_path is unsupported: $_FISH_MARKER_CONFIG_PATH"; return 1; }
-  [ "$_FISH_MARKER_CONFIG_SHA256" = "$(_fish_config_hash)" ] || {
-    log::error "Fish marker config hash does not match Atlas source"; return 1; }
+  _fish_hash_valid "$_FISH_MARKER_CONFIG_SHA256" || {
+    log::error "Fish marker config_sha256 is invalid"; return 1; }
   return 0
 }
 
@@ -266,6 +285,7 @@ module::update() {
   [ "$_FISH_MARKER_STATE" = "installed" ] || {
     log::error "Fish is not installed by Atlas"; return 1; }
   _fish_config_write || return 1
+  _fish_marker_write installed || return 1
   _fish_runtime_healthy || return 1
   log::info "restored Atlas Fish snippet"
 }

@@ -2,55 +2,26 @@
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": {
     "type": "data",
-    "source": "Atlas\nThivarrakesh OS",
-    "padding": {
-      "right": 2
-    }
+    "source": "$2    ◐\n$2   ╱ ╲\n$2  ◜   ◝\n$2 ╱     ╲\n$2◟──$1●$2──◞",
+    "color": { "1": "6", "2": "4" },
+    "padding": { "top": 1, "right": 3 }
   },
   "display": {
-    "separator": "  "
+    "separator": "  ",
+    "color": { "keys": "6" }
   },
   "modules": [
-    "os",
-    "memory",
-    "shell",
-    "terminal",
-    "theme",
+    { "type": "custom", "format": "ATLAS  workstation · online" },
+    { "type": "custom", "format": "──────────────────────────" },
+    { "type": "title", "key": "host", "format": "{host-name}" },
+    { "type": "kernel", "key": "kernel" },
+    { "type": "uptime", "key": "uptime" },
+    { "type": "shell", "key": "shell" },
     {
       "type": "command",
-      "key": "✓ Python",
-      "text": "command -v python3 >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Node",
-      "text": "command -v node >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Docker",
-      "text": "command -v docker >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Claude",
-      "text": "command -v claude >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Codex",
-      "text": "command -v codex >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Git",
-      "text": "command -v git >/dev/null && printf ready || printf missing"
-    },
-    {
-      "type": "command",
-      "key": "✓ Atlas",
-      "text": "command -v atlas >/dev/null && printf ready || printf managed"
-    },
-    "colors"
+      "key": "ATLAS ✓",
+      "keyColor": "2",
+      "text": "for p in python3 node docker claude git; do command -v \"$p\" >/dev/null 2>&1 && printf '%s ' \"${p%3}\"; done"
+    }
   ]
 }
