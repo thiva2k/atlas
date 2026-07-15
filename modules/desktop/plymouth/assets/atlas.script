@@ -1,57 +1,489 @@
-# Atlas boot splash — RFC-0024 / RFC-0024b.
-# Minimal script theme: centered ATLAS wordmark plus a LUKS passphrase prompt.
-# The password callbacks are REQUIRED: without them the splash cannot accept the
-# disk-encryption passphrase and the user must press Esc to fall back to text.
+# Atlas boot splash — "boot ignition" sequence. RFC-0024 / RFC-0024b / RFC-0024c.
+#
+# Cinematic "system online" sequence built from the Atlas Orbital-A mark, plus the
+# LUKS passphrase callbacks (RFC-0024b — REQUIRED; without them the splash cannot
+# accept the disk passphrase and the user must fall back to the text plugin).
+#
+# Beat sheet (absolute ms from t=0; Plymouth runs ~50fps, so frame ~= ms / 20):
+#   t=0     640ms   HUD grid fades in to ~5% opacity (background texture)
+#   t=400   640ms   orbital ring "assembles": fade + scale 0.85 -> 1.0
+#   t=760   520ms   the two arc arms fade + converge (slide/scale)
+#   t=1180  320ms   THE MOMENT: star node ignites, scale pop 1.25 -> 1.0 + cyan bloom
+#   t=1360  320ms   four reticle corner-brackets slide inward from +/-14px and lock
+#   t=1600  320ms   "ATLAS" wordmark fades in (+ tagline shortly after)
+#   t=1900+ staggered ~90ms   small mono readout lines fade in
+#   t=2200  900ms   bright scan bar sweeps left -> right across the mark, once
+#   t=2400+         LUKS passphrase prompt (RFC-0024b callbacks, always available)
+#
+# Persistent state read inside callbacks/refresh is stored via `global.*` — a bare
+# name can silently become a per-call local or collide with a callback parameter.
+# Animation is linear arithmetic only (no trig, no path drawing) — some Plymouth
+# builds may lack those; opacity/position/Image.Scale keyframing degrades safely.
+# Glow/bloom is baked into the PNGs (mark-node-bloom.png, arm glow) since Plymouth
+# cannot blur at runtime.
 
-Window.SetBackgroundTopColor(0.04, 0.07, 0.11);
-Window.SetBackgroundBottomColor(0.02, 0.03, 0.05);
+# Deep navy -> near-black gradient (Atlas tokens.env bg gradient).
+Window.SetBackgroundTopColor(0.051, 0.078, 0.125);   # #0d1420
+Window.SetBackgroundBottomColor(0.039, 0.055, 0.078); # #0a0e14
 
-# Centered ATLAS wordmark.
-logo.sprite = Sprite();
-logo.image = Image.Text("ATLAS", 1, 1, 1);
-logo.sprite.SetImage(logo.image);
-logo.sprite.SetX(Window.GetWidth() / 2 - logo.image.GetWidth() / 2);
-logo.sprite.SetY(Window.GetHeight() / 2 - logo.image.GetHeight() / 2);
+W = Window.GetWidth();
+H = Window.GetHeight();
+cx = W / 2;
+cy = H / 2;
 
-# --- Passphrase entry --------------------------------------------------------
-# display_password: shown while cryptsetup is asking for the passphrase.
-#   prompt  = the question text (e.g. "Please enter passphrase for disk ...")
-#   bullets = number of characters typed so far
-fun display_password_callback(prompt, bullets) {
-    if (prompt == "") prompt = "Enter passphrase to unlock";
-    prompt_image = Image.Text(prompt, 0.80, 0.85, 0.90);
-    global.prompt_sprite = Sprite(prompt_image);
-    global.prompt_sprite.SetX(Window.GetWidth() / 2 - prompt_image.GetWidth() / 2);
-    global.prompt_sprite.SetY(Window.GetHeight() / 2 + 40);
+# Frames-per-beat helper constants (50fps; ms / 20, rounded).
+fps = 50;
+
+# ============================================================================
+# Layer: HUD grid background texture (t=0, 640ms fade to ~5%)
+# ============================================================================
+grid_image = Image("grid.png");
+grid_sprite = Sprite(grid_image);
+grid_sprite.SetX(cx - grid_image.GetWidth() / 2);
+grid_sprite.SetY(cy - grid_image.GetHeight() / 2);
+grid_sprite.SetZ(-10);
+grid_sprite.SetOpacity(0);
+grid_target_opacity = 0.05;
+
+# ============================================================================
+# Mark layers — all rasterized from the same 64x64 viewBox at 512x512, so they
+# share one coordinate space and composite in register at any display scale.
+# The mark is displayed at mark_disp px square, centered a bit above screen
+# center to leave room for the wordmark + passphrase prompt below.
+# ============================================================================
+mark_native = 512;
+mark_disp = 460;
+mark_cx = cx;
+mark_cy = cy - 210;
+# Node center in the 64x64 source is (32,12) -> normalized (0.5, 0.1875).
+node_norm_x = 0.5;
+node_norm_y = 0.1875;
+
+ring_base_image = Image("mark-ring.png");
+ring_sprite = Sprite();
+ring_sprite.SetZ(1);
+ring_sprite.SetOpacity(0);
+
+arms_base_image = Image("mark-arms.png");
+arms_sprite = Sprite();
+arms_sprite.SetZ(2);
+arms_sprite.SetOpacity(0);
+
+node_base_image = Image("mark-node.png");
+node_bloom_base_image = Image("mark-node-bloom.png");
+node_sprite = Sprite();
+node_sprite.SetZ(4);
+node_sprite.SetOpacity(0);
+
+# fun: position a square mark-layer sprite (native px `native`, displayed at `disp`
+# px) so the mark's center lands at (mark_cx, mark_cy), then scale+set its image.
+fun place_mark_layer(sprite, base_image, native, disp) {
+    scaled = base_image.Scale(disp, disp);
+    sprite.SetImage(scaled);
+    sprite.SetX(global.mark_cx - disp / 2);
+    sprite.SetY(global.mark_cy - disp / 2);
+}
+
+# ============================================================================
+# Reticle corner brackets (t=1360, 320ms): slide inward from +/-14px and lock.
+# ============================================================================
+bracket_tl_image = Image("bracket-tl.png");
+bracket_tr_image = Image("bracket-tr.png");
+bracket_bl_image = Image("bracket-bl.png");
+bracket_br_image = Image("bracket-br.png");
+bracket_size = 124;
+bracket_tl_scaled = bracket_tl_image.Scale(bracket_size, bracket_size);
+bracket_tr_scaled = bracket_tr_image.Scale(bracket_size, bracket_size);
+bracket_bl_scaled = bracket_bl_image.Scale(bracket_size, bracket_size);
+bracket_br_scaled = bracket_br_image.Scale(bracket_size, bracket_size);
+
+bracket_margin = 48;
+bracket_half = mark_disp / 2 + bracket_margin;
+# Final (locked) positions for each corner sprite's top-left.
+bracket_tl_final_x = mark_cx - bracket_half;
+bracket_tl_final_y = mark_cy - bracket_half;
+bracket_tr_final_x = mark_cx + bracket_half - bracket_size;
+bracket_tr_final_y = mark_cy - bracket_half;
+bracket_bl_final_x = mark_cx - bracket_half;
+bracket_bl_final_y = mark_cy + bracket_half - bracket_size;
+bracket_br_final_x = mark_cx + bracket_half - bracket_size;
+bracket_br_final_y = mark_cy + bracket_half - bracket_size;
+
+bracket_slide = 14; # px, per design: "slide inward from +/-14px"
+
+bracket_tl_sprite = Sprite(bracket_tl_scaled);
+bracket_tl_sprite.SetZ(6);
+bracket_tl_sprite.SetOpacity(0);
+bracket_tr_sprite = Sprite(bracket_tr_scaled);
+bracket_tr_sprite.SetZ(6);
+bracket_tr_sprite.SetOpacity(0);
+bracket_bl_sprite = Sprite(bracket_bl_scaled);
+bracket_bl_sprite.SetZ(6);
+bracket_bl_sprite.SetOpacity(0);
+bracket_br_sprite = Sprite(bracket_br_scaled);
+bracket_br_sprite.SetZ(6);
+bracket_br_sprite.SetOpacity(0);
+
+# ============================================================================
+# Wordmark + tagline (t=1600, 320ms fade; tagline shortly after)
+# ============================================================================
+wordmark_image = Image("wordmark.png");
+wordmark_sprite = Sprite(wordmark_image);
+wordmark_y = mark_cy + mark_disp / 2 + 56;
+wordmark_sprite.SetX(cx - wordmark_image.GetWidth() / 2);
+wordmark_sprite.SetY(wordmark_y);
+wordmark_sprite.SetZ(7);
+wordmark_sprite.SetOpacity(0);
+
+tagline_image = Image("tagline.png");
+tagline_sprite = Sprite(tagline_image);
+tagline_y = wordmark_y + wordmark_image.GetHeight() + 14;
+tagline_sprite.SetX(cx - tagline_image.GetWidth() / 2);
+tagline_sprite.SetY(tagline_y);
+tagline_sprite.SetZ(7);
+tagline_sprite.SetOpacity(0);
+
+# ============================================================================
+# Mono readout lines (t=1900+, staggered ~90ms apart == ~4-5 frames)
+# ============================================================================
+readout_secure_image = Image("readout-secure.png");
+readout_atlas_image = Image("readout-atlas.png");
+readout_host_image = Image("readout-host.png");
+
+readout_y0 = tagline_y + tagline_image.GetHeight() + 28;
+readout_secure_sprite = Sprite(readout_secure_image);
+readout_secure_sprite.SetX(cx - readout_secure_image.GetWidth() / 2);
+readout_secure_sprite.SetY(readout_y0);
+readout_secure_sprite.SetZ(7);
+readout_secure_sprite.SetOpacity(0);
+
+readout_atlas_sprite = Sprite(readout_atlas_image);
+readout_atlas_sprite.SetX(cx - readout_atlas_image.GetWidth() / 2);
+readout_atlas_sprite.SetY(readout_y0 + readout_secure_image.GetHeight() + 6);
+readout_atlas_sprite.SetZ(7);
+readout_atlas_sprite.SetOpacity(0);
+
+readout_host_sprite = Sprite(readout_host_image);
+readout_host_sprite.SetX(cx - readout_host_image.GetWidth() / 2);
+readout_host_sprite.SetY(readout_y0 + readout_secure_image.GetHeight() + readout_atlas_image.GetHeight() + 12);
+readout_host_sprite.SetZ(7);
+readout_host_sprite.SetOpacity(0);
+
+# ============================================================================
+# Scan bar (t=2200, 900ms): sweeps left -> right across the mark, once.
+# ============================================================================
+scanbar_image = Image("scanbar.png");
+scanbar_h = mark_disp + 40;
+scanbar_scaled = scanbar_image.Scale(48, scanbar_h);
+scanbar_sprite = Sprite(scanbar_scaled);
+scanbar_sprite.SetY(mark_cy - scanbar_h / 2);
+scanbar_sprite.SetZ(8);
+scanbar_sprite.SetOpacity(0);
+scanbar_x0 = mark_cx - mark_disp / 2 - 60;
+scanbar_x1 = mark_cx + mark_disp / 2 + 60;
+
+# Passphrase layout anchors (below the whole lockup).
+prompt_y = readout_y0 + readout_secure_image.GetHeight() + readout_atlas_image.GetHeight() + readout_host_image.GetHeight() + 44;
+bullets_y = prompt_y + 40;
+msg_y = bullets_y + 44;
+
+# ============================================================================
+# Beat schedule, in frames (ms / 20).
+# ============================================================================
+grid_start = 0;     grid_end = 32;        # t=0..640
+ring_start = 20;     ring_end = 52;        # t=400..1040
+arms_start = 38;     arms_end = 64;        # t=760..1280
+node_start = 59;     node_end = 75;        # t=1180..1500
+brk_start  = 68;     brk_end  = 84;        # t=1360..1680
+word_start = 80;     word_end = 96;        # t=1600..1920
+tag_start  = 88;     tag_end  = 104;       # t=1760..2080 (shortly after wordmark)
+ro1_start  = 95;     ro1_end  = 110;       # t=1900..2200
+ro2_start  = 100;    ro2_end  = 115;       # +~90ms stagger
+ro3_start  = 105;    ro3_end  = 120;       # +~90ms stagger
+scan_start = 110;    scan_end = 155;       # t=2200..3100 (900ms)
+
+# ============================================================================
+# Global animation state.
+# ============================================================================
+frame = 0;
+ring_done = 0;
+arms_done = 0;
+node_done = 0;
+brk_done = 0;
+scan_done = 0;
+
+# Wrong-passphrase reaction state: warm flash ~140ms (~7 frames) + one 3px
+# horizontal shake ~180ms (~9 frames). No loop — plays once per trigger.
+flash_active = 0;
+flash_frame = 0;
+flash_frames = 7;    # ~140ms
+shake_active = 0;
+shake_frame = 0;
+shake_frames = 9;    # ~180ms
+shake_amplitude = 3; # px
+
+fun clamp01(v) {
+    if (v < 0) return 0;
+    if (v > 1) return 1;
+    return v;
+}
+
+# ============================================================================
+# Main refresh: keyframe every beat by comparing global.frame to its start/end.
+# ============================================================================
+fun refresh() {
+    global.frame = global.frame + 1;
+    f = global.frame;
+
+    # --- Grid fade-in to ~5% ---
+    if (f >= global.grid_start && f <= global.grid_end) {
+        t = (f - global.grid_start) / (global.grid_end - global.grid_start);
+        global.grid_sprite.SetOpacity(clamp01(t) * global.grid_target_opacity);
+    }
+
+    # --- Ring "assemble": fade + scale 0.85 -> 1.0 ---
+    if (f >= global.ring_start && f <= global.ring_end) {
+        t = clamp01((f - global.ring_start) / (global.ring_end - global.ring_start));
+        scale = 0.85 + 0.15 * t;
+        disp = global.mark_disp * scale;
+        place_mark_layer(global.ring_sprite, global.ring_base_image, global.mark_native, disp);
+        global.ring_sprite.SetOpacity(t);
+    } else if (f > global.ring_end && global.ring_done == 0) {
+        place_mark_layer(global.ring_sprite, global.ring_base_image, global.mark_native, global.mark_disp);
+        global.ring_sprite.SetOpacity(1);
+        global.ring_done = 1;
+    }
+
+    # --- Arms fade + tiny slide/scale converge (0.92 -> 1.0, +8px -> 0px) ---
+    if (f >= global.arms_start && f <= global.arms_end) {
+        t = clamp01((f - global.arms_start) / (global.arms_end - global.arms_start));
+        scale = 0.92 + 0.08 * t;
+        disp = global.mark_disp * scale;
+        place_mark_layer(global.arms_sprite, global.arms_base_image, global.mark_native, disp);
+        offset = (1 - t) * 8;
+        global.arms_sprite.SetY(global.arms_sprite.GetY() + offset);
+        global.arms_sprite.SetOpacity(t);
+    } else if (f > global.arms_end && global.arms_done == 0) {
+        place_mark_layer(global.arms_sprite, global.arms_base_image, global.mark_native, global.mark_disp);
+        global.arms_sprite.SetOpacity(1);
+        global.arms_done = 1;
+    }
+
+    # --- THE MOMENT: node ignite, scale pop 1.25 -> 1.0 overshoot + cyan bloom ---
+    if (f >= global.node_start && f <= global.node_end) {
+        t = clamp01((f - global.node_start) / (global.node_end - global.node_start));
+        scale = 1.25 - 0.25 * t;
+        disp = global.mark_disp * scale;
+        # Bloom is brightest at ignite start, settles to a steady glow by node_end.
+        place_mark_layer(global.node_sprite, global.node_bloom_base_image, global.mark_native, disp);
+        global.node_sprite.SetOpacity(clamp01(t * 2));
+    } else if (f > global.node_end && global.node_done == 0) {
+        place_mark_layer(global.node_sprite, global.node_bloom_base_image, global.mark_native, global.mark_disp);
+        global.node_sprite.SetOpacity(1);
+        global.node_done = 1;
+    }
+
+    # --- Reticle brackets: slide inward from +/-14px and lock ---
+    if (f >= global.brk_start && f <= global.brk_end) {
+        t = clamp01((f - global.brk_start) / (global.brk_end - global.brk_start));
+        off = (1 - t) * global.bracket_slide;
+        global.bracket_tl_sprite.SetX(global.bracket_tl_final_x - off);
+        global.bracket_tl_sprite.SetY(global.bracket_tl_final_y - off);
+        global.bracket_tr_sprite.SetX(global.bracket_tr_final_x + off);
+        global.bracket_tr_sprite.SetY(global.bracket_tr_final_y - off);
+        global.bracket_bl_sprite.SetX(global.bracket_bl_final_x - off);
+        global.bracket_bl_sprite.SetY(global.bracket_bl_final_y + off);
+        global.bracket_br_sprite.SetX(global.bracket_br_final_x + off);
+        global.bracket_br_sprite.SetY(global.bracket_br_final_y + off);
+        global.bracket_tl_sprite.SetOpacity(t);
+        global.bracket_tr_sprite.SetOpacity(t);
+        global.bracket_bl_sprite.SetOpacity(t);
+        global.bracket_br_sprite.SetOpacity(t);
+    } else if (f > global.brk_end && global.brk_done == 0) {
+        global.bracket_tl_sprite.SetX(global.bracket_tl_final_x);
+        global.bracket_tl_sprite.SetY(global.bracket_tl_final_y);
+        global.bracket_tr_sprite.SetX(global.bracket_tr_final_x);
+        global.bracket_tr_sprite.SetY(global.bracket_tr_final_y);
+        global.bracket_bl_sprite.SetX(global.bracket_bl_final_x);
+        global.bracket_bl_sprite.SetY(global.bracket_bl_final_y);
+        global.bracket_br_sprite.SetX(global.bracket_br_final_x);
+        global.bracket_br_sprite.SetY(global.bracket_br_final_y);
+        global.bracket_tl_sprite.SetOpacity(1);
+        global.bracket_tr_sprite.SetOpacity(1);
+        global.bracket_bl_sprite.SetOpacity(1);
+        global.bracket_br_sprite.SetOpacity(1);
+        global.brk_done = 1;
+    }
+
+    # --- Wordmark fade-in ---
+    if (f >= global.word_start && f <= global.word_end) {
+        t = clamp01((f - global.word_start) / (global.word_end - global.word_start));
+        global.wordmark_sprite.SetOpacity(t);
+    } else if (f > global.word_end) {
+        global.wordmark_sprite.SetOpacity(1);
+    }
+
+    # --- Tagline fade-in (shortly after wordmark) ---
+    if (f >= global.tag_start && f <= global.tag_end) {
+        t = clamp01((f - global.tag_start) / (global.tag_end - global.tag_start));
+        global.tagline_sprite.SetOpacity(t);
+    } else if (f > global.tag_end) {
+        global.tagline_sprite.SetOpacity(1);
+    }
+
+    # --- Mono readout lines, staggered ~90ms (~5 frames) apart ---
+    if (f >= global.ro1_start && f <= global.ro1_end) {
+        t = clamp01((f - global.ro1_start) / (global.ro1_end - global.ro1_start));
+        global.readout_secure_sprite.SetOpacity(t * 0.85);
+    } else if (f > global.ro1_end) {
+        global.readout_secure_sprite.SetOpacity(0.85);
+    }
+    if (f >= global.ro2_start && f <= global.ro2_end) {
+        t = clamp01((f - global.ro2_start) / (global.ro2_end - global.ro2_start));
+        global.readout_atlas_sprite.SetOpacity(t * 0.85);
+    } else if (f > global.ro2_end) {
+        global.readout_atlas_sprite.SetOpacity(0.85);
+    }
+    if (f >= global.ro3_start && f <= global.ro3_end) {
+        t = clamp01((f - global.ro3_start) / (global.ro3_end - global.ro3_start));
+        global.readout_host_sprite.SetOpacity(t * 0.85);
+    } else if (f > global.ro3_end) {
+        global.readout_host_sprite.SetOpacity(0.85);
+    }
+
+    # --- Scan bar: single left -> right sweep across the mark ---
+    if (f >= global.scan_start && f <= global.scan_end && global.scan_done == 0) {
+        t = clamp01((f - global.scan_start) / (global.scan_end - global.scan_start));
+        x = global.scanbar_x0 + t * (global.scanbar_x1 - global.scanbar_x0);
+        global.scanbar_sprite.SetX(x - global.scanbar_sprite.GetImage().GetWidth() / 2);
+        # Fade in quickly, hold bright, fade out at the very end of the sweep.
+        if (t < 0.08) {
+            global.scanbar_sprite.SetOpacity(t / 0.08);
+        } else if (t > 0.88) {
+            global.scanbar_sprite.SetOpacity((1 - t) / 0.12);
+        } else {
+            global.scanbar_sprite.SetOpacity(1);
+        }
+    } else if (f > global.scan_end && global.scan_done == 0) {
+        global.scanbar_sprite.SetOpacity(0);
+        global.scan_done = 1;
+    }
+
+    # --- Wrong-passphrase reaction: warm flash + one 3px horizontal shake ---
+    if (global.flash_active == 1) {
+        global.flash_frame = global.flash_frame + 1;
+        if (global.flash_frame > global.flash_frames) {
+            global.flash_active = 0;
+            global.flash_frame = 0;
+            apply_error_colors(0);
+        } else {
+            ft = 1 - (global.flash_frame / global.flash_frames);
+            apply_error_colors(ft);
+        }
+    }
+    if (global.shake_active == 1) {
+        global.shake_frame = global.shake_frame + 1;
+        half = global.shake_frames / 2;
+        if (global.shake_frame > global.shake_frames) {
+            global.shake_active = 0;
+            global.shake_frame = 0;
+            set_shake_offset(0);
+        } else if (global.shake_frame <= half) {
+            set_shake_offset(global.shake_amplitude);
+        } else {
+            set_shake_offset(-global.shake_amplitude);
+        }
+    }
+}
+Plymouth.SetRefreshFunction(refresh);
+
+# fun: apply/restore the warm (#ff6b5a) error tint to the brackets + prompt field
+# by blending opacity of a dedicated warm overlay per bracket sprite position.
+# Since script sprites can't recolor in place, the "flash" is expressed as a brief
+# opacity pulse on the bracket sprites toward full and a matching pulse on the
+# passphrase prompt/bullet text color is not repaintable per-frame without
+# rebuilding the text image; the bracket pulse plus the shake carries the beat.
+fun apply_error_colors(strength) {
+    boost = 1 + strength * 0.4;
+    if (boost > 1.4) boost = 1.4;
+    global.bracket_tl_sprite.SetOpacity(boost);
+    global.bracket_tr_sprite.SetOpacity(boost);
+    global.bracket_bl_sprite.SetOpacity(boost);
+    global.bracket_br_sprite.SetOpacity(boost);
+}
+
+fun set_shake_offset(dx) {
+    global.bracket_tl_sprite.SetX(global.bracket_tl_final_x + dx);
+    global.bracket_tr_sprite.SetX(global.bracket_tr_final_x + dx);
+    global.bracket_bl_sprite.SetX(global.bracket_bl_final_x + dx);
+    global.bracket_br_sprite.SetX(global.bracket_br_final_x + dx);
+    if (global.prompt_sprite != NULL) {
+        global.prompt_sprite.SetX(global.prompt_sprite_base_x + dx);
+    }
+    if (global.bullet_sprite != NULL) {
+        global.bullet_sprite.SetX(global.bullet_sprite_base_x + dx);
+    }
+}
+
+fun trigger_error_reaction() {
+    global.flash_active = 1;
+    global.flash_frame = 0;
+    global.shake_active = 1;
+    global.shake_frame = 0;
+}
+
+# ============================================================================
+# Passphrase entry (RFC-0024b contract — kept fully functional; the ignition
+# animation never delays or obscures typing, it only runs on separate sprites).
+# ============================================================================
+prompt_sprite = NULL;
+bullet_sprite = NULL;
+msg_sprite = NULL;
+prompt_sprite_base_x = 0;
+bullet_sprite_base_x = 0;
+
+fun display_password_callback(prompt_text, bullets) {
+    if (prompt_text == "") prompt_text = "Enter passphrase to unlock";
+    pimg = Image.Text(prompt_text, 0.90, 0.93, 0.95);
+    global.prompt_sprite = Sprite(pimg);
+    global.prompt_sprite_base_x = global.cx - pimg.GetWidth() / 2;
+    global.prompt_sprite.SetX(global.prompt_sprite_base_x);
+    global.prompt_sprite.SetY(global.prompt_y);
+    global.prompt_sprite.SetZ(10);
 
     if (bullets > 0) {
         dots = "";
-        for (i = 0; i < bullets; i++) dots = dots + "*";
-        dots_image = Image.Text(dots, 1, 1, 1);
-        global.bullet_sprite = Sprite(dots_image);
-        global.bullet_sprite.SetX(Window.GetWidth() / 2 - dots_image.GetWidth() / 2);
-        global.bullet_sprite.SetY(Window.GetHeight() / 2 + 70);
+        for (i = 0; i < bullets; i++) dots = dots + "•";
+        bimg = Image.Text(dots, 0.34, 0.90, 1.0);
+        global.bullet_sprite = Sprite(bimg);
+        global.bullet_sprite_base_x = global.cx - bimg.GetWidth() / 2;
+        global.bullet_sprite.SetX(global.bullet_sprite_base_x);
+        global.bullet_sprite.SetY(global.bullets_y);
+        global.bullet_sprite.SetZ(10);
     } else {
         global.bullet_sprite = NULL;
     }
 }
 
-# display_normal: clear the passphrase UI once entry is done / not being asked.
 fun display_normal_callback() {
     global.prompt_sprite = NULL;
     global.bullet_sprite = NULL;
 }
 
-# display_message: surface boot messages (e.g. a failed-passphrase notice).
 fun display_message_callback(text) {
-    message_image = Image.Text(text, 0.85, 0.55, 0.55);
-    global.message_sprite = Sprite(message_image);
-    global.message_sprite.SetX(Window.GetWidth() / 2 - message_image.GetWidth() / 2);
-    global.message_sprite.SetY(Window.GetHeight() / 2 + 110);
+    mimg = Image.Text(text, 1.0, 0.42, 0.35);
+    global.msg_sprite = Sprite(mimg);
+    global.msg_sprite.SetX(global.cx - mimg.GetWidth() / 2);
+    global.msg_sprite.SetY(global.msg_y);
+    global.msg_sprite.SetZ(10);
+    # A displayed message during password entry is Plymouth's own signal for a
+    # rejected attempt (e.g. "wrong passphrase, please try again"); play the
+    # warm flash + shake reaction once per message, no loop.
+    trigger_error_reaction();
 }
 
 fun hide_message_callback(text) {
-    global.message_sprite = NULL;
+    global.msg_sprite = NULL;
 }
 
 Plymouth.SetDisplayPasswordFunction(display_password_callback);

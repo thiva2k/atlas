@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Atlas
-Description=Minimal Atlas boot splash
+Description=Atlas boot splash
 ModuleName=script
 
 [script]

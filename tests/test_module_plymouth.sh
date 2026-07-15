@@ -39,3 +39,7 @@ assert_status "plymouth field machine self-heals: check fails then install insta
 # RFC-0024b: the shipped theme must keep a passphrase handler, else an encrypted
 # boot shows the splash with no way to type the LUKS passphrase.
 assert_status "plymouth theme ships a passphrase handler" 0 bash -c "grep -q SetDisplayPasswordFunction \"\$ATLAS_ROOT/modules/desktop/plymouth/assets/atlas.script\""
+# RFC-0024c: every Image("x") the script loads must be a shipped asset, or the
+# splash renders broken at boot (a black screen — the fallback text prompt still
+# works, but the brand lockup would be missing).
+assert_status "plymouth theme ships every image asset its script references" 0 bash -c 'A="$ATLAS_ROOT/modules/desktop/plymouth/assets"; miss=0; for img in $(grep -oE "Image\\(\"[^\"]+\"\\)" "$A/atlas.script" | sed "s/Image(\"//;s/\")//"); do [ -f "$A/$img" ] || { echo "missing: $img"; miss=1; }; done; [ "$miss" -eq 0 ]'
