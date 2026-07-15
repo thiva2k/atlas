@@ -261,7 +261,7 @@ fun refresh() {
         disp = global.mark_disp * scale;
         place_mark_layer(global.arms_sprite, global.arms_base_image, global.mark_native, disp);
         offset = (1 - t) * 8;
-        global.arms_sprite.SetY(global.arms_sprite.GetY() + offset);
+        global.arms_sprite.SetY(global.mark_cy - disp / 2 + offset);
         global.arms_sprite.SetOpacity(t);
     } else if (f > global.arms_end && global.arms_done == 0) {
         place_mark_layer(global.arms_sprite, global.arms_base_image, global.mark_native, global.mark_disp);
@@ -355,7 +355,7 @@ fun refresh() {
     if (f >= global.scan_start && f <= global.scan_end && global.scan_done == 0) {
         t = clamp01((f - global.scan_start) / (global.scan_end - global.scan_start));
         x = global.scanbar_x0 + t * (global.scanbar_x1 - global.scanbar_x0);
-        global.scanbar_sprite.SetX(x - global.scanbar_sprite.GetImage().GetWidth() / 2);
+        global.scanbar_sprite.SetX(x - 24);  # scanbar scaled width is 48 (Scale above)
         # Fade in quickly, hold bright, fade out at the very end of the sweep.
         if (t < 0.08) {
             global.scanbar_sprite.SetOpacity(t / 0.08);
