@@ -119,7 +119,7 @@ assert_eq "env::get still reads a 644 atlas.env (not a secret)" "$out" "Ada"
 
 # env::get walks EVERY line of atlas.env. A preference lookup by one module
 # (core/git wanting an identity) must not trace another module's credential.
-# This is the leak the end-to-end `bash -x ./atlas install` run actually found.
+# This is the leak the end-to-end `bash -x ./atlasctl install` run actually found.
 err="$(bash -c "$PRE
 { printf 'ATLAS_GH_TOKEN=%s\n' '$SECRET'; printf 'ATLAS_GIT_USER_NAME=Ada\n'; } > \"\$envfile\"
 chmod 600 \"\$envfile\"

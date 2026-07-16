@@ -65,7 +65,7 @@ canonical_path() {
 
 install_self_launcher() {
   local target launcher_dir launcher target_c launcher_c
-  target="$ATLAS_HOME/atlas"
+  target="$ATLAS_HOME/atlasctl"
   launcher_dir="$HOME/.local/bin"
   launcher="$launcher_dir/atlasctl"
 
@@ -141,7 +141,7 @@ record_self_management_marker() {
     printf 'branch=main\n'
     printf 'ref=refs/heads/main\n'
     printf 'launcher=%s\n' "$launcher"
-    printf 'executable=%s/atlas\n' "$ATLAS_HOME"
+    printf 'executable=%s/atlasctl\n' "$ATLAS_HOME"
   } > "$tmp" || {
     rm -f "$tmp"
     echo "cannot write Atlas self-management marker" >&2

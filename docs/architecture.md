@@ -58,7 +58,7 @@ atlasctl status        atlasctl self-update   atlasctl self-version
 atlasctl self-verify
 ```
 
-Repository-local execution remains available as `./atlas <command>`. The
+Repository-local execution remains available as `./atlasctl <command>`. The
 managed global launcher is `atlasctl` so Atlas does not conflict with other
 software distributions that provide an `atlas` executable.
 
@@ -329,7 +329,7 @@ workstation baseline:
 
 - finalized engine and module lifecycle architecture;
 - marker-based ownership model;
-- repository-local `./atlas` and managed global `atlasctl`;
+- repository-local `./atlasctl` and managed global `atlasctl`;
 - self-management through `atlasctl self-update`, `self-version`, and
   `self-verify`;
 - Core, Development, and current UX/Desktop module implementations;

@@ -3,7 +3,7 @@
 Atlas supports two execution modes:
 
 - `atlasctl` — the managed global launcher installed at `~/.local/bin/atlasctl`;
-- `./atlas` — repository-local execution from inside the checkout.
+- `./atlasctl` — repository-local execution from inside the checkout.
 
 The global launcher is named `atlasctl` because Fedora already has unrelated
 software that may provide `/usr/bin/atlas`. Atlas does not compete for that
@@ -54,7 +54,7 @@ If you already cloned Atlas:
 
 ```bash
 cd /path/to/atlas
-./atlas install
+./atlasctl install
 ```
 
 This works, but `atlasctl self-update` may refuse until the checkout has a valid

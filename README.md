@@ -21,7 +21,7 @@ atlasctl install
 
 # Otherwise:
 cd ~/atlas
-./atlas install
+./atlasctl install
 ```
 
 Read the full [Quick Start](docs/quick-start.md) and
@@ -43,7 +43,7 @@ cannot easily recover.
 | `atlasctl self-version` | show Atlas engine version |
 | `atlasctl self-verify` | verify Atlas self-management state |
 
-Inside the repository, `./atlas <command>` remains supported. The managed global
+Inside the repository, `./atlasctl <command>` remains supported. The managed global
 launcher is `atlasctl` to avoid conflicting with other software that already
 uses the `atlas` executable name.
 

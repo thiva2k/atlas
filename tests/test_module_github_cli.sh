@@ -161,7 +161,7 @@ grep -rlF '$SECRET' \"\$ATLAS_STATE_DIR\" 2>/dev/null | wc -l")"
 assert_eq "token never reaches an Atlas-owned log file" "$out" "0"
 
 # --- xtrace containment ----------------------------------------------------
-# An operator debugging with `bash -x ./atlas install …` must not have the token
+# An operator debugging with `bash -x ./atlasctl install …` must not have the token
 # written to their terminal or their redirected trace file. env::get_secret
 # guards its own body, but the value would be traced the instant it crossed back
 # into the caller's scope — as `+ token=ghp_…` on assignment, and again on every

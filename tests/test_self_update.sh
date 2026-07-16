@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-ATLAS="$ATLAS_ROOT/atlas"
+ATLAS="$ATLAS_ROOT/atlasctl"
 
 _self_test_home() {
   local d
@@ -119,7 +119,7 @@ assert_contains "help lists self-version" "$out" "self-version"
 assert_contains "help lists self-verify" "$out" "self-verify"
 
 out="$(bash "$ATLAS" self-update --help 2>&1)"
-assert_contains "self-update help shows usage" "$out" "Usage: atlas self-update"
+assert_contains "self-update help shows usage" "$out" "Usage: atlasctl self-update"
 
 home="$(_self_test_home)"
 bin="$home/bin"
@@ -267,4 +267,4 @@ case "$out" in
 esac
 
 assert_status "atlas update atlas is not a self-update alias" 3 \
-  bash -c 'ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules" bash "$ATLAS_ROOT/atlas" update atlas'
+  bash -c 'ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules" bash "$ATLAS_ROOT/atlasctl" update atlas'

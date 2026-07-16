@@ -16,8 +16,8 @@ _bootstrap_fake_git() {
 set -uo pipefail
 if [ "${1:-}" = "clone" ]; then
   mkdir -p "$3/.git" || exit 1
-  printf '#!/usr/bin/env bash\nprintf "0.1.0-dev\\n"\n' > "$3/atlas" || exit 1
-  chmod +x "$3/atlas" || exit 1
+  printf '#!/usr/bin/env bash\nprintf "0.1.0-dev\\n"\n' > "$3/atlasctl" || exit 1
+  chmod +x "$3/atlasctl" || exit 1
   exit 0
 fi
 if [ "${1:-}" = "-C" ]; then
@@ -39,8 +39,8 @@ ATLAS_HOME="$home/atlas" ATLAS_STATE_DIR="$home/state/atlas" HOME="$home" PATH="
   bash "$BOOT" >/dev/null 2>&1
 marker="$home/state/atlas/installed/atlas-self"
 assert_eq "bootstrap records self-management marker for fresh canonical clone" "$(grep -c '^remote_identity=github.com/thiva2k/atlas$' "$marker" 2>/dev/null)" "1"
-assert_eq "bootstrap self-management marker records executable" "$(grep -c "^executable=$home/atlas/atlas$" "$marker" 2>/dev/null)" "1"
-assert_eq "bootstrap installs managed atlasctl launcher" "$(readlink "$home/.local/bin/atlasctl" 2>/dev/null)" "$home/atlas/atlas"
+assert_eq "bootstrap self-management marker records executable" "$(grep -c "^executable=$home/atlas/atlasctl$" "$marker" 2>/dev/null)" "1"
+assert_eq "bootstrap installs managed atlasctl launcher" "$(readlink "$home/.local/bin/atlasctl" 2>/dev/null)" "$home/atlas/atlasctl"
 assert_eq "bootstrap leaves atlas command namespace untouched" "$([ -e "$home/.local/bin/atlas" ] && echo yes || echo no)" "no"
 assert_eq "bootstrap self-management marker records atlasctl launcher" "$(grep -c "^launcher=$home/.local/bin/atlasctl$" "$marker" 2>/dev/null)" "1"
 assert_eq "bootstrap self-management marker mode is 600" "$(stat -c '%a' "$marker" 2>/dev/null)" "600"
@@ -84,4 +84,4 @@ ATLAS_HOME="$home/atlas" ATLAS_STATE_DIR="$home/state/atlas" HOME="$home" PATH="
   bash "$BOOT" >/dev/null 2>&1
 assert_eq "bootstrap allows an existing unrelated atlas command" "$([ -e "$home/state/atlas/installed/atlas-self" ] && echo yes || echo no)" "yes"
 assert_eq "bootstrap keeps existing unrelated atlas command" "$(readlink "$home/.local/bin/atlas" 2>/dev/null || printf 'not-link')" "not-link"
-assert_eq "bootstrap still installs atlasctl when atlas exists" "$(readlink "$home/.local/bin/atlasctl" 2>/dev/null)" "$home/atlas/atlas"
+assert_eq "bootstrap still installs atlasctl when atlas exists" "$(readlink "$home/.local/bin/atlasctl" 2>/dev/null)" "$home/atlas/atlasctl"

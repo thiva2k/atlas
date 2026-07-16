@@ -67,7 +67,7 @@ main() {
       -q|--quiet)   ATLAS_LOG_LEVEL=error ;;
       --version)    echo "$ATLAS_VERSION"; return 0 ;;
       -h|--help)    if [ "$verb" = "self-update" ]; then rest+=("$1"); else usage; return 0; fi ;;
-      -*)           if [ "$verb" = "self-update" ]; then rest+=("$1"); else die "$ATLAS_EXIT_USAGE" "unknown option: $1" "" "run 'atlas --help'"; fi ;;
+      -*)           if [ "$verb" = "self-update" ]; then rest+=("$1"); else die "$ATLAS_EXIT_USAGE" "unknown option: $1" "" "run '$PROGRAM_NAME --help'"; fi ;;
       *)            if [ -z "$verb" ]; then verb="$1"; else rest+=("$1"); fi ;;
     esac
     shift
@@ -85,7 +85,7 @@ main() {
       self::version "${rest[@]}" ;;
     self-verify)
       self::verify "${rest[@]}" ;;
-    *) die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'" ;;
+    *) die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run '$PROGRAM_NAME --help'" ;;
   esac
 }
 

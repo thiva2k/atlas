@@ -2,7 +2,7 @@
 
 Atlas turns a clean Fedora workstation into a managed engineering workstation.
 The normal public command is `atlasctl`. Repository-local execution remains
-available as `./atlas`.
+available as `./atlasctl`.
 
 ## 1. Bootstrap Atlas
 
@@ -48,7 +48,7 @@ If `atlasctl` is unavailable, use repository-local execution:
 
 ```bash
 cd ~/atlas
-./atlas help
+./atlasctl help
 ```
 
 ## 3. Install the workstation
@@ -61,7 +61,7 @@ or, from the repository:
 
 ```bash
 cd ~/atlas
-./atlas install
+./atlasctl install
 ```
 
 Atlas runs modules in dependency order. It installs only managed resources and

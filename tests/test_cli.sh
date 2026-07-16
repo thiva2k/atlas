@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-ATLAS="$ATLAS_ROOT/atlas"
+ATLAS="$ATLAS_ROOT/atlasctl"
 # point the CLI at the fixture modules so it runs without real ones
 export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"
 
@@ -10,7 +10,7 @@ assert_status "unknown option exits 2" 2 bash "$ATLAS" --nope
 assert_status "install on fixtures 0" 0 bash "$ATLAS" install core/alpha apps/beta
 
 out="$(bash "$ATLAS" --help 2>&1)"
-assert_contains "help shows usage"    "$out" "Usage: atlas"
+assert_contains "help shows usage"    "$out" "Usage: atlasctl"
 assert_contains "help lists install"  "$out" "install"
 
 tmp="$(mktemp -d)"

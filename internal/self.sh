@@ -212,7 +212,7 @@ _self_fast_forward() {
 
 _self_validate_shell() {
   local f
-  bash -n "$_SELF_MARKER_PATH/atlas" || return 1
+  bash -n "$_SELF_MARKER_PATH/atlasctl" || return 1
   for f in "$_SELF_MARKER_PATH"/internal/*.sh; do
     [ -e "$f" ] || continue
     bash -n "$f" || return 1
