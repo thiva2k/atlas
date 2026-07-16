@@ -1,0 +1,13 @@
+# ATLAS wofi — centered launcher you summon (Fable spec 2026-07-16).
+width=640
+height=400
+location=center
+show=drun
+prompt=run
+allow_images=false
+allow_markup=true
+insensitive=true
+no_actions=true
+hide_scroll=true
+gtk_dark=true
+key_expand=Tab

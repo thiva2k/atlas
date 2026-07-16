@@ -1,0 +1,29 @@
+# ATLAS mako — B&W notifications, word-only (Fable spec 2026-07-16).
+# Top-right, flat #070707, 0px radius, no icons. Red border only on critical.
+font=JetBrainsMono Nerd Font 12
+background-color=#070707
+text-color=#6a6a6a
+border-color=#5a5a5a
+border-size=1
+border-radius=0
+width=380
+padding=14,16
+margin=16
+anchor=top-right
+layer=overlay
+max-visible=3
+default-timeout=6000
+icons=0
+markup=1
+format=<b><span color="#f2f2f2">%s</span></b>\n<span color="#6a6a6a" size="smaller">%b</span>
+progress-color=over #5a5a5a
+
+[urgency=low]
+border-color=#2a2a2a
+text-color=#6a6a6a
+default-timeout=4000
+
+[urgency=critical]
+border-color=#E5484D
+border-size=2
+default-timeout=0

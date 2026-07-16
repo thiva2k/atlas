@@ -1,0 +1,76 @@
+{
+    // ATLAS waybar — word-only, no icons (Fable spec 2026-07-16).
+    // 28px flat #070707 bar with a 1px #2a2a2a chassis hairline. Every module
+    // is a lowercase word + value. The bar carries no wordmark — the masthead
+    // owns boot/login/lock; the bar is the working instrument.
+    "layer": "top",
+    "position": "top",
+    "height": 28,
+    "spacing": 0,
+    "margin": "0",
+
+    "modules-left": ["hyprland/workspaces", "hyprland/window"],
+    "modules-center": ["custom/clock"],
+    "modules-right": ["cpu", "memory", "wireplumber", "network", "battery", "tray"],
+
+    "hyprland/workspaces": {
+        "format": "{id}",
+        "on-click": "activate",
+        "sort-by-number": true
+    },
+
+    "hyprland/window": {
+        "format": "{title}",
+        "max-length": 60,
+        "separate-outputs": true
+    },
+
+    "custom/clock": {
+        "interval": 20,
+        "exec": "echo \"<span color='#6a6a6a'>$(date '+%a %d %b' | tr '[:upper:]' '[:lower:]')</span>  <span color='#f2f2f2'>$(date '+%H:%M')</span>\"",
+        "tooltip": false
+    },
+
+    "cpu": {
+        "interval": 5,
+        "format": "cpu {usage}%",
+        "states": { "high": 90 }
+    },
+
+    "memory": {
+        "interval": 10,
+        "format": "mem {percentage}%"
+    },
+
+    "wireplumber": {
+        "format": "vol {volume}%",
+        "format-muted": "vol mute",
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+
+    "network": {
+        "interval": 10,
+        "format-wifi": "net up",
+        "format-ethernet": "net up",
+        "format-linked": "net up",
+        "format-disconnected": "net down",
+        "tooltip-format-wifi": "{essid}  {signalStrength}%",
+        "tooltip-format-ethernet": "{ifname}",
+        "tooltip-format-disconnected": "disconnected"
+    },
+
+    "battery": {
+        "interval": 30,
+        "states": { "warning": 20, "critical": 10 },
+        "format": "bat {capacity}%",
+        "format-charging": "bat {capacity}%+",
+        "format-plugged": "bat {capacity}%=",
+        "tooltip-format": "{timeTo}"
+    },
+
+    "tray": {
+        "icon-size": 14,
+        "spacing": 8
+    }
+}

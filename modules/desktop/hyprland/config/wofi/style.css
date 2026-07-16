@@ -1,0 +1,69 @@
+/* ATLAS wofi style — B&W (Fable spec 2026-07-16).
+   640x400 centered box, flat #070707, 2px #5a5a5a border, 0px radius.
+   Selection = full inversion to a solid white block (the masthead move
+   applied to interaction). No red anywhere — launching is never an alert. */
+
+* {
+    font-family: "JetBrainsMono Nerd Font";
+    border-radius: 0;
+}
+
+window {
+    background-color: #070707;
+    border: 2px solid #5a5a5a;
+}
+
+#outer-box {
+    margin: 0;
+    padding: 0;
+}
+
+#input {
+    min-height: 44px;
+    margin: 0;
+    padding: 0 16px;
+    background-color: #070707;
+    color: #f2f2f2;
+    font-size: 16px;
+    border: none;
+    border-bottom: 1px solid #2a2a2a;   /* hairline between search and results */
+    outline: none;
+    caret-color: #f2f2f2;
+}
+
+#input:focus {
+    border-bottom: 1px solid #2a2a2a;
+}
+
+#scroll {
+    margin: 0;
+    padding: 0;
+}
+
+#inner-box {
+    margin: 0;
+    padding: 0;
+}
+
+#entry {
+    padding: 8px 16px;
+    min-height: 36px;
+    background-color: transparent;
+}
+
+#text {
+    color: #6a6a6a;
+    font-size: 14px;
+}
+
+/* selected row: solid white block, inverted text */
+#entry:selected {
+    background-color: #f2f2f2;
+}
+#entry:selected #text {
+    color: #070707;
+}
+
+#text:selected {
+    color: #070707;
+}

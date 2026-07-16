@@ -1,0 +1,87 @@
+/* ATLAS waybar style — B&W word-only (Fable spec 2026-07-16).
+   Flat #070707, JBM 13px, everything #6a6a6a at rest, brighter = attention,
+   red (#E5484D) only for alert states. 0px radius, no boxes, no pipes. */
+
+* {
+    font-family: "JetBrainsMono Nerd Font";
+    font-size: 13px;
+    font-weight: 400;
+    min-height: 0;
+    border: none;
+    border-radius: 0;
+}
+
+window#waybar {
+    background: #070707;
+    color: #6a6a6a;
+    border-bottom: 1px solid #2a2a2a;   /* chassis hairline */
+}
+
+/* ---- workspaces: plain numerals, active = brighter + underline ---- */
+#workspaces button {
+    padding: 0 8px;
+    margin: 0;
+    color: #6a6a6a;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+}
+#workspaces button.active {
+    color: #f2f2f2;
+    border-bottom: 2px solid #f2f2f2;   /* the one structural accent */
+}
+#workspaces button.urgent {
+    color: #E5484D;
+}
+#workspaces button.empty {
+    /* empty workspaces are hidden by hyprland/workspaces default; dim if shown */
+    color: #2a2a2a;
+}
+
+#window {
+    color: #6a6a6a;
+    margin-left: 24px;
+}
+window#waybar.empty #window {
+    margin: 0;
+}
+
+/* ---- center clock ---- */
+#custom-clock {
+    padding: 0 12px;
+}
+
+/* ---- right cluster: word + value, module padding only, no separators ---- */
+#cpu,
+#memory,
+#wireplumber,
+#network,
+#battery,
+#tray {
+    padding: 0 12px;
+    color: #6a6a6a;
+    background: transparent;
+}
+
+/* attention (brighter, not alarm) */
+#cpu.high { color: #f2f2f2; }
+#battery.warning { color: #f2f2f2; }
+
+/* alert (the single red) */
+#battery.critical { color: #E5484D; }
+#network.disconnected { color: #E5484D; }
+
+#tray {
+    padding-right: 12px;
+}
+#tray > .passive { -gtk-icon-effect: dim; }
+#tray > .needs-attention { -gtk-icon-effect: highlight; }
+
+tooltip {
+    background: #070707;
+    border: 1px solid #2a2a2a;
+    color: #f2f2f2;
+}
+tooltip label {
+    color: #f2f2f2;
+    font-size: 12px;
+}
