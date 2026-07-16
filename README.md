@@ -10,6 +10,29 @@ irreplaceable bits.
 Atlas is not a migration script, a dotfiles repo, or a package installer.
 Those are *capabilities*, expressed as modules.
 
+## Project status — mid-migration (2026-07)
+
+Atlas is partway through a visual + platform migration, so a few surfaces are
+intentionally incomplete right now. If the experience doesn't feel "full" yet,
+this is why:
+
+- **Visual identity → black & white, word-only.** Boot (Plymouth), login (SDDM),
+  and terminal (fastfetch) now render a monochrome ASCII "ATLAS" masthead; the
+  old cyan "starship console" look is being retired.
+- **Desktop → Hyprland (built, not yet live).** Plasma 6.7 seals its login
+  greeter and lock screen against customization, so Atlas is moving to a full
+  Hyprland desktop that runs *alongside* Plasma as a second session. Every
+  piece — compositor, hyprlock, waybar, wofi, mako, kitty — is written and
+  themed (`modules/desktop/hyprland/`), but **not yet installed**: Fedora 44
+  bumped `libdisplay-info` 0.2→0.3 and the Hyprland ecosystem hasn't rebuilt
+  `aquamarine` against it yet. Until that upstream rebuild lands, the live
+  Hyprland desktop and its `hyprlock` lock screen can't be installed — which is
+  why the desktop half doesn't feel complete. A user timer watches for the
+  rebuild and notifies when it's installable. See
+  [the design spec](docs/superpowers/specs/2026-07-16-atlas-hyprland-desktop-design.md).
+
+Plasma remains the working desktop and a permanent fallback throughout.
+
 ## Quick start
 
 ```bash
