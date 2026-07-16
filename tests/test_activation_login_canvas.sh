@@ -17,6 +17,10 @@ HOME="$(mktemp -d)"; export HOME
 trap "rm -rf \"$HOME\"" EXIT
 XDG_DATA_HOME="$HOME/.local/share"; export XDG_DATA_HOME
 ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
+# The greeter-readable system copy is redirected into the temp HOME so the mocked
+# sudo never touches the real /usr/share (activation deploys a world-readable copy
+# there because the greeter user cannot read the mode-700 $HOME asset).
+ATLAS_LOGIN_CANVAS_SYSTEM_ASSET="$HOME/sys/atlas-login-canvas.png"; export ATLAS_LOGIN_CANVAS_SYSTEM_ASSET
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/os.sh"
@@ -75,6 +79,12 @@ assert_status "activate refuses without root/sudo before writing any state" 1 ba
 # --- records prior / applies (uses sudo wrapper when not root) -------------------
 assert_status "activate (non-root, sudo) sets plugin+image and records prior" 0 bash -c "$PRE; printf 'plugin=org.kde.slideshow\nimage=/old/path.jpg\n' > \"\$CONF_FILE\"; ROOT_OK=0; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ \"\$(_conf_get plugin)\" = org.kde.image ]; [ \"\$(_conf_get image)\" = \"file://\$(_login_canvas_atlas_path)\" ]; grep -qxF state=active \"\$(ACT)\"; grep -qxF prior_plugin=org.kde.slideshow \"\$(ACT)\"; grep -qxF prior_image=/old/path.jpg \"\$(ACT)\""
 assert_status "activate (root) sets plugin+image without sudo" 0 bash -c "$PRE; printf 'plugin=org.kde.image\nimage=/old/path.jpg\n' > \"\$CONF_FILE\"; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ \"\$(_conf_get plugin)\" = org.kde.image ]; [ \"\$(_conf_get image)\" = \"file://\$(_login_canvas_atlas_path)\" ]; grep -qxF state=active \"\$(ACT)\""
+
+# --- greeter-readable system copy: the whole point of the fix -----------------------
+assert_status "activate deploys the world-readable system copy the greeter can read" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ -f \"\$(_login_canvas_system_asset)\" ]; cmp -s \"\$(_login_canvas_asset_file)\" \"\$(_login_canvas_system_asset)\"; [ \"\$(stat -c '%a' \"\$(_login_canvas_system_asset)\")\" = 644 ]"
+assert_status "activate points the greeter config at the SYSTEM copy, not \$HOME" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; case \"\$(_conf_get image)\" in *\"/.local/share/\"*) exit 1 ;; esac; [ \"\$(_conf_get image)\" = \"file://\$(_login_canvas_system_asset)\" ]"
+assert_status "activate heals a deleted system copy on re-run" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; rm -f \"\$(_login_canvas_system_asset)\"; module::activate >/dev/null 2>&1; [ -f \"\$(_login_canvas_system_asset)\" ]"
+assert_status "deactivate removes the system copy" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ -f \"\$(_login_canvas_system_asset)\" ]; module::deactivate >/dev/null 2>&1; [ ! -e \"\$(_login_canvas_system_asset)\" ]"
 
 # --- idempotent --------------------------------------------------------------------
 assert_status "second activate is a no-op" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; cp \"\$(ACT)\" \"\$HOME/m1\"; module::activate >/dev/null 2>&1; cmp -s \"\$HOME/m1\" \"\$(ACT)\"; grep -qxF state=active \"\$(ACT)\""

@@ -4,11 +4,14 @@
 # Installs an Atlas-branded wallpaper for the STOCK plasma-login-greeter (the
 # plasma-login-manager greeter UI is compiled-in and NOT themeable — the only
 # lever is the wallpaper it renders via its WallpaperPluginId plugin, default
-# org.kde.image). Ships the asset user-scope (no root); a separate, reversible
-# RFC-0029 activation switches the greeter's SYSTEM-scoped config
-# (/etc/plasmalogin.conf) to point at it, mirroring desktop/theme's escrow
-# exactly. The greeter wallpaper is purely cosmetic: a bad or missing value at
-# worst falls back to the plugin's own default image — it can never block login.
+# org.kde.image). Install stages the asset user-scope (no root) as the drift-
+# checked source of truth. A separate, reversible RFC-0029 activation (a) deploys
+# a WORLD-READABLE copy to a system path (/usr/share/backgrounds/atlas/) — the
+# greeter runs as the unprivileged `plasmalogin` user and cannot read the mode-700
+# $HOME copy — and (b) switches the greeter's SYSTEM-scoped config
+# (/etc/plasmalogin.conf) to point at that copy, mirroring desktop/theme's escrow.
+# The greeter wallpaper is purely cosmetic: a bad or missing value at worst falls
+# back to the plugin's own default image — it can never block login.
 MODULE_NAME="login-canvas"
 MODULE_DESCRIPTION="Login canvas: installs the Atlas wallpaper for the plasma-login-greeter (cosmetic only; never blocks login)."
 MODULE_DEPENDS=()
@@ -133,7 +136,12 @@ _LOGIN_CANVAS_ACT_ABSENT="__ATLAS_ABSENT__"
 _login_canvas_act_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/activated/desktop-login-canvas"; }
 _login_canvas_run_privileged() { if os::is_root; then "$@"; else sudo "$@"; fi; }
 _login_canvas_conf_file() { printf '%s\n' "$_LOGIN_CANVAS_CONF"; }
-_login_canvas_atlas_path() { printf '%s\n' "$(_login_canvas_asset_file)"; }
+# The greeter runs as the unprivileged `plasmalogin` system user, which CANNOT
+# traverse into the user's mode-700 $HOME to read the staged asset. So activation
+# deploys a world-readable copy to a SYSTEM path and points the greeter config
+# there; the $HOME copy staged by install stays the drift-checked source of truth.
+_login_canvas_system_asset() { printf '%s\n' "${ATLAS_LOGIN_CANVAS_SYSTEM_ASSET:-/usr/share/backgrounds/atlas/atlas-login-canvas.png}"; }
+_login_canvas_atlas_path() { printf '%s\n' "$(_login_canvas_system_asset)"; }
 _login_canvas_atlas_url() { printf '%s\n' "file://$(_login_canvas_atlas_path)"; }
 _login_canvas_norm() { local v="$1"; printf '%s\n' "${v#file://}"; }
 
@@ -200,6 +208,9 @@ module::activate() {
   local cur_plugin cur_image atlas_url atlas_path
   cur_plugin="$(_login_canvas_read_plugin)"; cur_image="$(_login_canvas_read_image)"
   atlas_path="$(_login_canvas_atlas_path)"; atlas_url="$(_login_canvas_atlas_url)"
+  # Deploy the world-readable system copy the greeter can actually read (heals a
+  # missing/stale copy on re-activate too, since this runs before the state check).
+  _login_canvas_run_privileged install -D -m 0644 "$(_login_canvas_asset_file)" "$atlas_path" >/dev/null 2>&1 || { log::error "failed to deploy greeter-readable wallpaper to $atlas_path"; return 1; }
   if [ "$_LOGIN_CANVAS_ACT_STATE" = "active" ]; then
     if [ "$cur_plugin" = "org.kde.image" ] && [ "$(_login_canvas_norm "$cur_image")" = "$atlas_path" ]; then
       log::info "Atlas login canvas is already active"; return 0
@@ -245,6 +256,9 @@ module::deactivate() {
   else
     _login_canvas_write_image "$prior_image" >/dev/null 2>&1 || { log::error "failed to restore the prior greeter wallpaper image; state left unchanged"; return 1; }
   fi
+  # Remove the greeter-readable system copy we deployed (best-effort; a missing
+  # file is fine — the prior wallpaper is already restored above).
+  _login_canvas_run_privileged rm -f "$(_login_canvas_system_asset)" >/dev/null 2>&1 || true
   _login_canvas_act_write inactive || return 1
   log::info "desktop/login-canvas deactivated; restored prior greeter wallpaper (applies at next login screen)"
 }

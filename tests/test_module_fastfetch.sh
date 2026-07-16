@@ -68,13 +68,14 @@ assert_status "fastfetch install writes installed marker" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_fastfetch_marker)\""
 
 assert_status "fastfetch install writes the Atlas config" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; grep -q \"workstation · online\" \"\$FASTFETCH_CONFIG\"; grep -q \"ATLAS ✓\" \"\$FASTFETCH_CONFIG\""
+  bash -c "$PRE; module::install >/dev/null 2>&1; grep -q 'Developer Workstation' \"\$FASTFETCH_CONFIG\"; grep -q 'python3 node docker claude git' \"\$FASTFETCH_CONFIG\""
 
-# RFC-0034: the SYSTEM ONLINE greeting — a fast telemetry readout (host/kernel/
-# uptime/shell) with the tool checks collapsed into ONE line, and the orbital-A
-# mark rendered in ASCII. No heavy hardware dump (cpu/gpu), no per-tool row wall.
+# B&W word-only identity (2026-07-16, supersedes RFC-0034's orbital-A greeting):
+# the fastfetch masthead is the ASCII ATLAS wordmark (block glyphs), followed by
+# a terse telemetry readout (os/kernel/wm/shell/uptime) and ONE tool-check line.
+# No heavy hardware dump (cpu/gpu), no per-tool row wall, no orbital-A mark.
 assert_status "fastfetch config is the SYSTEM ONLINE greeting" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; c=\"\$FASTFETCH_CONFIG\"; grep -q '\"kernel\"' \"\$c\"; grep -q '\"uptime\"' \"\$c\"; grep -q '\"shell\"' \"\$c\"; grep -q 'ATLAS ✓' \"\$c\"; grep -q 'python3 node docker claude git' \"\$c\"; grep -q '◐' \"\$c\"; ! grep -q '\"cpu\"' \"\$c\"; ! grep -q '\"gpu\"' \"\$c\"; ! grep -q '✓ Codex' \"\$c\""
+  bash -c "$PRE; module::install >/dev/null 2>&1; c=\"\$FASTFETCH_CONFIG\"; grep -q '\"kernel\"' \"\$c\"; grep -q '\"uptime\"' \"\$c\"; grep -q '\"shell\"' \"\$c\"; grep -q 'Developer Workstation' \"\$c\"; grep -q 'python3 node docker claude git' \"\$c\"; grep -q '█' \"\$c\"; ! grep -q '\"cpu\"' \"\$c\"; ! grep -q '\"gpu\"' \"\$c\"; ! grep -q '✓ Codex' \"\$c\""
 
 assert_status "fastfetch install validates with Atlas config" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF -- \"--config \$FASTFETCH_CONFIG\" \"\$FASTFETCH_ARGV_LOG\""

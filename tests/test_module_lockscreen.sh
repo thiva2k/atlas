@@ -20,7 +20,10 @@ assert_status "lockscreen check fails before install" 1 bash -c "$PRE; module::c
 assert_status "lockscreen install refuses existing package dir before mutation" 1 bash -c "$PRE; mkdir -p \"\$(_lockscreen_dir)\"; printf user > \"\$(_lockscreen_dir)/mine.txt\"; module::install >/dev/null 2>&1 || rc=\$?; [ ! -e \"\$(_lockscreen_marker)\" ]; exit \"\${rc:-0}\""
 assert_status "lockscreen install fails on non-Fedora before mutation" 1 bash -c "$PRE; FEDORA_OK=0; export FEDORA_OK; module::install >/dev/null 2>&1 || rc=\$?; [ ! -e \"\$(_lockscreen_marker)\" ]; exit \"\${rc:-0}\""
 assert_status "lockscreen install writes marker and package files" 0 bash -c "$PRE; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_lockscreen_marker)\"; [ -r \"\$(_lockscreen_dir)/metadata.json\" ]; [ -r \"\$(_lockscreen_dir)/contents/lockscreen/LockScreen.qml\" ]; [ -r \"\$(_lockscreen_dir)/contents/lockscreen/LockScreenUi.qml\" ]"
-assert_status "lockscreen install ships the KSplash package alongside the lock-screen HUD (RFC-0037)" 0 bash -c "$PRE; module::install >/dev/null 2>&1; [ -r \"\$(_lockscreen_dir)/contents/splash/Splash.qml\" ]; [ -r \"\$(_lockscreen_dir)/contents/splash/images/atlas-mark.png\" ]"
+# B&W word-only identity (2026-07-16, supersedes RFC-0037's orbital-A mark):
+# the KSplash still ships, but the no-logo rule removed atlas-mark.png — the
+# splash now renders the ASCII ATLAS masthead, not a graphic mark.
+assert_status "lockscreen install ships the KSplash package alongside the lock-screen HUD (RFC-0037)" 0 bash -c "$PRE; module::install >/dev/null 2>&1; [ -r \"\$(_lockscreen_dir)/contents/splash/Splash.qml\" ]; ! [ -e \"\$(_lockscreen_dir)/contents/splash/images/atlas-mark.png\" ]"
 assert_status "lockscreen metadata.json declares the org.atlas.hud id and LookAndFeel structure" 0 bash -c "$PRE; module::install >/dev/null 2>&1; grep -q 'org.atlas.hud' \"\$(_lockscreen_dir)/metadata.json\"; grep -q 'Plasma/LookAndFeel' \"\$(_lockscreen_dir)/metadata.json\""
 assert_status "lockscreen verify passes after install" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::verify"
 assert_status "lockscreen check passes after install" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::check"

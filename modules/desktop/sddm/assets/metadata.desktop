@@ -1,7 +1,9 @@
 [SddmGreeterTheme]
 Name=Atlas
-Description=Minimal Atlas login theme
+Description=Atlas starship security console — operator verification greeter
 Type=sddm-theme
-Version=1.0
+Version=2.0
 MainScript=Main.qml
 ConfigFile=theme.conf
+QtVersion=6
+Theme-Id=atlas

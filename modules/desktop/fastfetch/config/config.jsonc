@@ -1,26 +1,32 @@
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  // ATLAS masthead — B&W word-only identity (2026-07-16). Same six-row ASCII
+  // block used at boot, rendered here in its native medium: real monospace
+  // text. $1 = block glyphs (bright white), $2 = shadow glyphs (grey) — the
+  // same two tones the Plymouth bake uses. See
+  // docs/superpowers/specs/2026-07-16-atlas-bw-identity-design.md.
   "logo": {
     "type": "data",
-    "source": "$2    ◐\n$2   ╱ ╲\n$2  ◜   ◝\n$2 ╱     ╲\n$2◟──$1●$2──◞",
-    "color": { "1": "6", "2": "4" },
+    "source": " $1█████$2╗ $1████████$2╗$1██$2╗      $1█████$2╗ $1███████$2╗\n$1██$2╔══$1██$2╗╚══$1██$2╔══╝$1██$2║     $1██$2╔══$1██$2╗$1██$2╔════╝\n$1███████$2║   $1██$2║   $1██$2║     $1███████$2║$1███████$2╗\n$1██$2╔══$1██$2║   $1██$2║   $1██$2║     $1██$2╔══$1██$2║╚════$1██$2║\n$1██$2║  $1██$2║   $1██$2║   $1███████$2╗$1██$2║  $1██$2║$1███████$2║\n$2╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝",
+    "color": { "1": "97", "2": "38;5;240" },
     "padding": { "top": 1, "right": 3 }
   },
   "display": {
     "separator": "  ",
-    "color": { "keys": "6" }
+    "color": { "keys": "38;5;240" }
   },
   "modules": [
-    { "type": "custom", "format": "ATLAS  workstation · online" },
-    { "type": "custom", "format": "──────────────────────────" },
-    { "type": "title", "key": "host", "format": "{host-name}" },
-    { "type": "kernel", "key": "kernel" },
-    { "type": "uptime", "key": "uptime" },
-    { "type": "shell", "key": "shell" },
+    { "type": "custom", "format": "\u001b[38;5;240mDeveloper Workstation · Fedora KDE Plasma · atlas v0.3\u001b[0m" },
+    { "type": "custom", "format": "\u001b[38;5;236m───────────────────────────────────────────\u001b[0m" },
+    { "type": "os", "key": "OS", "keyColor": "38;5;240" },
+    { "type": "kernel", "key": "Kernel", "keyColor": "38;5;240" },
+    { "type": "wm", "key": "WM", "keyColor": "38;5;240" },
+    { "type": "shell", "key": "Shell", "keyColor": "38;5;240" },
+    { "type": "uptime", "key": "Uptime", "keyColor": "38;5;240" },
     {
       "type": "command",
-      "key": "ATLAS ✓",
-      "keyColor": "2",
+      "key": "Tools",
+      "keyColor": "38;5;240",
       "text": "for p in python3 node docker claude git; do command -v \"$p\" >/dev/null 2>&1 && printf '%s ' \"${p%3}\"; done"
     }
   ]
