@@ -92,5 +92,11 @@ The reliable path is to install once the rebuild lands — everything else is do
   the ghostty `atlas-reference` theme (cyan, `#0f141b`).
 - Reversible `modules/desktop/hyprland/module.sh` + split into finer modules if
   desired, after the desktop is validated live.
+- **Font must be system-wide for greeters.** The SDDM greeter runs as the `sddm`
+  system user and cannot read `~/.local/share/fonts`, so the ASCII masthead
+  rendered in a fallback font ("crooked"). Fixed 2026-07-16 by installing
+  JetBrainsMono Nerd Font to `/usr/share/fonts/atlas-jbm/` — but that was a
+  manual step. Bake "ensure the theme font is system-wide" into the SDDM module
+  (or the fonts module) so a fresh machine never hits this.
 - Retire the vestigial Plasma-only lock module (`org.atlas.hud`) once Hyprland is
   primary (kscreenlockerrc Theme override is inert on Plasma 6.7 anyway).

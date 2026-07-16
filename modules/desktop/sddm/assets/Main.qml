@@ -72,9 +72,20 @@ Rectangle {
     property string errorText: ""
 
     function initialUser() {
+        // Prefer the last logged-in user...
         try {
             if (users && typeof users.lastUser === "string" && users.lastUser.length > 0)
                 return users.lastUser
+        } catch (e) {}
+        // ...else fall back to the first real user in the model (fresh machine /
+        // first-ever SDDM login, when no lastUser is recorded yet). NameRole =
+        // Qt.UserRole + 1 in SDDM's UserModel.
+        try {
+            if (users && users.count > 0) {
+                var n = users.data(users.index(0, 0), Qt.UserRole + 1)
+                if (typeof n === "string" && n.length > 0)
+                    return n
+            }
         } catch (e) {}
         return ""
     }
@@ -255,6 +266,15 @@ Rectangle {
             width: parent.width
             spacing: 16
 
+            // "OPERATOR" label so the username line is never a mystery.
+            Text {
+                text: "OPERATOR"
+                font.family: root.fMono
+                font.pixelSize: 11
+                font.letterSpacing: 11 * 0.18
+                color: root.cTextSecond
+            }
+
             Item {
                 id: userField
                 width: parent.width
@@ -262,18 +282,20 @@ Rectangle {
                 opacity: 0
                 property real riseOffset: 8
 
+                property string value: root.initialUser()
                 property bool editing: false
-                function currentText() { return editing ? editInput.text : displayText.text }
-                function startEdit() { editing = true; editInput.text = displayText.text; editInput.forceActiveFocus(); editInput.selectAll() }
-                function commitEdit() { displayText.text = editInput.text; editing = false }
+                function currentText() { return value }
+                function startEdit() { editing = true; editInput.text = value; editInput.forceActiveFocus(); editInput.selectAll() }
+                function commitEdit() { value = editInput.text; editing = false }
 
                 Text {
                     id: displayText
                     visible: !userField.editing
-                    text: root.initialUser()
+                    // real username, or a dim placeholder when none is set yet
+                    text: userField.value.length > 0 ? userField.value : "username"
                     font.family: root.fMono
                     font.pixelSize: 18
-                    color: root.cTextPrimary
+                    color: userField.value.length > 0 ? root.cTextPrimary : root.cTextSecond
                     MouseArea { anchors.fill: parent; cursorShape: Qt.IBeamCursor; onClicked: userField.startEdit() }
                 }
                 TextInput {
