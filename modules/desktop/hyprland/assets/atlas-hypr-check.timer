@@ -1,0 +1,10 @@
+[Unit]
+Description=Atlas — daily Hyprland availability check
+
+[Timer]
+OnBootSec=10min
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

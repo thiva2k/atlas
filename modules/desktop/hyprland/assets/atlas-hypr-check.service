@@ -1,0 +1,7 @@
+[Unit]
+Description=Atlas — check whether Hyprland is installable yet
+Documentation=file:%h/atlas/modules/desktop/hyprland/README.md
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/atlas-hypr-check.sh
