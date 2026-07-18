@@ -47,9 +47,12 @@ Fable evaluated three candidates and chose RPM rebuild decisively:
 
 **The load-bearing packaging detail — the Release tag.** The broken COPR artifact is
 `aquamarine-0.9.5-2`; the eventual official rebuild will be `-3` (or a version bump).
-Tag ours **`0.9.5-2.atlas1`**: by RPM version ordering it wins over `-2` (installs
-now) and loses to `-3` (a routine `dnf upgrade` silently swaps in the official
-package when it lands). Getting this wrong (e.g. `-3.atlas`) would block the official
+Tag ours **`0.9.5-2.atlas1`** — concretely, spec `Release: 2%{?dist}.atlas1`,
+rendering `2.fc44.atlas1` (the bare `2.atlas1` form without the dist tag sorts
+*below* the broken `2.fc44` and must not be used; verified with `rpm.labelCompare`
+and `rpmdev-vercmp`). By RPM version ordering it wins over `-2` (installs now) and
+loses to `-3` (a routine `dnf upgrade` silently swaps in the official package when
+it lands). Getting this wrong (e.g. `-3.atlas`) would block the official
 package indefinitely. Stay on version **0.9.5** — required by §2's `libaquamarine.so.8`
 constraint and by supersession ordering.
 
