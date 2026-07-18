@@ -112,10 +112,15 @@ module::update() {
 module::remove() {  # detach: drop Atlas-owned configs; leave packages (rollback = dnf history undo)
   _hypr_marker_load || return 1
   case "$_HYPR_STATE" in absent|detached) return 0 ;; esac
-  local d
+  local d txn
   for d in $_HYPR_CONFIG_TREES; do rm -rf "$(_hypr_cfg_dst "$d")" || return 1; done
   _hypr_marker_write detached || return 1
-  log::info "detached Hyprland configs; packages remain — roll them back with: sudo dnf history undo \$(cat ${ATLAS_STATE_DIR:-\$HOME/.local/state/atlas}/hypr-install-txn)"
+  txn="${ATLAS_STATE_DIR:-$HOME/.local/state/atlas}/hypr-install-txn"
+  if [ -f "$txn" ]; then
+    log::info "detached Hyprland configs; packages remain — roll them back with: sudo dnf history undo $(cat "$txn")"
+  else
+    log::info "detached Hyprland configs; packages remain — to roll them back, find the aquamarine+hyprland install in 'sudo dnf history' and run 'sudo dnf history undo <id>'"
+  fi
 }
 
 module::backup() { log::info "nothing to back up: desktop/hyprland is reconstructable"; }

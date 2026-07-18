@@ -35,8 +35,8 @@ assert_status "hyprland check fails before install" 1 \
 assert_status "hyprland verify passes before install (absent)" 0 \
   bash -c "$PRE; module::verify"
 
-assert_status "hyprland install fails on non-Fedora before mutation" 1 \
-  bash -c "$PRE; FEDORA_OK=0; export FEDORA_OK; module::install >/dev/null 2>&1 || rc=\$?; [ ! -e \"\$(_hypr_marker)\" ]; exit \"\${rc:-0}\""
+assert_status "hyprland install fails on non-Fedora before mutation" 0 \
+  bash -c "$PRE; FEDORA_OK=0; export FEDORA_OK; if module::install >/dev/null 2>&1; then exit 9; fi; [ ! -e \"\$(_hypr_marker)\" ]"
 
 assert_status "hyprland install writes installed marker" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_hypr_marker)\""
@@ -59,8 +59,8 @@ assert_status "hyprland verify fails when a managed config drifts" 1 \
 assert_status "hyprland update restores drift" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::update >/dev/null 2>&1; module::verify"
 
-assert_status "hyprland install fails leave installing marker" 1 \
-  bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; module::install >/dev/null 2>&1 || rc=\$?; grep -qxF state=installing \"\$(_hypr_marker)\"; exit \"\${rc:-0}\""
+assert_status "hyprland install fails leave installing marker" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; if module::install >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\""
 
 assert_status "hyprland remove detaches configs but leaves packages" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_hypr_marker)\"; [ ! -e \"\$XDG_CONFIG_HOME/hypr\" ]; ! grep -q 'dnf history undo' \"\$DNF_LOG\"; ! grep -qi 'remove' \"\$DNF_LOG\""
