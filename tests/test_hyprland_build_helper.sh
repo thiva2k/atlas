@@ -249,3 +249,11 @@ assert_status "helper refuses when dnf is missing from PATH" 1 _hab_run "$dir"
 assert_status "missing-dnf refusal never creates the RPM staging dir" 1 \
   bash -c "[ -e '$dir/rpms' ]"
 rm -rf "$dir"
+
+# --- watcher: supersession logic (RFC-0038 §9) ------------------------------
+WATCH="$ATLAS_ROOT/modules/desktop/hyprland/assets/watch-availability.sh"
+assert_status "watcher is valid bash" 0 bash -n "$WATCH"
+assert_status "watcher keys off atlas1 release marker" 0 \
+  bash -c "grep -qF 'atlas1' \"$WATCH\""
+assert_status "watcher no longer self-disables solely because hyprland is installed" 1 \
+  bash -c "grep -q 'hyprland already installed; disabling watcher' \"$WATCH\""
