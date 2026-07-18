@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Atlas — rebuild aquamarine 0.9.5 against Fedora 44's libdisplay-info.so.3.
+# Produces ~/atlas-hypr-rpms/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm.
+# Idempotent: if the artifact already exists and passes the gate, it exits 0.
+set -euo pipefail
+REPO="copr:copr.fedorainfracloud.org:solopasha:hyprland"
+OUT="$HOME/atlas-hypr-rpms"
+RPM="$OUT/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm"
+
+gate() {  # a built RPM passes iff it links .so.3, not .so.2, and provides .so.8
+  rpm -qp --requires "$1" 2>/dev/null | grep -q 'libdisplay-info.so.3' &&
+  ! rpm -qp --requires "$1" 2>/dev/null | grep -q 'libdisplay-info.so.2' &&
+  rpm -qp --provides "$1" 2>/dev/null | grep -q 'libaquamarine.so.8'
+}
+
+command -v dnf >/dev/null || { echo "dnf required" >&2; exit 1; }
+[ -f /etc/fedora-release ] || { echo "Fedora only" >&2; exit 1; }
+
+if [ -f "$RPM" ] && gate "$RPM"; then echo "already built: $RPM"; exit 0; fi
+
+mkdir -p "$OUT"; cd "$OUT"
+[ -f aquamarine-0.9.5-2.fc44.src.rpm ] || \
+  dnf download --source --repoid="$REPO" aquamarine
+rpmdev-setuptree
+rpm -i "$OUT/aquamarine-0.9.5-2.fc44.src.rpm"
+sed -i 's/^Release:.*/Release:        2%{?dist}.atlas1/' "$HOME/rpmbuild/SPECS/aquamarine.spec"
+rpmbuild -bs "$HOME/rpmbuild/SPECS/aquamarine.spec"
+mock -r fedora-44-x86_64 --rebuild \
+  "$HOME/rpmbuild/SRPMS/aquamarine-0.9.5-2.fc44.atlas1.src.rpm"
+cp /var/lib/mock/fedora-44-x86_64/result/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm "$OUT/"
+gate "$RPM" || { echo "GATE FAILED: built RPM has wrong linkage" >&2; exit 1; }
+echo "built and gated: $RPM"
