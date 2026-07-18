@@ -380,6 +380,7 @@ os::dnf_install() { printf "%s\n" "$*" >> "$DNF_LOG"; [ "${DNF_FAIL:-0}" = 1 ] &
 _hypr_run_privileged() { "$@"; }
 _hypr_dnf_install_local() { printf "install-local %s\n" "$*" >> "$DNF_LOG"; [ "${DNF_FAIL:-0}" = 1 ] && return 1; return 0; }
 _hypr_hyprland_present() { [ "${HYPR_PRESENT:-0}" = 1 ]; }
+_hypr_bake_wallpapers() { return 0; }    # seam: never bake real wallpapers in tests
 '
 PRE="${PRE%$'\n'}"
 
@@ -468,6 +469,7 @@ _hypr_cfg_dst() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/$1"; }
 _hypr_run_privileged() { if os::is_root; then "$@"; else sudo "$@"; fi; }
 _hypr_hyprland_present() { os::has_cmd Hyprland || rpm -q hyprland >/dev/null 2>&1; }
 _hypr_build_rpm() { bash "$_HYPR_MODULE_DIR/build/build-aquamarine.sh"; }
+_hypr_bake_wallpapers() { bash "$_HYPR_MODULE_DIR/assets/generate.sh" >/dev/null 2>&1 || log::warn "wallpaper bake skipped"; }
 
 # Install the locally-built aquamarine RPM + the hypr stack in one dnf transaction.
 _hypr_dnf_install_local() {
@@ -533,7 +535,7 @@ module::install() {
   [ -f "$(_hypr_rpm_path)" ] || _hypr_build_rpm || { log::error "aquamarine build failed"; return 1; }
   _hypr_dnf_install_local || { log::error "hyprland package install failed"; return 1; }
   _hypr_deploy_configs || return 1
-  bash "$_HYPR_MODULE_DIR/assets/generate.sh" >/dev/null 2>&1 || log::warn "wallpaper bake skipped"
+  _hypr_bake_wallpapers || true
   _hypr_configs_match || return 1
   _hypr_marker_write installed || return 1
   log::info "Atlas Hyprland is installed; pick it at the login screen"
