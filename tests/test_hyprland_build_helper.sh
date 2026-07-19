@@ -94,13 +94,17 @@ if [ "${1:-}" = "-qp" ] && [ "${2:-}" = "--requires" ]; then
   path="${3:-}"; [ -f "$path" ] || exit 1
   case "$(_marker "$path")" in
     BAD) printf 'libdisplay-info.so.2()(64bit)\n' ;;
+    SONAME30) printf 'libdisplay-info.so.30()(64bit)\n' ;;
     *)   printf 'libdisplay-info.so.3()(64bit)\n' ;;
   esac
   exit 0
 fi
 if [ "${1:-}" = "-qp" ] && [ "${2:-}" = "--provides" ]; then
   path="${3:-}"; [ -f "$path" ] || exit 1
-  printf 'libaquamarine.so.8()(64bit)\n'
+  case "$(_marker "$path")" in
+    SONAME30) printf 'libaquamarine.so.80()(64bit)\n' ;;
+    *) printf 'libaquamarine.so.8()(64bit)\n' ;;
+  esac
   exit 0
 fi
 if [ "${1:-}" = "-K" ]; then
@@ -201,7 +205,7 @@ rm -rf "$dir"
 
 # --- gate failures: each wrong attribute is refused, nothing staged ---------
 
-for bad in BAD WRONGREL CORRUPT; do
+for bad in BAD SONAME30 WRONGREL CORRUPT; do
   dir="$(mktemp -d)"; _hab_sandbox "$dir"; _hab_enable_mock "$dir"
   out="$(_hab_run "$dir" FAKE_BUILD_RESULT="$bad" 2>&1)"; rc=$?
   assert_eq       "a mock artifact failing the $bad gate is refused" "$rc" "1"

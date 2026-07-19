@@ -15,7 +15,8 @@ rebuilt `aquamarine`. Atlas unblocks with a gated local rebuild:
 - **Release:** `2%{?dist}.atlas1` → `2.fc44.atlas1` (sorts above broken `-2`,
   below future official `-3`, so a routine `dnf upgrade` auto-supersedes)
 - **Gate:** exact NEVRA `aquamarine-0.9.5-2.fc44.atlas1.x86_64`, requires
-  `libdisplay-info.so.3`, never `.so.2`, provides `libaquamarine.so.8`, and
+  `libdisplay-info.so.3`, never `.so.2`, provides `libaquamarine.so.8` (soname
+  matching is **exact** — `.so.3`/`.so.8` never match `.so.30`/`.so.80`), and
   passes `rpm -K` integrity — re-validated on every use, never trusted by name
 - **Build:** `build/build-aquamarine.sh` — **mock only** (disposable chroot; no
   host build dependencies, no second host transaction). Host `rpmbuild` is used
@@ -49,19 +50,38 @@ detach (`remove` = detach only).
 | `remove` | detach if no drift; never `dnf remove`; undeploys only Atlas-owned watcher files; prints `dnf history undo <id>` |
 | `backup` / `restore` | documented no-ops (reconstructable) |
 
+**Ownership is recorded, not inferred.** Config-tree ownership lives in
+`~/.local/state/atlas/hypr-owned-trees` (mode `600`) and wallpaper ownership in
+the `.atlas-hypr-wall.sha256` sidecar; a surface is Atlas-managed only once
+Atlas actually created or byte-for-byte adopted it, never because a marker
+exists. The full-tree manifest includes directories (an added empty dir is
+drift) and fails closed on any symlink, so an adopted tree is always exactly
+Atlas source.
+
 **Adoption:** byte-identical pre-staged config trees are adopted without
-rewrite; differing unmanaged trees refuse **before** any package mutation.
+rewrite; differing unmanaged trees, and any symlinked target path, refuse
+**before** any package mutation.
 
 **Reconciliation:** an interrupted install leaves the marker at `installing`
-and persists on failure. A later `install` re-evaluates ownership, skips every
-already-completed phase, and never runs a second `dnf` transaction once the
-packages are installed. A fresh-mode deploy never `rm -rf`s a tree that is not
-absent or byte-identical; it fails loudly if the filesystem raced preflight.
+and persists on failure. A later `install` re-evaluates ownership per target,
+skips every already-completed phase, detects an already-completed package
+transaction **before** any repo/build/package mutation (so it never enables the
+COPR, pulls `dnf-plugins-core`, or runs a second `dnf` transaction), and never
+`rm -rf`s a tree it does not own — content that appeared in the crash window is
+refused, not destroyed.
 
 **Rollback identity:** the recorded transaction is captured with a before/after
-`dnf history` boundary and validated (`dnf history info`) to actually install
-`aquamarine`+`hyprland`, written atomically at mode `600` — so a stale, no-op,
-or unrelated global transaction can never be mistaken for this install.
+`dnf history` boundary (a *failed* lookup is distinguished from a
+confirmed-empty history, so a stale id is never recorded) and validated via the
+stable `dnf history info <id> --json`: a successful (`status: Ok`) transaction
+that installed the exact `aquamarine` NEVRA + `hyprland` with no
+removal/downgrade/obsoletion/unknown action. Written atomically at mode `600`,
+so a stale, no-op, failed, or unrelated global transaction can never be mistaken
+for this install.
+
+**Symlink-safe, atomic deploys:** config trees, wallpapers, and watcher files
+are never written *through* a symlink, and every file is staged in a same-dir
+temp then renamed into place.
 
 ## Layout
 

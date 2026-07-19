@@ -192,9 +192,12 @@ compositor needs).
   `x86_64`; its `requires` must include `libdisplay-info.so.3` and must
   **not** include `libdisplay-info.so.2`; its `provides` must include
   `libaquamarine.so.8`; and the RPM must pass `rpm -K` payload/header
-  integrity. A pre-existing artifact at the expected path is **always**
-  re-validated against all of these — never trusted by filename. Any other
-  outcome is a build failure, not an install candidate.
+  integrity. Soname matching is **exact**, not a prefix: `.so.3` never matches
+  `.so.30` and `.so.8` never matches `.so.80` (the soname must be followed by
+  the rpm `(...)` decoration, end-of-line, or whitespace). A pre-existing
+  artifact at the expected path is **always** re-validated against all of
+  these — never trusted by filename. Any other outcome is a build failure, not
+  an install candidate.
 - **Auto-supersession is the intended end state, not a future migration.**
   Atlas does not need to detect the official `-3` package and swap it in; a
   normal `dnf upgrade` does that on its own once the COPR ships it, because
@@ -227,9 +230,20 @@ narrow, explicit exception instead of a general adoption mechanism:
   or staged, before `dnf install` runs. A config conflict is cheap to fix by
   hand; an additive-only package transaction that then can't be finished
   cleanly is not.
-- **Once a marker exists in `installing` or `installed` state, the trees are
-  fully Atlas-managed**: `install` and `update` may rewrite them from source,
-  and drift is a `verify` failure (§10), exactly as in RFC-0007 §4/§6.3.
+- **Ownership is recorded per tree, not implied by the marker.** A tree becomes
+  Atlas-managed only once Atlas has actually created it or adopted it
+  byte-for-byte, and that fact is recorded in a durable ownership record
+  (`$ATLAS_STATE_DIR/hypr-owned-trees`, mode `600`), consistent with the
+  standing rule that ownership is *recorded, never inferred*
+  (`docs/conventions.md` "Owning persistent state"). For a tree Atlas owns,
+  `install` and `update` may rewrite drift from source, and drift is a `verify`
+  failure (§10), exactly as in RFC-0007 §4/§6.3. A tree that is **not** in the
+  ownership record and differs from Atlas source is refused and never
+  destroyed — even under an `installing`/`installed` marker. This closes the
+  crash-window in which a marker written before any tree existed could otherwise
+  let a reconciling retry delete unrelated content that appeared in the gap. The
+  marker records lifecycle state (`installing`/`installed`/`detached`); it is not
+  a blanket ownership claim over the five paths.
 - This exception applies only to the five named trees at their exact paths.
   It is not a general "adopt if it matches" primitive for other modules to
   reuse without their own RFC — RFC-0031 §2.2/§4 found "adopt iff
@@ -246,10 +260,18 @@ The wallpaper bake (`assets/generate.sh`) writes exactly two files:
 `~/.local/share/backgrounds/atlas/atlas-wall-bw.png`. The same rule as §6
 applies, scoped to only these two filenames:
 
+- Wallpaper ownership is recorded in the sidecar hash file
+  (`.atlas-hypr-wall.sha256`), the wallpaper analogue of §6's per-tree
+  ownership record; a file is Atlas-owned only once Atlas has staged it, never
+  because a marker exists.
 - If either file already exists and is byte-identical (sha256) to what
   `generate.sh` would produce, Atlas adopts it without regenerating.
-- If either file exists, differs, and no marker exists, `install` refuses —
+- If either file exists, differs, and is not Atlas-owned, `install` refuses —
   before any package mutation — exactly as in §6.
+- A wallpaper target that is a **symlink** is refused outright (it could
+  redirect a write anywhere), and every write is staged into a same-directory
+  temp then atomically renamed into place, so a reader never sees a partial
+  file and a symlinked path is never followed.
 - Every other file under `~/.local/share/backgrounds/atlas/` — including the
   legacy off-identity ("blue") wallpaper assets the desktop design doc flags
   for a future cleanup (`2026-07-16-atlas-hyprland-desktop-design.md` §8) — is
@@ -287,19 +309,26 @@ without proceeding to the next:
 7. **Run the single real `dnf install` transaction** (§4).
 8. **Record the transaction id immediately, using a before/after boundary.**
    `install` captures the newest `dnf history` id *before* the transaction in
-   step 7, and reads it again *after*. It records the new id only when a new
-   transaction actually appeared (`after > before`), the id is a well-formed
-   number, and `dnf history info <id>` shows this transaction installing both
-   `aquamarine` and `hyprland` — proving the recorded id is really this
-   install and not an unrelated or concurrent global transaction. The id is
-   written atomically (same-dir temp then `mv`), mode `600`, into
-   `$ATLAS_STATE_DIR` — a plain, human-readable file distinct from the marker,
-   so the exact `dnf history undo <id>` command is recoverable from a bare TTY
-   with the state directory as the only thing that has to be readable. If the
-   packages were installed but a valid id cannot be recorded, `install` leaves
-   the marker at `installing` and prints a precise recovery command; it never
-   records an unrelated or no-op transaction, and a reconciling retry never
-   runs a second `dnf` transaction to "fix" the missing id.
+   step 7, and reads it again *after*. Both boundary reads must succeed: a
+   *failed* history lookup is distinguished from a *confirmed-empty* history (a
+   real table with no rows, boundary value `0`), so a lookup failure aborts
+   rather than being mistaken for an empty history that would let a stale id be
+   recorded. It records the new id only when a new transaction actually appeared
+   (`after > before`, with a well-formed numeric boundary), and only when
+   `dnf history info <id> --json` proves the transaction's **identity**: exactly
+   one transaction with that id, `status` `Ok`, an `Install` of the exact
+   `aquamarine` NEVRA (`0.9.5` / `2.fc44.atlas1` / `x86_64`) and of `hyprland`,
+   and **no** `Remove`/`Downgrade`/`Obsolete`/unknown action on any package
+   (an `Upgrade`/`Reinstall` is tolerated only for the exact hypr/aquamarine
+   allowlist). The documented, stable JSON output is parsed rather than the
+   human-readable layout. The id is written atomically (same-dir temp then
+   `mv`), mode `600`, into `$ATLAS_STATE_DIR` — a plain file distinct from the
+   marker, so the exact `dnf history undo <id>` command is recoverable from a
+   bare TTY with the state directory as the only thing that has to be readable.
+   If the packages were installed but a valid id cannot be recorded, `install`
+   leaves the marker at `installing` and prints a precise recovery command; it
+   never records an unrelated, failed, or no-op transaction, and a reconciling
+   retry never runs a second `dnf` transaction to "fix" the missing id.
 9. **Deploy the five config trees** (§6) and **bake the two wallpapers**
    (§7), applying the adoption rule to any tree/file not already covered by
    step 3's evaluation (a config tree can appear between steps 3 and 9 only if
@@ -316,6 +345,23 @@ succeeded (repo enabled, RPM built, packages installed, transaction id
 recorded, configs deployed) and only performs the remaining steps, promoting
 to `installed` only once every check in step 10 passes. This mirrors the
 `development/ghostty` reconciliation model (RFC-0007 §6.2).
+
+Two invariants make reconciliation safe rather than merely convenient:
+
+- **The completed package transaction is detected before any package
+  mutation.** On a retry, `install` checks whether both `aquamarine` and
+  `hyprland` are already installed *before* enabling the COPR, installing
+  `dnf-plugins-core`, or building/handing anything to `dnf`. If they are, it
+  runs no repository or package mutation at all — it only validates the
+  recorded rollback id (refusing, with a recovery command, if it is missing)
+  and continues with the config/wallpaper/watcher phases. This guarantees the
+  "exactly one `dnf` transaction" rule survives an arbitrary number of
+  interrupted retries.
+- **Ownership is re-evaluated per target on every path, before mutation.** The
+  adoption/refusal gate (§6/§7) runs on `absent`, `installing`, and reconciling
+  `installed` paths alike, keyed off the per-target ownership records rather
+  than the marker, so content that appeared in an interrupted run's crash window
+  is refused, never destroyed.
 
 ## 9. Watcher disposition
 
@@ -358,10 +404,15 @@ fresh install is appropriate.
 
 ### 10.2 `install`
 
-As specified in §8. Idempotent: a second `install` against a fully `installed`
-marker performs the manifest/gate checks in §8 steps 3–10 again, finds
-everything already satisfied, writes nothing new, and re-promotes the marker
-(a no-op write, same content).
+As specified in §8. Idempotent, and specifically **zero-mutation** on a healthy
+system: a second `install` against a fully `installed` marker first evaluates
+the complete health predicate (§10.1) and, when everything is already
+satisfied, returns immediately — performing no `dnf` call, no rehearsal, no
+build, no config/wallpaper/watcher rewrite, and not even a no-op marker write.
+Re-promoting a marker that is already `installed` would be a redundant write on
+the hot path; the health check is the idempotency guarantee. Only when the
+health predicate fails (drift, an interrupted `installing` marker, a missing
+owned surface) does `install` proceed into the reconciling steps of §8.
 
 ### 10.3 `verify`
 
@@ -385,8 +436,11 @@ Verification is asymmetric, matching the standing Atlas rule
   state (deployed files must match repository source, and while the local
   `.atlas1` build is still installed the timer must be enabled and active;
   after supersession a self-disabled timer is valid — §9). The recorded
-  transaction is validated for identity, not merely for being a well-formed
-  number. Otherwise it succeeds.
+  transaction is validated for identity (§8 step 8): a successful (`status`
+  `Ok`) transaction that installed the exact `aquamarine` NEVRA and `hyprland`
+  with no forbidden package operations, not merely a well-formed number. The
+  recorded id file must itself be a regular, non-symlink, mode-`600` file.
+  Otherwise it succeeds.
 
 `verify` never launches Hyprland, never inspects Plasma, and never checks
 packages outside the fixed set.

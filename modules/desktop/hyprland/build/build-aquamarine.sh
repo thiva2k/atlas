@@ -66,9 +66,12 @@ _hab_gate() {
   [ "$ver" = "$_HAB_VERSION" ] || return 1
   [ "$rel" = "$_HAB_RENDERED_RELEASE" ] || return 1
   [ "$arch" = "$_HAB_ARCH" ] || return 1
-  rpm -qp --requires "$rpm_path" 2>/dev/null | grep -q 'libdisplay-info\.so\.3' || return 1
-  rpm -qp --requires "$rpm_path" 2>/dev/null | grep -q 'libdisplay-info\.so\.2' && return 1
-  rpm -qp --provides "$rpm_path" 2>/dev/null | grep -q 'libaquamarine\.so\.8' || return 1
+  # EXACT soname capabilities (never a prefix): the soname must be followed by
+  # the rpm `(...)` decoration, end-of-line, or whitespace, so `.so.3`/`.so.8`
+  # never match `.so.30`/`.so.80`.
+  rpm -qp --requires "$rpm_path" 2>/dev/null | grep -Eq 'libdisplay-info\.so\.3(\(|$|[[:space:]])' || return 1
+  rpm -qp --requires "$rpm_path" 2>/dev/null | grep -Eq 'libdisplay-info\.so\.2(\(|$|[[:space:]])' && return 1
+  rpm -qp --provides "$rpm_path" 2>/dev/null | grep -Eq 'libaquamarine\.so\.8(\(|$|[[:space:]])' || return 1
   rpm -K --nosignature "$rpm_path" >/dev/null 2>&1 || return 1
   return 0
 }

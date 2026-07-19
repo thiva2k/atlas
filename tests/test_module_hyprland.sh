@@ -29,23 +29,22 @@ S="$FAKE_STATE"
 mkdir -p "$S" "$S/installed" "$S/hinfo"
 printf '%s\n' "$*" >> "$S/dnf.log"
 
+# dnf5 `history info <id> --json` returns a one-element array (RFC-0038 §8.8).
 _good_info() { # <id>
-  {
-    printf 'Transaction ID : %s\n' "$1"
-    printf 'Status         : Ok\n'
-    printf 'Packages altered:\n'
-    printf '  Action  Package                                 Reason Repository\n'
-    printf '  Install aquamarine-0:0.9.5-2.fc44.atlas1.x86_64 User   @commandline\n'
-    printf '  Install hyprland-0:0.50.1-1.fc44.x86_64         User   copr\n'
-  } > "$S/hinfo/$1"
+  cat > "$S/hinfo/$1" <<JSON
+[ { "id": $1, "status": "Ok", "packages": [
+  { "nevra": "aquamarine-0:0.9.5-2.fc44.atlas1.x86_64", "action": "Install", "reason": "User", "repository": "@commandline" },
+  { "nevra": "hyprland-0:0.50.1-1.fc44.x86_64", "action": "Install", "reason": "User", "repository": "copr" },
+  { "nevra": "libinput-0:1.26-1.fc44.x86_64", "action": "Install", "reason": "Dependency", "repository": "updates" }
+] } ]
+JSON
 }
 _unrelated_info() { # <id>
-  {
-    printf 'Transaction ID : %s\n' "$1"
-    printf 'Packages altered:\n'
-    printf '  Action  Package                Reason Repository\n'
-    printf '  Install vim-0:9.1-1.fc44.x86_64 User base\n'
-  } > "$S/hinfo/$1"
+  cat > "$S/hinfo/$1" <<JSON
+[ { "id": $1, "status": "Ok", "packages": [
+  { "nevra": "vim-0:9.1-1.fc44.x86_64", "action": "Install", "reason": "User", "repository": "base" }
+] } ]
+JSON
 }
 
 # dnf copr --help
@@ -63,6 +62,7 @@ fi
 
 # dnf history list
 if [ "${1:-}" = history ] && [ "${2:-}" = list ]; then
+  [ "${FAKE_HISTORY_LIST_FAIL:-0}" = 1 ] && exit 1
   if [ "${FAKE_HISTORY_BAD_LIST:-0}" = 1 ]; then
     printf 'ID Command\n-- garbage --\n'; exit 0
   fi
@@ -143,6 +143,7 @@ if [ "${1:-}" = -qp ] && [ "${2:-}" = --requires ]; then
   path="${3:-}"; [ -f "$path" ] || exit 1
   case "$(head -n1 "$path" 2>/dev/null)" in
     BAD) printf 'libdisplay-info.so.2()(64bit)\n' ;;
+    SONAME30) printf 'libdisplay-info.so.30()(64bit)\n' ;;
     *)   printf 'libdisplay-info.so.3()(64bit)\n' ;;
   esac
   exit 0
@@ -150,7 +151,11 @@ fi
 # rpm -qp --provides <rpmfile>
 if [ "${1:-}" = -qp ] && [ "${2:-}" = --provides ]; then
   path="${3:-}"; [ -f "$path" ] || exit 1
-  printf 'libaquamarine.so.8()(64bit)\n'; exit 0
+  case "$(head -n1 "$path" 2>/dev/null)" in
+    SONAME30) printf 'libaquamarine.so.80()(64bit)\n' ;;
+    *) printf 'libaquamarine.so.8()(64bit)\n' ;;
+  esac
+  exit 0
 fi
 # rpm -K --nosignature <rpmfile>
 if [ "${1:-}" = -K ]; then
@@ -256,19 +261,15 @@ source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/os.sh"
 source "$ATLAS_ROOT/modules/desktop/hyprland/module.sh"
 
-# External seams only (each has its own tests / needs PIL): keep the real
-# ownership + gate + txn + watcher logic intact.
+# External seams only (each has its own tests / needs PIL): the aquamarine build
+# and the PNG bake are replaced by deterministic stubs, but the safety wrapper
+# around the bake (_hypr_bake_wallpapers: symlink refusal, ownership refusal,
+# atomic staging) runs for real, as does all ownership/gate/txn/watcher logic.
 _hypr_build_rpm() { printf "GOOD\n" > "$(_hypr_rpm_path)"; }
 _hypr_preview_bake_wallpapers() {
   local out="$1" f
-  mkdir -p "$out"
+  mkdir -p "$out" || return 1
   for f in atlas-lock-bg.png atlas-wall-bw.png; do printf "wall-%s\n" "$f" > "$out/$f"; done
-}
-_hypr_bake_wallpapers() {
-  local dir f
-  dir="$(_hypr_wall_dir)"; mkdir -p "$dir"
-  for f in atlas-lock-bg.png atlas-wall-bw.png; do printf "wall-%s\n" "$f" > "$dir/$f"; done
-  _hypr_record_wall_hashes
 }
 
 # Test helpers (bash funcs, no single quotes so they survive in PRE).
@@ -279,13 +280,12 @@ _fake_installed() {
 _fake_history_good() {
   local id="$1"
   echo "$id" > "$FAKE_STATE/hmax"
-  {
-    printf "Transaction ID : %s\n" "$id"
-    printf "Status         : Ok\n"
-    printf "Packages altered:\n"
-    printf "  Install aquamarine-0:0.9.5-2.fc44.atlas1.x86_64 User @commandline\n"
-    printf "  Install hyprland-0:0.50.1-1.fc44.x86_64 User copr\n"
-  } > "$FAKE_STATE/hinfo/$id"
+  cat > "$FAKE_STATE/hinfo/$id" <<JSON
+[ { "id": $id, "status": "Ok", "packages": [
+  { "nevra": "aquamarine-0:0.9.5-2.fc44.atlas1.x86_64", "action": "Install", "reason": "User", "repository": "@commandline" },
+  { "nevra": "hyprland-0:0.50.1-1.fc44.x86_64", "action": "Install", "reason": "User", "repository": "copr" }
+] } ]
+JSON
 }
 _fake_record_txn() {
   mkdir -p "$(dirname "$(_hypr_txn_file)")"
@@ -343,8 +343,8 @@ assert_status "hyprland verify passes after install" 0 \
 
 # --- true idempotency: healthy repeat install mutates nothing ----------------
 
-assert_status "healthy repeat install runs zero dnf/rehearse/watcher/config work" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; : > \"\$FAKE_STATE/dnf.log\"; : > \"\$FAKE_STATE/systemctl.log\"; cfgb=\"\$(sha256sum \"\$XDG_CONFIG_HOME/kitty/kitty.conf\")\"; module::install >/dev/null 2>&1; [ ! -s \"\$FAKE_STATE/dnf.log\" ]; [ ! -s \"\$FAKE_STATE/systemctl.log\" ]; [ \"\$cfgb\" = \"\$(sha256sum \"\$XDG_CONFIG_HOME/kitty/kitty.conf\")\" ]"
+assert_status "healthy repeat install runs zero mutating dnf/systemctl/config work" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1 && : > \"\$FAKE_STATE/dnf.log\" && : > \"\$FAKE_STATE/systemctl.log\" && cfgb=\"\$(sha256sum \"\$XDG_CONFIG_HOME/kitty/kitty.conf\")\" && module::install >/dev/null 2>&1 && ! grep -qE 'install -y|install --assumeno|copr enable|dnf-plugins-core' \"\$FAKE_STATE/dnf.log\" && ! grep -qE 'daemon-reload|enable --now|disable' \"\$FAKE_STATE/systemctl.log\" && [ \"\$cfgb\" = \"\$(sha256sum \"\$XDG_CONFIG_HOME/kitty/kitty.conf\")\" ]"
 
 # --- adoption / refusal (RFC-0038 §6/§7) ------------------------------------
 
@@ -356,6 +356,18 @@ assert_status "install refuses unmanaged differing config before any mutation" 1
 
 assert_status "install refuses differing wallpapers without sidecar, untouched" 1 \
   bash -c "$PRE; mkdir -p \"\$(_hypr_wall_dir)\"; echo foreign > \"\$(_hypr_wall_dst atlas-lock-bg.png)\"; echo foreign > \"\$(_hypr_wall_dst atlas-wall-bw.png)\"; module::install >/dev/null 2>&1 || rc=\$?; [ ! -e \"\$(_hypr_marker)\" ]; grep -qxF foreign \"\$(_hypr_wall_dst atlas-lock-bg.png)\"; exit \"\${rc:-0}\""
+
+# --- manifest fidelity (Sol blocker 2) --------------------------------------
+# The manifest includes directories, so an otherwise byte-identical tree with an
+# extra empty dir is NOT adopted — it differs, is unowned, and is refused. The
+# predicate is fully &&-chained so a swallowed assertion cannot mask a failure.
+assert_status "adoption refuses a pre-staged tree with an extra empty directory" 0 \
+  bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME\" && for d in hypr waybar wofi mako kitty; do cp -a \"\$_HYPR_MODULE_DIR/config/\$d\" \"\$XDG_CONFIG_HOME/\$d\"; done && mkdir -p \"\$XDG_CONFIG_HOME/hypr/extra-empty\" && ! module::install >/dev/null 2>&1 && [ ! -e \"\$(_hypr_marker)\" ] && [ -d \"\$XDG_CONFIG_HOME/hypr/extra-empty\" ]"
+
+# A symlink anywhere in a tree makes the manifest fail closed, so such a tree is
+# never treated as byte-identical/adoptable and is refused.
+assert_status "adoption refuses a pre-staged tree containing a symlink" 0 \
+  bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME\" && for d in hypr waybar wofi mako kitty; do cp -a \"\$_HYPR_MODULE_DIR/config/\$d\" \"\$XDG_CONFIG_HOME/\$d\"; done && ln -s /etc/passwd \"\$XDG_CONFIG_HOME/kitty/evil.link\" && ! module::install >/dev/null 2>&1 && [ ! -e \"\$(_hypr_marker)\" ] && [ -L \"\$XDG_CONFIG_HOME/kitty/evil.link\" ]"
 
 # --- rehearsal integration (real classifier + parser via fake dnf) ----------
 
@@ -382,6 +394,14 @@ assert_status "install aborts when the staged rpm has the wrong release" 1 \
 assert_status "install aborts when the staged rpm fails integrity" 1 \
   bash -c "$PRE; printf 'CORRUPT\n' > \"\$ATLAS_HYPR_RPM_DIR/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm\"; _hypr_build_rpm() { printf 'CORRUPT\n' > \"\$(_hypr_rpm_path)\"; }; module::install >/dev/null 2>&1 || rc=\$?; ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; exit \"\${rc:-0}\""
 
+# Sol blocker 7: soname matching is EXACT — a .so.30 requires / .so.80 provides
+# must not satisfy the .so.3 / .so.8 gate.
+assert_status "install aborts when soname is a prefix match only (.so.30/.so.80)" 0 \
+  bash -c "$PRE; printf 'SONAME30\n' > \"\$ATLAS_HYPR_RPM_DIR/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm\" && _hypr_build_rpm() { printf 'SONAME30\n' > \"\$(_hypr_rpm_path)\"; } && ! module::install >/dev/null 2>&1 && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; }"
+
+assert_status "rpm gate rejects .so.30/.so.80 as a prefix of .so.3/.so.8 (unit)" 1 \
+  bash -c "$PRE; printf 'SONAME30\n' > \"\$(_hypr_rpm_path)\"; _hypr_rpm_gate \"\$(_hypr_rpm_path)\""
+
 # --- transaction integrity (RFC-0038 §8.8) ----------------------------------
 
 assert_status "no new transaction after install is rejected (stays installing)" 1 \
@@ -396,11 +416,50 @@ assert_status "malformed history output is rejected" 1 \
 assert_status "history lookup failure is rejected" 1 \
   bash -c "$PRE; FAKE_DNF_INFO_FAIL=1; export FAKE_DNF_INFO_FAIL; module::install >/dev/null 2>&1 || rc=\$?; grep -qxF state=installing \"\$(_hypr_marker)\"; exit \"\${rc:-0}\""
 
+# Sol blocker 5: a FAILED history-list boundary (not an empty one) must abort
+# BEFORE the real transaction — never record a stale id.
+assert_status "before-boundary lookup failure aborts before any package transaction" 0 \
+  bash -c "$PRE; export FAKE_HISTORY_LIST_FAIL=1; ! module::install >/dev/null 2>&1 && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; } && [ ! -f \"\$(_hypr_txn_file)\" ] && grep -qxF state=installing \"\$(_hypr_marker)\""
+
+# A genuinely EMPTY history (header only, no rows) is a valid boundary (before=0):
+# the first real transaction is our install and is recorded.
+assert_status "empty history boundary still records the new install transaction" 0 \
+  bash -c "$PRE; echo 0 > \"\$FAKE_STATE/hmax\"; module::install >/dev/null 2>&1 || true; grep -qxF state=installed \"\$(_hypr_marker)\"; grep -qxF 1 \"\$(_hypr_txn_file)\"; _hypr_txn_ok"
+
+# Sol blocker 5 (stale id): recording refuses a bogus/empty boundary directly.
+assert_status "record_txn refuses an empty before-boundary" 1 \
+  bash -c "$PRE; _fake_history_good 41; _hypr_record_txn_from_boundary '' 41 >/dev/null 2>&1"
+
 assert_status "verify rejects a recorded transaction that no longer exists" 1 \
   bash -c "$PRE; module::install >/dev/null 2>&1; rm -f \"\$FAKE_STATE/hinfo/41\"; module::verify"
 
 assert_status "verify rejects a recorded transaction with unexpected package operations" 1 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; { printf 'Transaction ID : 41\nPackages altered:\n  Removed plasma-workspace-6.0.x86_64 User @System\n'; } > \"\$FAKE_STATE/hinfo/41\"; module::verify"
+  bash -c "$PRE; module::install >/dev/null 2>&1; cat > \"\$FAKE_STATE/hinfo/41\" <<'JSON'
+[ { \"id\": 41, \"status\": \"Ok\", \"packages\": [
+  { \"nevra\": \"aquamarine-0:0.9.5-2.fc44.atlas1.x86_64\", \"action\": \"Install\" },
+  { \"nevra\": \"hyprland-0:0.50.1-1.fc44.x86_64\", \"action\": \"Install\" },
+  { \"nevra\": \"plasma-workspace-0:6.0-1.fc44.x86_64\", \"action\": \"Removed\" }
+] } ]
+JSON
+module::verify"
+
+assert_status "verify rejects a recorded transaction whose status is not Ok" 1 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; cat > \"\$FAKE_STATE/hinfo/41\" <<'JSON'
+[ { \"id\": 41, \"status\": \"Failed\", \"packages\": [
+  { \"nevra\": \"aquamarine-0:0.9.5-2.fc44.atlas1.x86_64\", \"action\": \"Install\" },
+  { \"nevra\": \"hyprland-0:0.50.1-1.fc44.x86_64\", \"action\": \"Install\" }
+] } ]
+JSON
+module::verify"
+
+assert_status "verify rejects a recorded transaction missing the exact aquamarine NEVRA" 1 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; cat > \"\$FAKE_STATE/hinfo/41\" <<'JSON'
+[ { \"id\": 41, \"status\": \"Ok\", \"packages\": [
+  { \"nevra\": \"aquamarine-0:0.9.5-3.fc44.x86_64\", \"action\": \"Install\" },
+  { \"nevra\": \"hyprland-0:0.50.1-1.fc44.x86_64\", \"action\": \"Install\" }
+] } ]
+JSON
+module::verify"
 
 # --- interrupted-install reconciliation: safe retry after every phase --------
 
@@ -412,6 +471,12 @@ assert_status "retry after COPR enablement does not re-enable COPR" 0 \
 
 assert_status "retry after a completed transaction does NOT run a second dnf transaction" 0 \
   bash -c "$PRE; _hypr_marker_write installing; _fake_installed; _fake_history_good 41; _fake_record_txn 41; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_hypr_marker)\"; ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\""
+
+# Sol blocker 6: a retry that finds the packages installed must perform NO repo
+# or package mutation at all — no COPR enable, no dnf-plugins-core — on the way
+# to noticing them.
+assert_status "retry with packages present performs zero repo/package mutation" 0 \
+  bash -c "$PRE; _hypr_marker_write installing && _fake_installed && _fake_history_good 41 && _fake_record_txn 41 && module::install >/dev/null 2>&1 && grep -qxF state=installed \"\$(_hypr_marker)\" && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -qE 'install -y|copr enable|dnf-plugins-core' \"\$FAKE_STATE/dnf.log\"; }"
 
 assert_status "retry after transaction but before recording stays installing with recovery, no second dnf" 1 \
   bash -c "$PRE; _hypr_marker_write installing; _fake_installed; _fake_history_good 41; out=\"\$(module::install 2>&1)\" || rc=\$?; grep -qxF state=installing \"\$(_hypr_marker)\"; ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; printf '%s' \"\$out\" | grep -q 'dnf history list'; exit \"\${rc:-0}\""
@@ -428,14 +493,25 @@ assert_status "retry after wallpaper bake completes" 0 \
 assert_status "retry after watcher deploy completes" 0 \
   bash -c "$PRE; _hypr_marker_write installing; _hypr_deploy_watcher >/dev/null 2>&1; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_hypr_marker)\"; module::verify"
 
-# --- hostile interrupted-retry regression (ported concept from Claude) ------
-# A fresh-mode deploy must NEVER rm -rf a tree that differs from source; it must
-# fail loudly (the filesystem raced preflight). Non-Atlas content is preserved.
-assert_status "fresh-mode deploy refuses to destroy a differing tree (race guard)" 1 \
-  bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME/hypr\"; echo mine > \"\$XDG_CONFIG_HOME/hypr/mine.conf\"; _hypr_deploy_configs fresh >/dev/null 2>&1 || rc=\$?; [ -f \"\$XDG_CONFIG_HOME/hypr/mine.conf\" ]; exit \"\${rc:-0}\""
+# --- hostile interrupted-retry regression (Sol blocker 1) -------------------
+# Deploy must NEVER rm -rf a tree it does not own; an unowned differing tree is
+# refused loudly and preserved, regardless of any marker state.
+assert_status "deploy refuses to destroy an unowned differing tree (race/crash guard)" 0 \
+  bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME/hypr\" && echo mine > \"\$XDG_CONFIG_HOME/hypr/mine.conf\" && ! _hypr_deploy_configs >/dev/null 2>&1 && [ -f \"\$XDG_CONFIG_HOME/hypr/mine.conf\" ] && [ \"\$(cat \"\$XDG_CONFIG_HOME/hypr/mine.conf\")\" = mine ]"
 
-assert_status "managed-mode deploy reconciles drift (Atlas owns the tree)" 0 \
-  bash -c "$PRE; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; _hypr_deploy_configs managed >/dev/null 2>&1; _hypr_configs_match"
+assert_status "deploy reconciles drift once Atlas owns the tree" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; _hypr_deploy_configs >/dev/null 2>&1; _hypr_configs_match"
+
+# The crash-window laundering Sol reproduced: an `installing` marker written
+# before Atlas created any tree must NOT let a retry destroy foreign content that
+# appeared in the gap. The retry refuses at preflight, before any dnf mutation,
+# and preserves the user's file. Fully &&-chained so the survival check is real.
+assert_status "interrupted retry never destroys a tree created in the crash window" 0 \
+  bash -c "$PRE; _hypr_marker_write installing && mkdir -p \"\$XDG_CONFIG_HOME/hypr\" && echo mine > \"\$XDG_CONFIG_HOME/hypr/user.conf\" && ! module::install >/dev/null 2>&1 && [ -f \"\$XDG_CONFIG_HOME/hypr/user.conf\" ] && [ \"\$(cat \"\$XDG_CONFIG_HOME/hypr/user.conf\")\" = mine ] && grep -qxF state=installing \"\$(_hypr_marker)\" && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; }"
+
+# A symlinked managed config path is refused (it could redirect a write).
+assert_status "install refuses a symlinked config target before any mutation" 0 \
+  bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME\" \"\$HOME/elsewhere\" && ln -s \"\$HOME/elsewhere\" \"\$XDG_CONFIG_HOME/hypr\" && ! module::install >/dev/null 2>&1 && [ -L \"\$XDG_CONFIG_HOME/hypr\" ] && [ ! -e \"\$(_hypr_marker)\" ]"
 
 # --- watcher lifecycle (fail-closed) ----------------------------------------
 
@@ -456,6 +532,14 @@ assert_status "verify fails on watcher unit drift" 1 \
 
 assert_status "verify fails when the timer is no longer active while still on atlas1" 1 \
   bash -c "$PRE; module::install >/dev/null 2>&1; rm -f \"\$FAKE_STATE/timer.state\"; module::verify"
+
+# Sol blocker 3: the watcher (and wallpaper) deploy must never write THROUGH a
+# symlinked destination — the pointed-at file stays intact and deploy fails.
+assert_status "watcher deploy refuses to write through a symlinked script path" 0 \
+  bash -c "$PRE; echo secret > \"\$HOME/secret\" && mkdir -p \"\$(dirname \"\$ATLAS_HYPR_WATCHER_BIN\")\" && ln -s \"\$HOME/secret\" \"\$ATLAS_HYPR_WATCHER_BIN\" && ! _hypr_deploy_watcher >/dev/null 2>&1 && [ \"\$(cat \"\$HOME/secret\")\" = secret ]"
+
+assert_status "wallpaper bake refuses to write through a symlinked target" 0 \
+  bash -c "$PRE; mkdir -p \"\$(_hypr_wall_dir)\" && echo secret > \"\$HOME/secret\" && ln -s \"\$HOME/secret\" \"\$(_hypr_wall_dst atlas-lock-bg.png)\" && ! _hypr_bake_wallpapers >/dev/null 2>&1 && [ \"\$(cat \"\$HOME/secret\")\" = secret ]"
 
 assert_status "supersession: self-disabled timer is valid once aquamarine is superseded" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; echo 3.fc44 > \"\$FAKE_STATE/installed/aquamarine\"; rm -f \"\$FAKE_STATE/timer.state\"; module::verify"
@@ -527,6 +611,32 @@ assert_status "parser allows exact hypr-set upgrades" 0 \
 assert_status "parser rejects a broad kitty-* prefix upgrade (exact names only)" 1 \
   bash -c "$PRE; _hypr_rehearse_output_ok \"Upgrading:
  kitty-terminfo noarch 1-1 updates 1M\""
+
+# Sol blocker 8: fail-closed parser hardening.
+assert_status "parser rejects an unknown operation-like section (fail closed)" 1 \
+  bash -c "$PRE; _hypr_rehearse_output_ok \"Installing:
+ hyprland x86_64 1-1 copr 1M
+Frobnicating:
+ plasma-workspace x86_64 6.0 @System 1M\""
+
+assert_status "parser requires a recognized transaction plan (no plan = reject)" 1 \
+  bash -c "$PRE; _hypr_rehearse_output_ok \"Repositories loaded.
+Nothing to do.\""
+
+assert_status "parser rejects a reinstall of a non-hypr package" 1 \
+  bash -c "$PRE; _hypr_rehearse_output_ok \"Reinstalling:
+ systemd x86_64 257 updates 1M\""
+
+assert_status "parser allows a reinstall of an allowlisted package" 0 \
+  bash -c "$PRE; _hypr_rehearse_output_ok \"Reinstalling:
+ kitty x86_64 0.32 copr 1M\""
+
+assert_status "parser ignores Transaction Summary counts (not package ops)" 0 \
+  bash -c "$PRE; _hypr_rehearse_output_ok \"Installing:
+ hyprland x86_64 1-1 copr 1M
+Transaction Summary:
+ Installing: 20 packages
+ Removing: 0 packages\""
 
 # --- txn id helpers ----------------------------------------------------------
 

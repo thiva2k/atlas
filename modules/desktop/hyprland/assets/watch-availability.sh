@@ -9,7 +9,7 @@
 # once this module has run.
 #
 # It keys off the *installed* aquamarine RPM %{RELEASE}:
-#   - ends with .atlas1 → still on the Atlas local build; stay quiet.
+#   - ends with exactly .atlas1 → still on the Atlas local build; stay quiet.
 #   - aquamarine absent → nothing to watch; disable the timer.
 #   - anything else     → an official rebuild superseded us; notify once and
 #                         disable the timer. This is an all-clear, not an error.
@@ -35,16 +35,20 @@ if [ -z "$release" ] || [ "$release" = "(none)" ]; then
 fi
 
 case "$release" in
-  *.atlas*)
-    echo "$(stamp) still on local aquamarine release=$release (atlas*)" >>"$LOG"
+  *.atlas1)
+    echo "$(stamp) still on local aquamarine release=$release (.atlas1)" >>"$LOG"
     exit 0
     ;;
 esac
 
-# Official (or other) release replaced our .atlas* build.
-echo "$(stamp) SUPERSEDED: aquamarine release=$release (no longer .atlas*)" >>"$LOG"
-notify-send -u normal -a "Atlas" "Atlas · aquamarine local rebuild superseded" \
-  "Official aquamarine ($release) replaced the Atlas .atlas* build. Local rebuild ownership can stand down." 2>/dev/null || true
-touch "$STATE/hypr-superseded" 2>/dev/null || true
+# Official (or other) release replaced our .atlas1 build. Notify AT MOST once:
+# the persistent sidecar is the notify-once record, so even if disabling the
+# timer fails and the unit fires again, the user is not re-notified.
+echo "$(stamp) SUPERSEDED: aquamarine release=$release (no longer .atlas1)" >>"$LOG"
+if [ ! -e "$STATE/hypr-superseded" ]; then
+  notify-send -u normal -a "Atlas" "Atlas · aquamarine local rebuild superseded" \
+    "Official aquamarine ($release) replaced the Atlas .atlas1 build. Local rebuild ownership can stand down." 2>/dev/null || true
+  touch "$STATE/hypr-superseded" 2>/dev/null || true
+fi
 _disable
 exit 0
