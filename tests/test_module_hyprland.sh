@@ -26,6 +26,9 @@ _hypr_dnf_install_local() { printf "install-local %s\n" "$*" >> "$DNF_LOG"; [ "$
 _hypr_hyprland_present() { [ "${HYPR_PRESENT:-0}" = 1 ]; }
 # seam: never bake real wallpapers in tests
 _hypr_bake_wallpapers() { return 0; }
+# seam: never touch real systemd in tests
+_hypr_deploy_watcher() { printf "watcher-deploy\n" >> "$DNF_LOG"; return 0; }
+_hypr_undeploy_watcher() { printf "watcher-undeploy\n" >> "$DNF_LOG"; return 0; }
 '
 PRE="${PRE%$'\n'}"
 
@@ -62,8 +65,17 @@ assert_status "hyprland update restores drift" 0 \
 assert_status "hyprland install fails leave installing marker" 0 \
   bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; if module::install >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\""
 
+assert_status "hyprland update refuses to promote a failed install" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; module::install >/dev/null 2>&1 || true; if module::update >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\""
+
+assert_status "hyprland install activates the supersession watcher" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -q 'watcher-deploy' \"\$DNF_LOG\""
+
+assert_status "hyprland remove deactivates the supersession watcher" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -q 'watcher-undeploy' \"\$DNF_LOG\""
+
 assert_status "hyprland remove detaches configs but leaves packages" 0 \
-  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_hypr_marker)\"; [ ! -e \"\$XDG_CONFIG_HOME/hypr\" ]; ! grep -q 'dnf history undo' \"\$DNF_LOG\"; ! grep -qi 'remove' \"\$DNF_LOG\""
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1 && module::remove >/dev/null 2>&1 && grep -qxF state=detached \"\$(_hypr_marker)\" && [ ! -e \"\$XDG_CONFIG_HOME/hypr\" ] && ! grep -q 'dnf history undo' \"\$DNF_LOG\" && ! grep -qi 'remove' \"\$DNF_LOG\""
 
 assert_status "hyprland remove is idempotent" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; module::remove"

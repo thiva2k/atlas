@@ -31,22 +31,24 @@ notices the `.atlas1` release disappear and says so.
 
 ## Status
 
-Configs are the source of truth here and are currently **deployed directly to
-`~/.config/`** (user scope, no root) so the Hyprland session is live-ready. A
-reversible `module.sh` (package install + config deploy + wallpaper generation,
-check/install/verify/remove) is a follow-up once the desktop is validated live.
+Configs are the source of truth here and are deployed via the reversible
+`module.sh` (local aquamarine build + package install + config deploy +
+wallpaper generation + supersession watcher activation, with
+check/install/verify/update/remove hooks). Install it with
+`atlas install desktop/hyprland`; `module::remove` detaches the configs and
+watcher but leaves the packages in place (roll back with `dnf history undo`).
 
 ## Install
 
-Hyprland comes from COPR `solopasha/hyprland` (not Fedora base). As of 2026-07-16
-the COPR's `aquamarine` is stale against Fedora 44's `libdisplay-info 0.3` — see
-the spec §7. Once rebuilt:
+Hyprland comes from COPR `solopasha/hyprland` (not Fedora base). As of
+2026-07-16 the COPR's `aquamarine` was stale against Fedora 44's
+`libdisplay-info 0.3` — see the spec §7 — so Atlas builds and ships a local
+`0.9.5-2.fc44.atlas1` rebuild instead of the stock package:
 
 ```
 sudo dnf copr enable -y solopasha/hyprland
-sudo dnf install -y hyprland hyprlock hypridle hyprpaper xdg-desktop-portal-hyprland \
-  waybar wofi mako kitty grim slurp brightnessctl playerctl
-bash modules/desktop/hyprland/assets/generate.sh    # (re)bake the wallpapers
+bash modules/desktop/hyprland/build/build-aquamarine.sh    # rebuild aquamarine against .so.3
+atlas install desktop/hyprland                              # configs, wallpapers, watcher
 ```
 
 Then log out → pick "Hyprland" at the Atlas login. Plasma stays as fallback.

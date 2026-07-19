@@ -7,10 +7,13 @@ REPO="copr:copr.fedorainfracloud.org:solopasha:hyprland"
 OUT="$HOME/atlas-hypr-rpms"
 RPM="$OUT/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm"
 
-gate() {  # a built RPM passes iff it links .so.3, not .so.2, and provides .so.8
-  rpm -qp --requires "$1" 2>/dev/null | grep -q 'libdisplay-info.so.3' &&
-  ! rpm -qp --requires "$1" 2>/dev/null | grep -q 'libdisplay-info.so.2' &&
-  rpm -qp --provides "$1" 2>/dev/null | grep -q 'libaquamarine.so.8'
+gate() {  # passes iff it links .so.3, not .so.2, and provides .so.8
+  local req prov
+  req="$(rpm -qp --requires "$1" 2>/dev/null)"
+  prov="$(rpm -qp --provides "$1" 2>/dev/null)"
+  printf '%s\n' "$req"  | grep -q 'libdisplay-info.so.3' &&
+  ! printf '%s\n' "$req"  | grep -q 'libdisplay-info.so.2' &&
+  printf '%s\n' "$prov" | grep -q 'libaquamarine.so.8'
 }
 
 command -v dnf >/dev/null || { echo "dnf required" >&2; exit 1; }

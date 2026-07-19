@@ -21,6 +21,26 @@ _hypr_hyprland_present() { os::has_cmd Hyprland || rpm -q hyprland >/dev/null 2>
 _hypr_build_rpm() { bash "$_HYPR_MODULE_DIR/build/build-aquamarine.sh"; }
 _hypr_bake_wallpapers() { bash "$_HYPR_MODULE_DIR/assets/generate.sh" >/dev/null 2>&1 || log::warn "wallpaper bake skipped"; }
 
+_HYPR_ASSETS_DIR="$_HYPR_MODULE_DIR/assets"
+_hypr_watcher_dst() { printf '%s\n' "$HOME/.local/bin/atlas-hypr-check.sh"; }  # matches the unit's %h/.local/bin ExecStart
+_hypr_units_dir()   { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; }
+
+_hypr_deploy_watcher() {
+  local bin units; bin="$(_hypr_watcher_dst)"; units="$(_hypr_units_dir)"
+  mkdir -p "$(dirname "$bin")" "$units" || return 1
+  cp "$_HYPR_ASSETS_DIR/watch-availability.sh" "$bin" || return 1
+  chmod +x "$bin" || return 1
+  cp "$_HYPR_ASSETS_DIR/atlas-hypr-check.service" "$_HYPR_ASSETS_DIR/atlas-hypr-check.timer" "$units/" || return 1
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
+}
+
+_hypr_undeploy_watcher() {
+  systemctl --user disable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
+  rm -f "$(_hypr_watcher_dst)" "$(_hypr_units_dir)/atlas-hypr-check.service" "$(_hypr_units_dir)/atlas-hypr-check.timer" || true
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+}
+
 # Install the locally-built aquamarine RPM + the hypr stack in one dnf transaction.
 _hypr_dnf_install_local() {
   local rpm="$1"
@@ -86,6 +106,7 @@ module::install() {
   _hypr_dnf_install_local "$(_hypr_rpm_path)" || { log::error "hyprland package install failed"; return 1; }
   _hypr_deploy_configs || return 1
   _hypr_bake_wallpapers || true
+  _hypr_deploy_watcher || log::warn "supersession watcher not activated"
   _hypr_configs_match || return 1
   _hypr_marker_write installed || return 1
   log::info "Atlas Hyprland is installed; pick it at the login screen"
@@ -103,7 +124,10 @@ module::verify() {
 
 module::update() {
   _hypr_marker_load || return 1
-  case "$_HYPR_STATE" in absent|detached) return 0 ;; esac
+  case "$_HYPR_STATE" in
+    absent|detached) return 0 ;;
+    installing) log::error "hyprland install incomplete; rerun install"; return 1 ;;
+  esac
   _hypr_deploy_configs || return 1
   _hypr_marker_write installed || return 1
   _hypr_configs_match
@@ -114,8 +138,9 @@ module::remove() {  # detach: drop Atlas-owned configs; leave packages (rollback
   case "$_HYPR_STATE" in absent|detached) return 0 ;; esac
   local d txn
   for d in $_HYPR_CONFIG_TREES; do rm -rf "$(_hypr_cfg_dst "$d")" || return 1; done
+  _hypr_undeploy_watcher
   _hypr_marker_write detached || return 1
-  txn="${ATLAS_STATE_DIR:-$HOME/.local/state/atlas}/hypr-install-txn"
+  txn="${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/hypr-install-txn"
   if [ -f "$txn" ]; then
     log::info "detached Hyprland configs; packages remain — roll them back with: sudo dnf history undo $(cat "$txn")"
   else
