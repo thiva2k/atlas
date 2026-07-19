@@ -96,10 +96,11 @@ _hypr_tree_matches_src() {  # true iff the deployed tree byte-matches our source
 }
 
 _hypr_deploy_configs() {
-  # $1: first-adoption flag. Back up pre-existing UNMANAGED content only on first
-  # adoption (state was absent/detached). Once Atlas owns the trees, install/update
-  # just refresh our own files — so a later Atlas config change never gets mistaken
-  # for user data (which would spuriously back up and then refuse a second time).
+  # $1: first-adoption flag. Back up pre-existing UNMANAGED content whenever the module
+  # is not yet in a settled `installed` state (absent/detached/installing) — so a first
+  # install AND a retry after a failed first install both protect user data. Once the
+  # marker reads `installed`, update/reinstall just refresh Atlas-owned files (no backup),
+  # so a later Atlas config change is never mistaken for user data.
   local first="${1:-0}" d src dst
   for d in $_HYPR_CONFIG_TREES; do
     src="$(_hypr_cfg_src "$d")"; dst="$(_hypr_cfg_dst "$d")"
@@ -159,7 +160,11 @@ module::install() {
     return 0
   fi
   _hypr_marker_load || return 1
-  local _first=0; case "$_HYPR_STATE" in absent|detached) _first=1 ;; esac
+  # Treat an interrupted install (state=installing, e.g. a failed source build left it
+  # mid-flight) as first-adoption too: the retry must still back up pre-existing user
+  # config rather than rm -rf it. Only a settled `installed` marker means Atlas owns the
+  # trees and deploy may refresh them without a backup.
+  local _first=0; case "$_HYPR_STATE" in absent|detached|installing) _first=1 ;; esac
   _hypr_marker_write installing || return 1
   [ -f "$(_hypr_rpm_path)" ] || _hypr_build_rpm || { log::error "aquamarine build failed"; return 1; }
   _hypr_rpm_ok "$(_hypr_rpm_path)" || { log::error "aquamarine RPM failed the .so.3/.so.8 gate: $(_hypr_rpm_path)"; return 1; }

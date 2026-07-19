@@ -74,6 +74,12 @@ assert_status "hyprland install records a rollback transaction id" 0 \
 assert_status "hyprland update over an adopted tree does not refuse on an existing backup" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'old\n' > \"\$XDG_CONFIG_HOME/kitty/old.conf\"; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/kitty/kitty.conf\"; module::update >/dev/null 2>&1 && module::verify"
 
+# regression (Critical, Fable): a first install that FAILS at the RPM gate over a pre-existing
+# user config leaves state=installing; the retry must STILL back up that config (installing
+# counts as first-adoption) rather than silently rm -rf it.
+assert_status "hyprland install retried after a failed first attempt still protects user config" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'user-owned\n' > \"\$XDG_CONFIG_HOME/kitty/mine.conf\"; RPM_OK=0; export RPM_OK; module::install >/dev/null 2>&1 || true; RPM_OK=1; export RPM_OK; module::install >/dev/null 2>&1 || true; grep -qxF user-owned \"\$XDG_CONFIG_HOME/kitty.atlas-bak/mine.conf\""
+
 assert_status "hyprland check passes after install" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::check"
 
