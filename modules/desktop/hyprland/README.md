@@ -17,8 +17,11 @@ rebuilt `aquamarine`. Atlas unblocks with a gated local rebuild:
 - **Gate:** requires `libdisplay-info.so.3`, never `.so.2`, provides `.so.8`
 - **Build:** `build/build-aquamarine.sh` (mock-first, rpmbuild fallback)
 
-Kitty chrome follows a Windows Terminal / PowerShell look: pure black host,
-Campbell ANSI palette, blinking beam (pipe) cursor.
+Kitty aims at **Windows Terminal UX**, not a generic dark theme: pure black
+host (`#000000`), Microsoft Campbell ANSI palette, selection `#264F78`, and a
+**thin blinking vertical bar cursor** (`cursor_shape beam`, thickness `1.0`) —
+never a block. Font prefers Cascadia Mono (WT default) with JetBrainsMono as
+fallback.
 
 ## Owns / does not own
 
