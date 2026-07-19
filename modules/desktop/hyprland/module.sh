@@ -96,12 +96,16 @@ _hypr_tree_matches_src() {  # true iff the deployed tree byte-matches our source
 }
 
 _hypr_deploy_configs() {
-  local d src dst
+  # $1: first-adoption flag. Back up pre-existing UNMANAGED content only on first
+  # adoption (state was absent/detached). Once Atlas owns the trees, install/update
+  # just refresh our own files — so a later Atlas config change never gets mistaken
+  # for user data (which would spuriously back up and then refuse a second time).
+  local first="${1:-0}" d src dst
   for d in $_HYPR_CONFIG_TREES; do
     src="$(_hypr_cfg_src "$d")"; dst="$(_hypr_cfg_dst "$d")"
     [ -d "$src" ] || { log::error "missing staged config: $src"; return 1; }
     mkdir -p "$(dirname "$dst")" || return 1
-    if [ -e "$dst" ] && ! _hypr_tree_matches_src "$d"; then
+    if [ "$first" = 1 ] && [ -e "$dst" ] && ! _hypr_tree_matches_src "$d"; then
       if [ -e "${dst}.atlas-bak" ]; then
         log::error "unmanaged $dst present and ${dst}.atlas-bak already exists; refusing to clobber user data"
         return 1
@@ -155,13 +159,14 @@ module::install() {
     return 0
   fi
   _hypr_marker_load || return 1
+  local _first=0; case "$_HYPR_STATE" in absent|detached) _first=1 ;; esac
   _hypr_marker_write installing || return 1
   [ -f "$(_hypr_rpm_path)" ] || _hypr_build_rpm || { log::error "aquamarine build failed"; return 1; }
   _hypr_rpm_ok "$(_hypr_rpm_path)" || { log::error "aquamarine RPM failed the .so.3/.so.8 gate: $(_hypr_rpm_path)"; return 1; }
   _hypr_rehearse_additive "$(_hypr_rpm_path)" || { log::error "aborting: non-additive transaction"; return 1; }
   _hypr_dnf_install_local "$(_hypr_rpm_path)" || { log::error "hyprland package install failed"; return 1; }
   _hypr_record_txn
-  _hypr_deploy_configs || return 1
+  _hypr_deploy_configs "$_first" || return 1
   _hypr_bake_wallpapers || true
   _hypr_verify_wallpapers
   _hypr_deploy_watcher || log::warn "supersession watcher not activated"

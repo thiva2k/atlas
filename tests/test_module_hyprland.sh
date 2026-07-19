@@ -69,6 +69,11 @@ assert_status "hyprland install aborts a non-additive transaction before mutatin
 assert_status "hyprland install records a rollback transaction id" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; [ -s \"\$(_hypr_txn_file)\" ]"
 
+# regression: back up only on first adoption -> a later update (Atlas owns the tree) must
+# refresh our own files without a spurious backup or the '.atlas-bak exists' hard-refuse.
+assert_status "hyprland update over an adopted tree does not refuse on an existing backup" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'old\n' > \"\$XDG_CONFIG_HOME/kitty/old.conf\"; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/kitty/kitty.conf\"; module::update >/dev/null 2>&1 && module::verify"
+
 assert_status "hyprland check passes after install" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::check"
 
