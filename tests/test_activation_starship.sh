@@ -30,6 +30,11 @@ os::has_cmd() {
 }
 # Make starship "present" by default; individual tests remove it to test refusal.
 : > "$STARSHIP_BIN"; chmod +x "$STARSHIP_BIN"
+# Mock the starship command so config validation (module::install ->
+# _starship_validate_if_present runs `starship prompt`) never depends on a real
+# binary being on the host PATH. Without this the file only passes on machines
+# that happen to have starship installed and fails on clean CI runners.
+starship() { [ "${STARSHIP_FAIL:-0}" = 1 ] && return 1; printf "starship mock\n"; }
 
 ACT()  { _starship_act_marker; }
 SNIP() { _starship_act_snippet_file; }
