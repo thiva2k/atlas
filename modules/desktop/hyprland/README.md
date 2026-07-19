@@ -44,7 +44,7 @@ detach (`remove` = detach only).
 | Hook | Behavior |
 |------|----------|
 | `check` | marker `installed` + hyprland/aquamarine present + configs + wallpapers + recorded txn + watcher all healthy |
-| `install` | Fedora 44 gate → adopt/refuse → COPR → gate RPM → additive rehearsal → **one** dnf txn (before/after history boundary) → record+validate txn id → deploy configs/wallpapers → deploy watcher → re-verify → `installed` |
+| `install` | Fedora 44 gate → adopt/refuse → preflight python3 + COPR plugin → marker → (skip to deploy if pkgs present) → COPR enable (repo-file only) → gate RPM → additive rehearsal → **one** dnf package txn → record+validate txn id → deploy configs/wallpapers/watcher → re-verify → `installed` |
 | `verify` | absent/detached OK; installing fails; installed fails only on config/wallpaper drift, a missing/unrelated recorded txn, a missing hyprland/aquamarine, or an unhealthy watcher |
 | `update` | re-deploy configs/wallpapers; never re-runs package txn |
 | `remove` | detach if no drift; never `dnf remove`; undeploys only Atlas-owned watcher files; prints `dnf history undo <id>` |
@@ -58,8 +58,11 @@ directories at those paths authorize nothing — `verify`/`remove` refuse, and
 `install` aborts before package mutation. A surface is Atlas-managed only once
 Atlas actually created or byte-for-byte adopted it, never because a marker
 exists. The full-tree manifest includes directories (an added empty dir is
-drift) and fails closed on any symlink. Host runtime: `python3` (dnf5 history
-JSON parsing), preflighted before any package mutation.
+drift) and fails closed on any symlink. Host prerequisites (preflighted before
+the marker, never installed by this module): `python3` (dnf5 history JSON) and
+`dnf copr` from `dnf-plugins-core` (when the package path will run and the COPR
+repo file is not already valid). Atlas **never** installs `dnf-plugins-core` —
+that would be a second, unrecorded transaction.
 
 **Adoption:** byte-identical pre-staged config trees are adopted without
 rewrite; differing unmanaged trees, and any symlinked target path, refuse
@@ -69,9 +72,9 @@ rewrite; differing unmanaged trees, and any symlinked target path, refuse
 and persists on failure. A later `install` re-evaluates ownership per target,
 skips every already-completed phase, detects an already-completed package
 transaction **before** any repo/build/package mutation (so it never enables the
-COPR, pulls `dnf-plugins-core`, or runs a second `dnf` transaction), and never
-`rm -rf`s a tree it does not own — content that appeared in the crash window is
-refused, not destroyed.
+COPR or runs a second `dnf` package transaction), and never `rm -rf`s a tree it
+does not own — content that appeared in the crash window is refused, not
+destroyed.
 
 **Rollback identity:** the recorded transaction is captured with a before/after
 `dnf history` boundary (a *failed* lookup is distinguished from a
@@ -84,7 +87,19 @@ for this install.
 
 **Symlink-safe, atomic deploys:** config trees, wallpapers, and watcher files
 are never written *through* a symlink, and every file is staged in a same-dir
-temp then renamed into place.
+temp then renamed with `mv -fT` only (no ordinary-`mv` fallback).
+
+## Release gate (not hermetic)
+
+Hermetic tests and CI are necessary but **not sufficient** to declare this
+module READY. An explicit **Fedora 44 live** release gate remains:
+
+1. `bash modules/desktop/hyprland/build/build-aquamarine.sh` (mock build)
+2. `./atlasctl install desktop/hyprland` on a real Fedora 44 host
+3. Login-session smoke (Hyprland selectable; Plasma still available)
+4. TTY rollback: `sudo dnf history undo "$(cat ~/.local/state/atlas/hypr-install-txn)"`
+
+Do not merge or ship on hermetic green alone.
 
 ## Layout
 

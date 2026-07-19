@@ -135,23 +135,40 @@ The central rule is:
 
 Hyprland is not in Fedora base repositories; the documented source is the
 `solopasha/hyprland` COPR, exactly as recorded in
-`2026-07-16-atlas-hyprland-desktop-design.md` §6. `install` may install
-`dnf-plugins-core` if `dnf copr` is missing, then:
+`2026-07-16-atlas-hyprland-desktop-design.md` §6.
+
+**COPR plugin support is a host prerequisite, not an Atlas package install.**
+`dnf copr` (from `dnf-plugins-core`) must already be available on the host.
+`install` preflights `dnf copr --help` **before** writing the `installing`
+marker whenever the package path will run and the validated repo file is not
+already present. If the plugin is missing, `install` refuses with a precise
+recovery command (`sudo dnf install dnf-plugins-core`) and performs **no**
+repository mutation, **no** package mutation, and **no** marker write. Atlas
+**never** installs `dnf-plugins-core` itself — that would be a second,
+unrecorded `dnf` transaction and would violate the exactly-one-recorded-
+transaction invariant below.
+
+When COPR support is available (or the repo file is already valid), repository
+enablement is:
 
 ```
 dnf -y copr enable solopasha/hyprland
 ```
 
-Atlas validates the resulting repo file the same way `development/ghostty`
-validates its COPR (RFC-0007 §3): enabled, correct repo id, `baseurl` present,
-`gpgcheck=1`. No `--nogpgcheck` path exists or is permitted.
+That command mutates only the yum repo file; it is **not** a package
+transaction and is not the recorded rollback id. Atlas validates the resulting
+repo file the same way `development/ghostty` validates its COPR (RFC-0007 §3):
+enabled, correct repo id, `baseurl` present, `gpgcheck=1`. No `--nogpgcheck`
+path exists or is permitted.
 
-The install itself is **exactly one `dnf` transaction**: the local aquamarine
-RPM (§5) plus the fixed package set (§3.1), given to `dnf install` together.
-Splitting this into two transactions would let the resolver satisfy Hyprland's
-`aquamarine` dependency from a repository copy (if one ever appears) instead of
-the local build, silently defeating the version pin in §5. The transaction is
-gated additive-only before it runs for real; see §8.2.
+The install itself is **exactly one recorded `dnf` package transaction**: the
+local aquamarine RPM (§5) plus the fixed package set (§3.1), given to
+`dnf install` together. Splitting the *package* install into two transactions
+would let the resolver satisfy Hyprland's `aquamarine` dependency from a
+repository copy (if one ever appears) instead of the local build, silently
+defeating the version pin in §5. Preliminary package installs (including
+`dnf-plugins-core`) are likewise forbidden. The package transaction is gated
+additive-only before it runs for real; see §8.
 
 ## 5. The aquamarine rebuild and its supersession contract
 
@@ -295,17 +312,32 @@ without proceeding to the next:
    `libdisplay-info.so.3` ABI break; a generic "is this Fedora" check is not
    enough. `install` reads the Fedora release version and refuses on anything
    other than 44, before writing `installing`.
-2. **Load and validate any existing marker** (§9). An `installing` marker from
-   a prior interrupted run is a valid starting point for reconciliation, not
-   a hard failure.
+2. **Load and validate any existing marker.** An `installing` marker from a
+   prior interrupted run is a valid starting point for reconciliation, not a
+   hard failure. A healthy `installed` marker short-circuits to a zero-mutation
+   return (§10.2).
 3. **Config and wallpaper adoption/refusal** (§6, §7), evaluated for every
    tree and both filenames, entirely before any COPR or package step. A
    refusal here exits `install` with no repository enabled and no package
    touched.
-4. **Write the `installing` marker.**
-5. **Ensure the aquamarine build artifact exists and passes the build gate**
+4. **Host runtime preflights, still before the marker:** `python3` (for dnf5
+   history JSON parsing) and, when the package path will run and the validated
+   COPR repo file is not already present, `dnf copr --help` (§4). Missing COPR
+   support refuses with `sudo dnf install dnf-plugins-core` — Atlas never
+   installs that package itself.
+5. **Write the `installing` marker.**
+6. **Completed-transaction short-circuit.** If both `aquamarine` and
+   `hyprland` are already installed, skip every repository/build/package step:
+   validate the recorded rollback id (refuse with a recovery command if
+   missing) and continue at step 12. This is what keeps the
+   exactly-one-recorded-package-transaction invariant under interrupted retries.
+7. **Enable the COPR repository** (§4) if the validated repo file is not
+   already present — `dnf -y copr enable solopasha/hyprland` only. This is a
+   repo-file mutation, not a package transaction, and must not install any
+   package.
+8. **Ensure the aquamarine build artifact exists and passes the build gate**
    (§5), building it via the module's build helper if it does not.
-6. **Transaction rehearsal — the gate that protects Plasma.** Resolve the full
+9. **Transaction rehearsal — the gate that protects Plasma.** Resolve the full
    transaction (local aquamarine RPM + the fixed package set) with a
    non-committing dnf invocation (`--assumeno` or equivalent). The rehearsal
    must show **zero removals, erasures, or obsoletions, and zero
@@ -313,57 +345,61 @@ without proceeding to the next:
    Nothing in Plasma links aquamarine; any other line means the resolver is
    doing something unexpected, and `install` aborts here — no package has been
    installed and the host is unchanged.
-7. **Run the single real `dnf install` transaction** (§4).
-8. **Record the transaction id immediately, using a before/after boundary.**
-   `install` captures the newest `dnf history` id *before* the transaction in
-   step 7, and reads it again *after*. Both boundary reads must succeed: a
-   *failed* history lookup is distinguished from a *confirmed-empty* history (a
-   real table with no rows, boundary value `0`), so a lookup failure aborts
-   rather than being mistaken for an empty history that would let a stale id be
-   recorded. It records the new id only when a new transaction actually appeared
-   (`after > before`, with a well-formed numeric boundary), and only when
-   `dnf history info <id> --json` proves the transaction's **identity**: exactly
-   one transaction with that id, `status` `Ok`, an `Install` of the exact
-   `aquamarine` NEVRA (`0.9.5` / `2.fc44.atlas1` / `x86_64`) and of `hyprland`,
-   and **no** `Remove`/`Downgrade`/`Obsolete`/unknown action on any package
-   (an `Upgrade`/`Reinstall` is tolerated only for the exact hypr/aquamarine
-   allowlist). The documented, stable JSON output is parsed rather than the
-   human-readable layout. The id is written atomically (same-dir temp then
-   `mv`), mode `600`, into `$ATLAS_STATE_DIR` — a plain file distinct from the
-   marker, so the exact `dnf history undo <id>` command is recoverable from a
-   bare TTY with the state directory as the only thing that has to be readable.
-   If the packages were installed but a valid id cannot be recorded, `install`
-   leaves the marker at `installing` and prints a precise recovery command; it
-   never records an unrelated, failed, or no-op transaction, and a reconciling
-   retry never runs a second `dnf` transaction to "fix" the missing id.
-9. **Deploy the five config trees** (§6) and **bake the two wallpapers**
-   (§7), applying the adoption rule to any tree/file not already covered by
-   step 3's evaluation (a config tree can appear between steps 3 and 9 only if
-   something else raced the filesystem, which is itself worth failing loudly
-   on rather than silently overwriting).
-10. **Re-verify** everything `verify` (§10) checks.
-11. **Promote the marker to `installed`.**
+10. **Run the single real `dnf install` package transaction** (§4).
+11. **Record the transaction id immediately, using a before/after boundary.**
+    `install` captures the newest `dnf history` id *before* the transaction in
+    step 10, and reads it again *after*. Both boundary reads must succeed: a
+    *failed* history lookup is distinguished from a *confirmed-empty* history
+    (a real table with no rows, boundary value `0`), so a lookup failure aborts
+    rather than being mistaken for an empty history that would let a stale id
+    be recorded. It records the new id only when a new transaction actually
+    appeared (`after > before`, with a well-formed numeric boundary), and only
+    when `dnf history info <id> --json` proves the transaction's **identity**:
+    exactly one transaction with that id, `status` `Ok`, an `Install` of the
+    exact `aquamarine` NEVRA (`0.9.5` / `2.fc44.atlas1` / `x86_64`) and of
+    `hyprland`, and **no** `Remove`/`Downgrade`/`Obsolete`/unknown action on
+    any package (an `Upgrade`/`Reinstall` is tolerated only for the exact
+    hypr/aquamarine allowlist). The documented, stable JSON output is parsed
+    rather than the human-readable layout. The id is written atomically
+    (same-dir temp then `mv -fT`), mode `600`, into `$ATLAS_STATE_DIR` — a
+    plain file distinct from the marker, so the exact
+    `dnf history undo <id>` command is recoverable from a bare TTY with the
+    state directory as the only thing that has to be readable. If the packages
+    were installed but a valid id cannot be recorded, `install` leaves the
+    marker at `installing` and prints a precise recovery command; it never
+    records an unrelated, failed, or no-op transaction, and a reconciling
+    retry never runs a second `dnf` package transaction to "fix" the missing
+    id.
+12. **Deploy the five config trees** (§6) and **bake the two wallpapers**
+    (§7), applying the adoption rule to any tree/file not already covered by
+    step 3's evaluation (a config tree can appear between steps 3 and 12 only
+    if something else raced the filesystem, which is itself worth failing
+    loudly on rather than silently overwriting). Deploy the supersession
+    watcher (§9), fail-closed.
+13. **Re-verify** everything `verify` (§10) checks, including complete
+    ownership records.
+14. **Promote the marker to `installed`.**
 
-An interrupted install leaves the marker at `installing` (step 4's write is
+An interrupted install leaves the marker at `installing` (step 5's write is
 never rolled back by a later failure). `installing` **persists on failure** —
 `install` never deletes or downgrades its own marker on an error path. A
 subsequent `install` call reconciles: it re-checks whatever already
 succeeded (repo enabled, RPM built, packages installed, transaction id
 recorded, configs deployed) and only performs the remaining steps, promoting
-to `installed` only once every check in step 10 passes. This mirrors the
+to `installed` only once every check in step 13 passes. This mirrors the
 `development/ghostty` reconciliation model (RFC-0007 §6.2).
 
 Two invariants make reconciliation safe rather than merely convenient:
 
-- **The completed package transaction is detected before any package
-  mutation.** On a retry, `install` checks whether both `aquamarine` and
-  `hyprland` are already installed *before* enabling the COPR, installing
-  `dnf-plugins-core`, or building/handing anything to `dnf`. If they are, it
-  runs no repository or package mutation at all — it only validates the
-  recorded rollback id (refusing, with a recovery command, if it is missing)
-  and continues with the config/wallpaper/watcher phases. This guarantees the
-  "exactly one `dnf` transaction" rule survives an arbitrary number of
-  interrupted retries.
+- **The completed package transaction is detected before any repository or
+  package mutation.** On a retry, `install` checks whether both `aquamarine`
+  and `hyprland` are already installed *before* enabling the COPR or
+  building/handing anything to `dnf`. If they are, it runs no repository or
+  package mutation at all — it only validates the recorded rollback id
+  (refusing, with a recovery command, if it is missing) and continues with the
+  config/wallpaper/watcher phases. This guarantees the "exactly one recorded
+  `dnf` package transaction" rule survives an arbitrary number of interrupted
+  retries. Atlas never installs `dnf-plugins-core` as a preliminary step.
 - **Ownership is re-evaluated per target on every path, before mutation.** The
   adoption/refusal gate (§6/§7) runs on `absent`, `installing`, and reconciling
   `installed` paths alike, keyed off the per-target ownership records rather
@@ -484,7 +520,7 @@ hook:
 4. Write the marker to `detached`.
 5. Print the recorded rollback command,
    `dnf history undo <recorded-id>`, reading `<recorded-id>` from the state
-   file written in §8 step 8.
+   file written in §8 step 11.
 
 `remove` **never** calls `dnf remove`, `dnf history undo`, or disables the
 COPR repository. Package rollback is the user's explicit, one-command choice
@@ -567,6 +603,21 @@ hermetic — sandboxed `HOME`/XDG/state, mocked `dnf`/`rpm`, no host mutation):
 - the watcher script reports "still on `.atlas1`" while installed, "nothing to
   watch" when aquamarine is absent, and "superseded" (plus timer disable) the
   moment the installed release no longer ends `.atlas1`.
+- missing `dnf COPR` support refuses before the marker with no repository or
+  package mutation, and never installs `dnf-plugins-core`.
+
+### 13.1 Release gate (Fedora 44 live)
+
+Hermetic tests and CI are **necessary but not sufficient**. Declaring this
+module READY / merge-ready for production use additionally requires a
+successful **Fedora 44 live** runbook:
+
+1. mock build via `modules/desktop/hyprland/build/build-aquamarine.sh`;
+2. `atlasctl install desktop/hyprland` on a real Fedora 44 host;
+3. login-session smoke (Hyprland selectable; Plasma still available);
+4. TTY rollback via `dnf history undo <recorded-id>`.
+
+Do not declare READY from hermetic green alone.
 
 ## 14. Architecture review findings
 
@@ -579,20 +630,22 @@ hermetic — sandboxed `HOME`/XDG/state, mocked `dnf`/`rpm`, no host mutation):
 - **Dependency model:** `MODULE_DEPENDS=()`. This module does not depend on
   `desktop/theme`, `desktop/fonts`, `desktop/icons`, or `desktop/cursor`; it
   references their outputs by name only, the same relationship Ghostty has
-  with fonts (RFC-0007 §7). Host runtime dependency: **`python3`**, used solely
-  to parse the stable dnf5 `history info --json` for rollback-identity
-  validation (§8 step 8). This is the second Atlas host-runtime dependency after
-  `gpg` (RFC-0004 / `docs/conventions.md`). `install` preflights `python3`
-  **before** any package mutation so a missing interpreter never leaves packages
-  installed with an unrecordable transaction. Suggested recovery:
-  `dnf install python3` or `atlasctl install development/python`.
+  with fonts (RFC-0007 §7). Host prerequisites (preflighted before the marker;
+  never installed by this module): **`python3`** (dnf5 `history info --json`
+  for rollback-identity validation, §8 step 11) and **`dnf copr`** from
+  `dnf-plugins-core` when the package path will run and the COPR repo file is
+  not already valid (§4 / §8 step 4). These join `gpg` (RFC-0004) as Atlas
+  host-runtime dependencies (`docs/conventions.md`). Suggested recovery:
+  `sudo dnf install python3` / `sudo dnf install dnf-plugins-core`, or
+  `atlasctl install development/python` for the interpreter.
 - **Security:** no `--nogpgcheck`; the COPR is an explicit, narrow trust
   decision matching RFC-0007 §3's precedent; the local aquamarine build is
   `mock`-isolated (§5, no host build fallback), so the only privileged host
-  package mutation is the single additive-gated `dnf` transaction. Ownership
-  records (`hypr-owned-trees`, wallpaper sidecar) are trust boundaries: regular
-  non-symlink mode-`600` files with exact known entries; malformed/partial/
-  wrong-mode records authorize nothing and refuse detach.
+  *package* mutation is the single additive-gated `dnf install` transaction
+  (COPR enable is repo-file only). Ownership records (`hypr-owned-trees`,
+  wallpaper sidecar) are trust boundaries: regular non-symlink mode-`600`
+  files with exact known entries; malformed/partial/wrong-mode records
+  authorize nothing and refuse detach. Atomic state writes use `mv -fT` only.
 - **Idempotency:** `install`, `verify`, `update`, `backup`, and `restore` are
   repeatable; `remove` is repeatable after a successful detach and refuses
   cleanly (no partial state) on drift.

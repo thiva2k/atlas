@@ -117,9 +117,11 @@ _hypr_all_trees_owned() {
   return 0
 }
 # Atomically replace <dst> with <tmp>, never following/into a directory or
-# symlink. GNU `mv -T` treats the destination as a file even if it is a
-# directory; without that, `mv tmp dir` would place the file *inside* dir and
-# leave a forged directory ownership path in place (Sol residual).
+# symlink. On Fedora (GNU coreutils) ONLY `mv -fT` is used: `-T` treats the
+# destination as a file even if it is a directory. There is NO fallback to
+# ordinary `mv` — that would place the file *inside* a directory destination
+# and launder a forged ownership path. Fail closed if `-T` is unavailable or
+# the move fails.
 _hypr_atomic_replace() {
   local tmp="$1" dst="$2"
   if [ -e "$dst" ] || [ -L "$dst" ]; then
@@ -128,7 +130,7 @@ _hypr_atomic_replace() {
       return 1
     fi
   fi
-  mv -fT "$tmp" "$dst" 2>/dev/null || mv -f -- "$tmp" "$dst"
+  mv -fT -- "$tmp" "$dst"
 }
 
 # Add a tree to the ownership record, rebuilding it from the VALIDATED set so a
@@ -588,6 +590,20 @@ _hypr_dnf_copr_available() {
   dnf copr --help >/dev/null 2>&1
 }
 
+# COPR plugin support is a HOST PREREQUISITE, never an Atlas-installed package.
+# Installing `dnf-plugins-core` here would be a second, unrecorded dnf
+# transaction and would violate RFC-0038's exactly-one-recorded-transaction
+# invariant. Preflight before the marker; print a precise recovery command.
+_hypr_require_copr() {
+  if _hypr_dnf_copr_available; then
+    return 0
+  fi
+  log::error "dnf COPR plugin unavailable; Atlas will not install dnf-plugins-core (that would be a second, unrecorded transaction)"
+  log::error "recover:  sudo dnf install dnf-plugins-core"
+  log::error "then rerun: atlasctl install desktop/hyprland"
+  return 1
+}
+
 _hypr_repo_ok() {
   local repo
   repo="$(_hypr_repo_file)"
@@ -598,13 +614,18 @@ _hypr_repo_ok() {
   grep -q '^baseurl=' "$repo" || return 1
 }
 
+# Enable the Hyprland COPR when the validated repo file is not already present.
+# NEVER installs packages (including dnf-plugins-core). COPR availability is
+# preflighted by _hypr_require_copr before the marker; this function only runs
+# `dnf -y copr enable` (repo-file mutation, not a package transaction).
 _hypr_write_repo() {
   if _hypr_repo_ok >/dev/null 2>&1; then
     log::info "Hyprland COPR repository already enabled"
     return 0
   fi
   if ! _hypr_dnf_copr_available; then
-    os::dnf_install dnf-plugins-core || { log::error "cannot install dnf COPR support"; return 1; }
+    _hypr_require_copr
+    return 1
   fi
   _hypr_run_privileged dnf -y copr enable "$_HYPR_COPR" || {
     log::error "cannot enable Hyprland COPR repository"; return 1; }
@@ -958,14 +979,21 @@ module::install() {
   # python3 is needed for rollback-identity JSON parsing — refuse before any
   # package mutation so a missing interpreter never leaves an unrecordable txn.
   _hypr_require_python3 || return 1
+  # COPR plugin support is a host prerequisite. Preflight BEFORE the marker
+  # whenever the package path will run and the repo is not already valid —
+  # Atlas never installs dnf-plugins-core (that would be a second, unrecorded
+  # transaction; RFC-0038 §4 / §8).
+  if ! _hypr_packages_installed && ! _hypr_repo_ok; then
+    _hypr_require_copr || return 1
+  fi
 
   _hypr_marker_write installing || return 1
 
   # Phase: the ONE real package transaction (RFC-0038 §8). Detect a completed
   # transaction FIRST, before any repository/build/package mutation: an
   # interrupted retry that already installed the packages must neither run a
-  # second dnf transaction nor perform any other package mutation (e.g. pulling
-  # in dnf-plugins-core) on the way to noticing they are present.
+  # second dnf transaction nor perform any other repository or package
+  # mutation on the way to noticing they are present.
   if _hypr_packages_installed; then
     log::info "hypr packages already installed; not re-running the package transaction"
     if ! _hypr_txn_ok; then
@@ -975,7 +1003,7 @@ module::install() {
       return 1
     fi
   else
-    # Phase: COPR repository (idempotent).
+    # Phase: COPR repository enablement (repo-file only; never a package txn).
     _hypr_write_repo || return 1
 
     # Phase: aquamarine artifact — build only if the gate does not already pass;

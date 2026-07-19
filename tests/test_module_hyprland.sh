@@ -48,7 +48,10 @@ JSON
 }
 
 # dnf copr --help
-if [ "${1:-}" = copr ] && [ "${2:-}" = --help ]; then exit 0; fi
+if [ "${1:-}" = copr ] && [ "${2:-}" = --help ]; then
+  [ "${FAKE_COPR_HELP_FAIL:-0}" = 1 ] && exit 1
+  exit 0
+fi
 
 # dnf -y copr enable <repo>
 if [ "${1:-}" = -y ] && [ "${2:-}" = copr ] && [ "${3:-}" = enable ]; then
@@ -543,6 +546,28 @@ assert_status "mode-644 wallpaper sidecar fails verify" 0 \
 # shadow external commands for `command -v` when not using -p).
 assert_status "missing python3 aborts before any package transaction" 0 \
   bash -c "$PRE; command() { if [ \"\$1\" = -v ] && [ \"\$2\" = python3 ]; then return 1; fi; builtin command \"\$@\"; }; ! module::install >/dev/null 2>&1 && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; } && [ ! -f \"\$(_hypr_txn_file)\" ]"
+
+# --- COPR host prerequisite (no unrecorded dnf-plugins-core txn) ------------
+# When `dnf copr --help` fails, install must refuse BEFORE the marker, with no
+# dnf install, no repository mutation, and no package mutation. Atlas never
+# installs dnf-plugins-core itself (exactly-one-recorded-transaction invariant).
+assert_status "missing COPR plugin aborts before marker/repo/package mutation" 0 \
+  bash -c "$PRE; export FAKE_COPR_HELP_FAIL=1; ! module::install >/dev/null 2>&1 && [ ! -e \"\$(_hypr_marker)\" ] && [ ! -e \"\$ATLAS_HYPR_REPO_FILE\" ] && [ ! -f \"\$(_hypr_txn_file)\" ] && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -qE 'install -y|dnf-plugins-core|copr enable' \"\$FAKE_STATE/dnf.log\"; }"
+
+# Direct real-path unit: _hypr_write_repo itself must not install packages when
+# COPR help fails (defense in depth if called without the preflight).
+assert_status "write_repo never installs dnf-plugins-core when COPR is unavailable" 0 \
+  bash -c "$PRE; export FAKE_COPR_HELP_FAIL=1; ! _hypr_write_repo >/dev/null 2>&1 && [ ! -e \"\$ATLAS_HYPR_REPO_FILE\" ] && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -qE 'install -y|dnf-plugins-core' \"\$FAKE_STATE/dnf.log\"; }"
+
+# --- atomic replace fail-closed (mv -fT only, no ordinary-mv fallback) ------
+# A failed mv -T must not invoke a second ordinary move: every logged mv must
+# contain -fT, the destination must not appear, and the temp source remains.
+assert_status "atomic_replace fail-closed: failed mv -T does not fall back to ordinary mv" 0 \
+  bash -c "$PRE; mv() { printf '%s\n' \"\$*\" >> \"\$FAKE_STATE/mv.log\"; case \" \$* \" in *' -fT '*|*' -T '*) return 1 ;; esac; command mv \"\$@\"; }; export -f mv; mkdir -p \"\$ATLAS_STATE_DIR\"; tmp=\"\$(mktemp \"\$ATLAS_STATE_DIR/.hypr-atomic.XXXXXX\")\"; printf x > \"\$tmp\"; dst=\"\$ATLAS_STATE_DIR/atomic-dst\"; ! _hypr_atomic_replace \"\$tmp\" \"\$dst\" && [ ! -e \"\$dst\" ] && [ -f \"\$tmp\" ] && grep -q -- '-fT' \"\$FAKE_STATE/mv.log\" && ! grep -v -- '-fT' \"\$FAKE_STATE/mv.log\" >/dev/null"
+
+# Directory destination: refuse before any move; nothing written inside the dir.
+assert_status "atomic_replace refuses a directory destination without writing into it" 0 \
+  bash -c "$PRE; mv() { printf '%s\n' \"\$*\" >> \"\$FAKE_STATE/mv.log\"; command mv \"\$@\"; }; export -f mv; mkdir -p \"\$ATLAS_STATE_DIR/atomic-dir\"; tmp=\"\$(mktemp \"\$ATLAS_STATE_DIR/.hypr-atomic.XXXXXX\")\"; printf x > \"\$tmp\"; ! _hypr_atomic_replace \"\$tmp\" \"\$ATLAS_STATE_DIR/atomic-dir\" && [ -d \"\$ATLAS_STATE_DIR/atomic-dir\" ] && [ -z \"\$(find \"\$ATLAS_STATE_DIR/atomic-dir\" -mindepth 1 -print -quit)\" ] && [ ! -f \"\$FAKE_STATE/mv.log\" ]"
 
 # --- watcher lifecycle (fail-closed) ----------------------------------------
 
