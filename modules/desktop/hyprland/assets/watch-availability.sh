@@ -22,8 +22,8 @@ fi
 
 installed_rel="$(rpm -q --qf '%{RELEASE}' aquamarine 2>/dev/null)"
 case "$installed_rel" in
-  *.atlas1)
-    # still on our local rebuild; keep watching
+  *.atlas*)
+    # still on any Atlas local rebuild (.atlas1, a patched .atlas2, …); keep watching
     echo "$(stamp) still on the Atlas local rebuild ($installed_rel)" >>"$LOG"
     ;;
   *)
