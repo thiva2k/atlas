@@ -1,5 +1,5 @@
 [Unit]
-Description=Atlas — daily Hyprland availability check
+Description=Atlas — daily aquamarine supersession check
 
 [Timer]
 OnBootSec=10min

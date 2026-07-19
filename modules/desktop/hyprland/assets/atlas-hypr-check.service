@@ -1,5 +1,5 @@
 [Unit]
-Description=Atlas — check whether Hyprland is installable yet
+Description=Atlas — check whether the local aquamarine rebuild has been superseded
 Documentation=file:%h/atlas/modules/desktop/hyprland/README.md
 
 [Service]
