@@ -29,6 +29,10 @@ _hypr_bake_wallpapers() { return 0; }
 # seam: never touch real systemd in tests
 _hypr_deploy_watcher() { printf "watcher-deploy\n" >> "$DNF_LOG"; return 0; }
 _hypr_undeploy_watcher() { printf "watcher-undeploy\n" >> "$DNF_LOG"; return 0; }
+_hypr_rpm_ok() { [ "${RPM_OK:-1}" = 1 ]; }
+_hypr_rehearse_additive() { [ "${ADDITIVE_OK:-1}" = 1 ]; }
+_hypr_record_txn() { printf "42\n" > "$(_hypr_txn_file)"; }
+_hypr_is_fedora44() { [ "${FEDORA_OK:-1}" = 1 ]; }
 '
 PRE="${PRE%$'\n'}"
 
@@ -50,11 +54,29 @@ assert_status "hyprland install deploys all five config trees" 0 \
 assert_status "hyprland install uses the local atlas1 aquamarine rpm" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -q 'aquamarine-0.9.5-2.fc44.atlas1' \"\$DNF_LOG\""
 
+assert_status "hyprland install backs up a pre-existing user config instead of deleting it" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'user-owned\n' > \"\$XDG_CONFIG_HOME/kitty/mine.conf\"; module::install >/dev/null 2>&1; grep -qxF user-owned \"\$XDG_CONFIG_HOME/kitty.atlas-bak/mine.conf\""
+
+assert_status "hyprland remove leaves a drifted managed tree in place" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::remove >/dev/null 2>&1; [ -e \"\$XDG_CONFIG_HOME/waybar\" ]"
+
+assert_status "hyprland install refuses an RPM that fails the linkage gate" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 RPM_OK=0; export HYPR_PRESENT RPM_OK; if module::install >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\"; ! grep -q 'install-local' \"\$DNF_LOG\""
+
+assert_status "hyprland install aborts a non-additive transaction before mutating" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 ADDITIVE_OK=0; export HYPR_PRESENT ADDITIVE_OK; if module::install >/dev/null 2>&1; then exit 9; fi; ! grep -q 'install-local' \"\$DNF_LOG\""
+
+assert_status "hyprland install records a rollback transaction id" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; [ -s \"\$(_hypr_txn_file)\" ]"
+
 assert_status "hyprland check passes after install" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::check"
 
 assert_status "hyprland install is idempotent" 0 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; cp \"\$(_hypr_marker)\" \"\$HOME/m1\"; module::install >/dev/null 2>&1; cmp -s \"\$HOME/m1\" \"\$(_hypr_marker)\""
+
+assert_status "hyprland repeated install runs no second dnf transaction" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; n1=\$(wc -l < \"\$DNF_LOG\"); module::install >/dev/null 2>&1; n2=\$(wc -l < \"\$DNF_LOG\"); [ \"\$n1\" = \"\$n2\" ]"
 
 assert_status "hyprland verify fails when a managed config drifts" 1 \
   bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::verify"
