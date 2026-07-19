@@ -52,16 +52,16 @@ if [ -z "$release" ] || [ "$release" = "(none)" ]; then
 fi
 
 case "$release" in
-  *.atlas1|*.atlas1.*)
-    echo "$(stamp) still on local aquamarine release=$release (atlas1)" >>"$LOG"
+  *.atlas*|*.atlas*.*)
+    echo "$(stamp) still on local aquamarine release=$release (atlas*)" >>"$LOG"
     exit 0
     ;;
 esac
 
-# Official (or other) release replaced our .atlas1 build.
-echo "$(stamp) SUPERSEDED: aquamarine release=$release (no longer .atlas1)" >>"$LOG"
+# Official (or other) release replaced our .atlas* build.
+echo "$(stamp) SUPERSEDED: aquamarine release=$release (no longer .atlas*)" >>"$LOG"
 notify-send -u normal -a "Atlas" "Atlas · aquamarine local rebuild superseded" \
-  "Official aquamarine ($release) replaced the Atlas .atlas1 build. Local rebuild ownership can stand down." 2>/dev/null || true
+  "Official aquamarine ($release) replaced the Atlas .atlas* build. Local rebuild ownership can stand down." 2>/dev/null || true
 touch "$STATE/hypr-superseded" 2>/dev/null || true
 _disable
 exit 0

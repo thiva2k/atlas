@@ -253,7 +253,7 @@ rm -rf "$dir"
 # --- watcher: supersession logic (RFC-0038 §9) ------------------------------
 WATCH="$ATLAS_ROOT/modules/desktop/hyprland/assets/watch-availability.sh"
 assert_status "watcher is valid bash" 0 bash -n "$WATCH"
-assert_status "watcher keys off atlas1 release marker" 0 \
-  bash -c "grep -qF 'atlas1' \"$WATCH\""
+assert_status "watcher keys off atlas release marker" 0 \
+  bash -c "grep -qE 'atlas\\*' \"$WATCH\" || grep -qF 'atlas1' \"$WATCH\""
 assert_status "watcher no longer self-disables solely because hyprland is installed" 1 \
   bash -c "grep -q 'hyprland already installed; disabling watcher' \"$WATCH\""
