@@ -3,8 +3,9 @@
 #
 # Atlas owns: COPR solopasha/hyprland intent; local aquamarine-0.9.5-2.fc44.atlas1
 # while needed; the fixed hypr package set; five ~/.config trees; two named
-# wallpapers; recorded numeric dnf history id; watcher script + user systemd units.
-# Does NOT own: Plasma, user shell, unrelated themes, or package removal on detach.
+# wallpapers; the recorded dnf history transaction that installed them; watcher
+# script + user systemd units. Does NOT own: Plasma, user shell, unrelated
+# themes, or package removal on detach.
 MODULE_NAME="hyprland"
 MODULE_DESCRIPTION="Atlas Hyprland desktop: local aquamarine rebuild + hypr stack + managed configs."
 MODULE_DEPENDS=()
@@ -19,8 +20,13 @@ _HYPR_PACKAGES=(
   waybar wofi mako kitty grim slurp brightnessctl playerctl
 )
 _HYPR_WALLPAPERS="atlas-lock-bg.png atlas-wall-bw.png"
-# Package NEVRA prefix allowlist for rehearsal (additive-only outside this set).
-_HYPR_PKG_ALLOW_RE='^(aquamarine|hyprland|xdg-desktop-portal-hyprland|hyprlock|hypridle|hyprpaper|waybar|wofi|mako|kitty|grim|slurp|brightnessctl|playerctl)([.-]|$)'
+
+# Aquamarine artifact identity (must match modules/.../build/build-aquamarine.sh
+# and RFC-0038 §5). Re-validated here before the RPM is ever handed to dnf.
+_HYPR_AQ_NAME="aquamarine"
+_HYPR_AQ_VERSION="0.9.5"
+_HYPR_AQ_RELEASE="2.fc44.atlas1"
+_HYPR_AQ_ARCH="x86_64"
 
 _hypr_marker() {
   printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/installed/desktop-hyprland"
@@ -47,6 +53,23 @@ _hypr_run_privileged() { if os::is_root; then "$@"; else sudo "$@"; fi; }
 _hypr_hyprland_present() { os::has_cmd Hyprland || rpm -q hyprland >/dev/null 2>&1; }
 _hypr_build_rpm() { bash "$_HYPR_MODULE_DIR/build/build-aquamarine.sh" >/dev/null 2>&1; }
 _hypr_systemctl_user() { systemctl --user "$@"; }
+
+# aquamarine is installed at all (any release)?
+_hypr_aquamarine_installed() { rpm -q aquamarine >/dev/null 2>&1; }
+
+# aquamarine is installed AND still the Atlas .atlas* local build (vs a later
+# official rebuild that superseded it via `dnf upgrade`, RFC-0038 §9).
+_hypr_aquamarine_is_atlas() {
+  local rel
+  rel="$(rpm -q --qf '%{RELEASE}' aquamarine 2>/dev/null || true)"
+  case "$rel" in *.atlas*) return 0 ;; *) return 1 ;; esac
+}
+
+# The one real package transaction has already landed (interrupted-retry gate).
+_hypr_packages_installed() {
+  _hypr_hyprland_present || return 1
+  _hypr_aquamarine_installed || return 1
+}
 
 _hypr_fedora_44() {
   local osf fed
@@ -87,7 +110,7 @@ _hypr_configs_match() {
 }
 
 _hypr_wallpapers_match() {
-  local f src_hash dst
+  local f src_hash dst line
   [ -f "$(_hypr_wall_dir)/.atlas-hypr-wall.sha256" ] || return 1
   for f in $_HYPR_WALLPAPERS; do
     dst="$(_hypr_wall_dst "$f")"
@@ -146,7 +169,8 @@ _hypr_wallpaper_matches_expected() {
   return 0
 }
 
-# Adoption/refusal before package mutation (RFC-0038 §6/§7).
+# Adoption/refusal before package mutation (RFC-0038 §6/§7). Only meaningful in
+# absent/detached state (no marker); once a marker exists the trees are managed.
 _hypr_preflight_targets() {
   local d src dst f
   for d in $_HYPR_CONFIG_TREES; do
@@ -182,16 +206,34 @@ _hypr_preflight_targets() {
   return 0
 }
 
+# Deploy config trees. <mode> is:
+#   fresh   — entry state absent/detached: targets were absent or byte-identical
+#             at preflight. NEVER rm -rf here; create absent trees, skip
+#             identical ones, and FAIL LOUDLY on a tree that now differs (the
+#             filesystem raced us between preflight and deploy — RFC-0038 §8
+#             step 9). This closes the preflight/deploy race without ever
+#             destroying content we have not proven Atlas-owned.
+#   managed — entry state installing/installed: the marker already establishes
+#             Atlas ownership of these five trees (RFC-0038 §6), so drift is
+#             reconciled from source. Byte-identical trees are still skipped.
 _hypr_deploy_configs() {
-  local d src dst
+  local mode="${1:-managed}" d src dst
   for d in $_HYPR_CONFIG_TREES; do
     src="$(_hypr_cfg_src "$d")"
     dst="$(_hypr_cfg_dst "$d")"
     [ -d "$src" ] || { log::error "missing staged config: $src"; return 1; }
-    if [ -d "$dst" ] && _hypr_tree_matches "$d"; then
+    if [ ! -e "$dst" ]; then
+      mkdir -p "$(dirname "$dst")" || return 1
+      cp -a "$src" "$dst" || return 1
       continue
     fi
-    mkdir -p "$(dirname "$dst")" || return 1
+    if _hypr_tree_matches "$d"; then
+      continue
+    fi
+    if [ "$mode" = fresh ]; then
+      log::error "config tree changed under us since preflight; refusing to overwrite: $dst"
+      return 1
+    fi
     rm -rf "$dst" || return 1
     cp -a "$src" "$dst" || return 1
   done
@@ -202,64 +244,98 @@ _hypr_bake_wallpapers() {
   _hypr_record_wall_hashes
 }
 
+# Full artifact gate (RFC-0038 §5): exact NEVRA + arch, soname requires/provides,
+# and payload/header integrity. A pre-existing artifact is always re-validated.
 _hypr_rpm_gate() {
-  local rpm="$1"
+  local rpm="$1" nevra name ver rel arch
   [ -f "$rpm" ] || return 1
+  nevra="$(rpm -qp --qf '%{NAME} %{VERSION} %{RELEASE} %{ARCH}\n' "$rpm" 2>/dev/null)" || return 1
+  read -r name ver rel arch <<<"$nevra" || return 1
+  [ "$name" = "$_HYPR_AQ_NAME" ] || return 1
+  [ "$ver" = "$_HYPR_AQ_VERSION" ] || return 1
+  [ "$rel" = "$_HYPR_AQ_RELEASE" ] || return 1
+  [ "$arch" = "$_HYPR_AQ_ARCH" ] || return 1
   rpm -qp --requires "$rpm" 2>/dev/null | grep -q 'libdisplay-info\.so\.3' || return 1
   rpm -qp --requires "$rpm" 2>/dev/null | grep -q 'libdisplay-info\.so\.2' && return 1
   rpm -qp --provides "$rpm" 2>/dev/null | grep -q 'libaquamarine\.so\.8' || return 1
+  rpm -K --nosignature "$rpm" >/dev/null 2>&1 || return 1
   return 0
 }
 
-# Fail-closed parser for dnf --assumeno output (testable without dnf).
-# Rejects: dnf failure (caller), removals/erasures/obsoletes, and
-# upgrade/downgrade of any package outside the hypr/aquamarine allowlist.
-_hypr_rehearse_output_ok() {
-  local out="$1" section="" line name
-  printf '%s\n' "$out" | grep -Eqi '(^|[[:space:]])(Removing|Erasing|Obsoleting)(:|[[:space:]])' && return 1
+# Exact package-name allowlist for rehearsal upgrades (no broad kitty-* prefixes).
+_hypr_pkg_allowed() {
+  local n="$1" p
+  for p in "$_HYPR_AQ_NAME" "${_HYPR_PACKAGES[@]}"; do
+    [ "$n" = "$p" ] && return 0
+  done
+  return 1
+}
 
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      Removing:*|Erasing:*|Obsoleting:*|removing:*|erasing:*|obsoleting:*)
-        return 1
-        ;;
-      Upgrading:*|Downgrading:*|upgrading:*|downgrading:*)
-        section=mutate
-        continue
-        ;;
-      Installing:*|installing:*|Reinstalling:*|reinstalling:*)
-        section=install
-        continue
-        ;;
-      Transaction*|" "*Summary*|"")
-        section=""
-        continue
-        ;;
+# Positive confirmation that a --assumeno rehearsal RESOLVED cleanly and then
+# declined. dnf5 --assumeno exits non-zero for BOTH a declined-but-resolved plan
+# and a genuine resolver failure, so exit code cannot be trusted; classify by
+# deterministic (LC_ALL=C) output and fail closed on anything unconfirmed.
+_hypr_rehearse_resolved_ok() {
+  local out="$1"
+  printf '%s\n' "$out" \
+    | grep -Eqi 'failed to resolve|nothing provides|no match for argument|depsolve error|problem:|conflicts with|cannot install' \
+    && return 1
+  printf '%s\n' "$out" | grep -qF 'Operation aborted by the user.' && return 0
+  printf '%s\n' "$out" | grep -qiF 'nothing to do' && return 0
+  return 1
+}
+
+# Fail-closed parser for a resolved dnf5 transaction plan. Rejects any removal,
+# erasure, obsoletion/"replacing", or downgrade, and any upgrade of a package
+# outside the exact hypr/aquamarine allowlist. Installs (incl. dependencies) are
+# additive and always allowed.
+_hypr_rehearse_output_ok() {
+  local out="$1" raw line section="" name indented
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    case "$raw" in
+      " "*|$'\t'*) indented=1 ;;
+      *) indented=0 ;;
     esac
-    if [ "$section" = mutate ]; then
-      # Package name is usually the first field; strip arch/epoch noise.
-      name="$(printf '%s\n' "$line" | awk '{print $1}')"
-      name="${name##*/}"
-      [ -z "$name" ] && continue
-      case "$name" in
-        Package|Name|---*|=====*) continue ;;
+    line="${raw#"${raw%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [ "$indented" -eq 0 ]; then
+      case "$line" in
+        "Installing:"|"Installing dependencies:"|"Installing weak dependencies:"|"Reinstalling:") section=install ;;
+        "Upgrading:") section=upgrade ;;
+        "Downgrading:") section=downgrade ;;
+        "Removing:"|"Removing dependent packages:"|"Removing unused dependencies:") section=remove ;;
+        "Obsoleting:") section=obsolete ;;
+        *) section="" ;;
       esac
-      printf '%s\n' "$name" | grep -Eq "$_HYPR_PKG_ALLOW_RE" || return 1
+      continue
     fi
+    case "$line" in
+      [Rr]eplacing\ *) return 1 ;;
+    esac
+    [ -n "$section" ] || continue
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    [ -z "$name" ] && continue
+    case "$name" in Package|Name) continue ;; esac
+    case "$section" in
+      remove|obsolete|downgrade) return 1 ;;
+      upgrade) _hypr_pkg_allowed "$name" || return 1 ;;
+      install) : ;;
+    esac
   done <<< "$out"
   return 0
 }
 
+# Transaction rehearsal — the gate that protects Plasma (RFC-0038 §8.2).
 _hypr_rehearse_transaction() {
-  local rpm out rc=0
+  local rpm out
   rpm="$(_hypr_rpm_path)"
-  out="$(_hypr_run_privileged dnf install -y --assumeno "$rpm" "${_HYPR_PACKAGES[@]}" 2>&1)" || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    log::error "hyprland transaction rehearsal failed (dnf exit $rc) — fail closed"
+  out="$(_hypr_run_privileged env LC_ALL=C dnf install --assumeno "$rpm" "${_HYPR_PACKAGES[@]}" 2>&1)"
+  if ! _hypr_rehearse_resolved_ok "$out"; then
+    log::error "hyprland transaction rehearsal did not resolve cleanly — fail closed"
     return 1
   fi
   if ! _hypr_rehearse_output_ok "$out"; then
-    log::error "hyprland transaction rehearsal is not additive (removal or non-hypr upgrade/downgrade)"
+    log::error "hyprland transaction rehearsal is not additive (removal/obsoletion/downgrade or non-hypr upgrade)"
     return 1
   fi
   return 0
@@ -271,7 +347,8 @@ _hypr_dnf_copr_available() {
 }
 
 _hypr_repo_ok() {
-  local repo="$(_hypr_repo_file)"
+  local repo
+  repo="$(_hypr_repo_file)"
   [ -f "$repo" ] || return 1
   grep -qxF "[$_HYPR_REPO_ID]" "$repo" || return 1
   grep -qxF "enabled=1" "$repo" || return 1
@@ -297,7 +374,7 @@ _hypr_dnf_install_local() {
   local rpm="${1:-}"
   [ -n "$rpm" ] || rpm="$(_hypr_rpm_path)"
   [ -f "$rpm" ] || { log::error "aquamarine RPM not built: $rpm"; return 1; }
-  _hypr_rpm_gate "$rpm" || { log::error "aquamarine RPM failed soname gate: $rpm"; return 1; }
+  _hypr_rpm_gate "$rpm" || { log::error "aquamarine RPM failed gate: $rpm"; return 1; }
   _hypr_run_privileged dnf install -y "$rpm" "${_HYPR_PACKAGES[@]}"
 }
 
@@ -310,62 +387,126 @@ _hypr_txn_id_valid() {
   return 0
 }
 
+# Newest dnf history transaction id ("" if none). dnf history list is
+# newest-first, so the first numeric data row is the max id. Unprivileged
+# (dnf5 history is readable by the invoking user).
+_hypr_history_max_id() {
+  dnf history list 2>/dev/null | awk '/^[[:space:]]*[0-9]+[[:space:]]/{print $1; exit}'
+}
+
+# Does dnf history transaction <id> exist AND install both aquamarine and
+# hyprland? Proves the recorded id is really this module's install, not an
+# unrelated/newer global transaction (RFC-0038 §8 step 8 / §10.3).
+_hypr_txn_contains_expected() {
+  local id="$1" info
+  _hypr_txn_id_valid "$id" || return 1
+  info="$(dnf history info "$id" 2>/dev/null)" || return 1
+  [ -n "$info" ] || return 1
+  printf '%s\n' "$info" | grep -Eq "^Transaction ID[[:space:]]*:[[:space:]]*${id}([[:space:]]|\$)" || return 1
+  printf '%s\n' "$info" | grep -Eq '^[[:space:]]*Install[[:space:]]+aquamarine-' || return 1
+  printf '%s\n' "$info" | grep -Eq '^[[:space:]]*Install[[:space:]]+hyprland-' || return 1
+  return 0
+}
+
+# The recorded rollback transaction is present, numeric, exists in dnf history,
+# and corresponds to this module's install (not merely well-formed).
 _hypr_txn_ok() {
   local id
   [ -f "$(_hypr_txn_file)" ] || return 1
   id="$(tr -d '[:space:]' < "$(_hypr_txn_file)" 2>/dev/null || true)"
-  _hypr_txn_id_valid "$id"
+  _hypr_txn_id_valid "$id" || return 1
+  _hypr_txn_contains_expected "$id"
 }
 
-# Resolve newest history id. Prefer ATLAS_HYPR_TXN_ID in tests. Never write "unknown".
-_hypr_fetch_txn_id() {
-  local id=""
-  if [ -n "${ATLAS_HYPR_TXN_ID:-}" ]; then
-    printf '%s\n' "$ATLAS_HYPR_TXN_ID"
-    return 0
-  fi
-  # dnf5: `dnf history list` — first numeric field on a data row
-  id="$(_hypr_run_privileged dnf history list 2>/dev/null \
-    | awk '/^[[:space:]]*[0-9]+[[:space:]]/{print $1; exit}')"
-  if ! _hypr_txn_id_valid "${id:-}"; then
-    id="$(_hypr_run_privileged dnf history info 2>/dev/null \
-      | awk -F: '/^Transaction ID/{gsub(/[[:space:]]/,"",$2); print $2; exit}')"
-  fi
-  printf '%s\n' "${id:-}"
-}
-
-_hypr_record_txn_id() {
-  local id path dir
+# Record the transaction produced by THIS invocation, using a before/after
+# history boundary. Rejects: no new transaction, malformed/absent id, a newer id
+# that is not our aquamarine/hyprland install. Atomic write, mode 600.
+_hypr_record_txn_from_boundary() {
+  local before="$1" after="$2" path dir tmp
   path="$(_hypr_txn_file)"
   dir="$(dirname "$path")"
+  _hypr_txn_id_valid "$after" || {
+    log::error "dnf history returned no usable id after install (got '${after:-empty}')"; return 1; }
+  if _hypr_txn_id_valid "$before"; then
+    [ "$after" -gt "$before" ] || {
+      log::error "no new dnf transaction recorded (before=$before after=$after)"; return 1; }
+  fi
+  _hypr_txn_contains_expected "$after" || {
+    log::error "newest dnf transaction ($after) is not the expected aquamarine/hyprland install"; return 1; }
   mkdir -p "$dir" || return 1
-  id="$(_hypr_fetch_txn_id)"
-  _hypr_txn_id_valid "$id" || {
-    log::error "cannot record a usable numeric dnf history id (got '${id:-empty}')"
-    return 1
-  }
-  printf '%s\n' "$id" > "$path" || return 1
-  chmod 600 "$path" || return 1
+  chmod 700 "$dir" 2>/dev/null || true
+  tmp="$(mktemp "$dir/.hypr-install-txn.XXXXXX")" || return 1
+  printf '%s\n' "$after" > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 }
 
+_hypr_watcher_files_ok() {
+  local bin units
+  bin="$(_hypr_watcher_dst)"
+  units="$(_hypr_units_dir)"
+  [ -f "$bin" ] || return 1
+  cmp -s "$_HYPR_ASSETS_DIR/watch-availability.sh" "$bin" || return 1
+  cmp -s "$_HYPR_ASSETS_DIR/atlas-hypr-check.service" "$units/atlas-hypr-check.service" || return 1
+  cmp -s "$_HYPR_ASSETS_DIR/atlas-hypr-check.timer" "$units/atlas-hypr-check.timer" || return 1
+  return 0
+}
+
+_hypr_watcher_active() {
+  _hypr_systemctl_user is-enabled atlas-hypr-check.timer >/dev/null 2>&1 || return 1
+  _hypr_systemctl_user is-active atlas-hypr-check.timer >/dev/null 2>&1 || return 1
+  return 0
+}
+
+# Watcher health (RFC-0038 §9): while aquamarine is still the .atlas1 local
+# build, the timer must be deployed and active. Once an official rebuild
+# supersedes it, the watcher may have self-disabled — that is valid, so only the
+# file ownership is required in that state.
+_hypr_watcher_ok() {
+  _hypr_watcher_files_ok || return 1
+  if _hypr_aquamarine_is_atlas; then
+    _hypr_watcher_active || return 1
+  fi
+  return 0
+}
+
+# Deploy the watcher, fail-closed on every safety-critical step (RFC-0038 §9).
 _hypr_deploy_watcher() {
   local bin units
   bin="$(_hypr_watcher_dst)"
   units="$(_hypr_units_dir)"
-  mkdir -p "$(dirname "$bin")" "$units" || return 1
-  cp -f "$_HYPR_ASSETS_DIR/watch-availability.sh" "$bin" || return 1
-  chmod 755 "$bin" || return 1
+  mkdir -p "$(dirname "$bin")" "$units" || { log::error "cannot create watcher directories"; return 1; }
+  cp -f "$_HYPR_ASSETS_DIR/watch-availability.sh" "$bin" || { log::error "cannot deploy watcher script"; return 1; }
+  chmod 755 "$bin" || { log::error "cannot chmod watcher script"; return 1; }
   cp -f "$_HYPR_ASSETS_DIR/atlas-hypr-check.service" \
-        "$_HYPR_ASSETS_DIR/atlas-hypr-check.timer" "$units/" || return 1
-  _hypr_systemctl_user daemon-reload >/dev/null 2>&1 || true
-  _hypr_systemctl_user enable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
+        "$_HYPR_ASSETS_DIR/atlas-hypr-check.timer" "$units/" || {
+    log::error "cannot deploy watcher units"; return 1; }
+  _hypr_systemctl_user daemon-reload || { log::error "systemctl --user daemon-reload failed"; return 1; }
+  _hypr_systemctl_user enable --now atlas-hypr-check.timer || {
+    log::error "cannot enable atlas-hypr-check.timer"; return 1; }
+  _hypr_watcher_active || { log::error "atlas-hypr-check.timer is not active after enable"; return 1; }
+  _hypr_watcher_files_ok || { log::error "deployed watcher files do not match repository source"; return 1; }
+  return 0
 }
 
+# Undeploy only verified Atlas-owned watcher files (RFC-0038 §10.5).
 _hypr_undeploy_watcher() {
+  local bin units
+  bin="$(_hypr_watcher_dst)"
+  units="$(_hypr_units_dir)"
   _hypr_systemctl_user disable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
-  rm -f "$(_hypr_watcher_dst)" \
-        "$(_hypr_units_dir)/atlas-hypr-check.service" \
-        "$(_hypr_units_dir)/atlas-hypr-check.timer" || true
+  if [ -f "$bin" ] && cmp -s "$_HYPR_ASSETS_DIR/watch-availability.sh" "$bin"; then
+    rm -f "$bin" || true
+  fi
+  if [ -f "$units/atlas-hypr-check.service" ] && \
+     cmp -s "$_HYPR_ASSETS_DIR/atlas-hypr-check.service" "$units/atlas-hypr-check.service"; then
+    rm -f "$units/atlas-hypr-check.service" || true
+  fi
+  if [ -f "$units/atlas-hypr-check.timer" ] && \
+     cmp -s "$_HYPR_ASSETS_DIR/atlas-hypr-check.timer" "$units/atlas-hypr-check.timer"; then
+    rm -f "$units/atlas-hypr-check.timer" || true
+  fi
+  _hypr_systemctl_user daemon-reload >/dev/null 2>&1 || true
 }
 
 _hypr_marker_load() {
@@ -409,11 +550,15 @@ _hypr_marker_write() {
   mv -f "$tmp" "$m" || { rm -f "$tmp"; return 1; }
 }
 
+# Full healthy-installed predicate (RFC-0038 §10). A healthy state means every
+# owned surface is present and matching, so a healthy repeated install is a no-op.
 _hypr_managed_ok() {
   _hypr_configs_match || return 1
   _hypr_wallpapers_match || return 1
   _hypr_txn_ok || return 1
   _hypr_hyprland_present || return 1
+  _hypr_aquamarine_installed || return 1
+  _hypr_watcher_ok || return 1
   return 0
 }
 
@@ -427,42 +572,84 @@ module::install() {
   _hypr_fedora_44 || { log::error "hyprland module supports Fedora 44 only"; return 1; }
   _hypr_marker_load || return 1
 
-  # True idempotency: healthy installed state does not re-run dnf.
+  # Fast path: a healthy installed state performs ZERO mutations — no dnf, no
+  # rehearsal, no build, no config/wallpaper/watcher rewrites (RFC-0038 §10.2).
   if [ "$_HYPR_STATE" = installed ] && _hypr_managed_ok; then
     log::info "Atlas Hyprland already installed and healthy"
     return 0
   fi
 
+  # Ownership is re-evaluated on EVERY mutating path. absent/detached has no
+  # marker, so trees/wallpapers are adopted-if-identical or refused before any
+  # package or filesystem mutation. installing/installed already carries Atlas
+  # ownership (RFC-0038 §6/§7), so reconciliation may rewrite drift.
+  local owned=0
   case "$_HYPR_STATE" in
     absent|detached)
       _hypr_preflight_targets || return 1
+      owned=0
+      ;;
+    installing|installed)
+      owned=1
       ;;
   esac
 
   _hypr_marker_write installing || return 1
 
+  # Phase: COPR repository (idempotent).
   _hypr_write_repo || return 1
 
-  if [ ! -f "$(_hypr_rpm_path)" ]; then
+  # Phase: aquamarine artifact — build only if the gate does not already pass;
+  # a pre-existing artifact is always re-validated, never trusted by name.
+  if ! _hypr_rpm_gate "$(_hypr_rpm_path)"; then
     _hypr_build_rpm || { log::error "aquamarine build failed"; return 1; }
+    _hypr_rpm_gate "$(_hypr_rpm_path)" || {
+      log::error "aquamarine RPM failed the NEVRA/soname/integrity gate after build"; return 1; }
   fi
-  # Always re-gate — even a pre-existing file at the expected path.
-  _hypr_rpm_gate "$(_hypr_rpm_path)" || {
-    log::error "aquamarine RPM failed soname gate"; return 1; }
 
-  _hypr_rehearse_transaction || return 1
-  _hypr_dnf_install_local "$(_hypr_rpm_path)" || {
-    log::error "hyprland package install failed"; return 1; }
-  _hypr_record_txn_id || { log::error "cannot record dnf history id"; return 1; }
+  # Phase: the ONE real package transaction. An interrupted retry that already
+  # installed the packages must NOT run a second dnf transaction (RFC-0038 §8).
+  if _hypr_packages_installed; then
+    log::info "hypr packages already installed; not re-running the package transaction"
+    if ! _hypr_txn_ok; then
+      log::error "packages are installed but no valid rollback transaction is recorded; leaving state=installing"
+      log::error "recover the id:  sudo dnf history list --contains-pkgs=aquamarine,hyprland"
+      log::error "then record it:  echo <id> > \"$(_hypr_txn_file)\" && chmod 600 \"$(_hypr_txn_file)\""
+      return 1
+    fi
+  else
+    _hypr_rehearse_transaction || return 1
+    local before after
+    before="$(_hypr_history_max_id)"
+    _hypr_dnf_install_local "$(_hypr_rpm_path)" || {
+      log::error "hyprland package install failed"; return 1; }
+    after="$(_hypr_history_max_id)"
+    _hypr_record_txn_from_boundary "$before" "$after" || {
+      log::error "packages installed but recording the rollback transaction failed; leaving state=installing"
+      log::error "recover the id:  sudo dnf history list --contains-pkgs=aquamarine,hyprland"
+      log::error "then record it:  echo <id> > \"$(_hypr_txn_file)\" && chmod 600 \"$(_hypr_txn_file)\""
+      return 1
+    }
+  fi
 
-  _hypr_deploy_configs || return 1
+  # Phase: config trees + wallpapers.
+  if [ "$owned" -eq 1 ]; then
+    _hypr_deploy_configs managed || return 1
+  else
+    _hypr_deploy_configs fresh || return 1
+  fi
   _hypr_bake_wallpapers || { log::error "hyprland wallpaper bake failed"; return 1; }
-  _hypr_deploy_watcher || log::warn "supersession watcher not activated"
 
+  # Phase: watcher (fail-closed).
+  _hypr_deploy_watcher || return 1
+
+  # Phase: re-verify everything before promoting the marker.
   _hypr_configs_match || { log::error "hyprland config deploy mismatch"; return 1; }
   _hypr_wallpapers_match || { log::error "hyprland wallpapers missing after bake"; return 1; }
   _hypr_txn_ok || { log::error "hyprland dnf history id unusable"; return 1; }
   _hypr_hyprland_present || { log::error "hyprland not present after install"; return 1; }
+  _hypr_aquamarine_installed || { log::error "aquamarine not installed after transaction"; return 1; }
+  _hypr_watcher_ok || { log::error "supersession watcher not healthy after deploy"; return 1; }
 
   _hypr_marker_write installed || return 1
   log::info "Atlas Hyprland is installed; pick it at the login screen (Plasma remains available)"
@@ -479,8 +666,10 @@ module::verify() {
   esac
   _hypr_configs_match || { log::error "hyprland managed config has drifted"; return 1; }
   _hypr_wallpapers_match || { log::error "hyprland managed wallpaper has drifted"; return 1; }
-  _hypr_txn_ok || { log::error "hyprland dnf history id missing or unusable"; return 1; }
+  _hypr_txn_ok || { log::error "hyprland rollback transaction missing or unrelated"; return 1; }
   _hypr_hyprland_present || { log::error "hyprland package/binary missing"; return 1; }
+  _hypr_aquamarine_installed || { log::error "aquamarine package missing"; return 1; }
+  _hypr_watcher_ok || { log::error "hyprland supersession watcher is not healthy"; return 1; }
   log::info "Atlas Hyprland config is healthy"
 }
 
@@ -493,7 +682,7 @@ module::update() {
       return 1
       ;;
   esac
-  _hypr_deploy_configs || return 1
+  _hypr_deploy_configs managed || return 1
   _hypr_bake_wallpapers || { log::error "hyprland wallpaper bake failed"; return 1; }
   _hypr_configs_match || return 1
   _hypr_wallpapers_match || return 1

@@ -173,16 +173,28 @@ compositor needs).
   (so a routine `dnf upgrade` silently swaps in the official rebuild the
   moment it lands — no Atlas action required). The bare form `2.atlas1`
   (without `%{?dist}`) sorts *below* `2.fc44` and must never be used.
-- **Build order is mock-first, `rpmbuild` fallback.** `mock` is preferred
-  because it mutates nothing on the host until install; if `mock` setup proves
-  too heavy, host `rpmbuild` + `dnf builddep` is an acceptable, dnf-tracked,
-  undoable fallback. Both paths produce the same artifact and must pass the
-  same gate.
+- **The binary RPM is built through `mock` only.** `mock` builds inside a
+  disposable chroot and mutates nothing on the host, so the build never
+  installs build dependencies onto the running system or creates a second,
+  unrecorded host `dnf`/`rpm` transaction outside the one gated install in §8.
+  Host `rpmbuild` may be used **only** to re-roll the modified *source* RPM
+  (`-bs`) inside a private, disposable `_topdir` — that produces no package
+  mutation — and host `dnf builddep` + `rpmbuild -bb` is **not permitted**.
+  When `mock` or its prerequisites are unavailable the build fails clearly;
+  it does not fall back to a host build. (Amends the original "mock-first,
+  rpmbuild fallback" wording: the fallback is removed because it violated the
+  one-transaction/no-host-mutation isolation guarantee this RFC depends on.)
 - **The build gate** (checked by the build helper, and re-checked by
-  `module::install` before the RPM is ever handed to `dnf`): the built RPM's
-  `requires` must include `libdisplay-info.so.3` and must **not** include
-  `libdisplay-info.so.2`; its `provides` must include `libaquamarine.so.8`. Any
-  other outcome is a build failure, not an install candidate.
+  `module::install` before the RPM is ever handed to `dnf`) validates the
+  built RPM as a whole, not just three soname strings: its exact package
+  **name** is `aquamarine`; its **version** is `0.9.5` and **release** is
+  `2.fc44.atlas1` (the pin in this section); its **architecture** is
+  `x86_64`; its `requires` must include `libdisplay-info.so.3` and must
+  **not** include `libdisplay-info.so.2`; its `provides` must include
+  `libaquamarine.so.8`; and the RPM must pass `rpm -K` payload/header
+  integrity. A pre-existing artifact at the expected path is **always**
+  re-validated against all of these — never trusted by filename. Any other
+  outcome is a build failure, not an install candidate.
 - **Auto-supersession is the intended end state, not a future migration.**
   Atlas does not need to detect the official `-3` package and swap it in; a
   normal `dnf upgrade` does that on its own once the COPR ships it, because
@@ -273,14 +285,21 @@ without proceeding to the next:
    doing something unexpected, and `install` aborts here — no package has been
    installed and the host is unchanged.
 7. **Run the single real `dnf install` transaction** (§4).
-8. **Record the transaction id immediately.** Before anything else, `install`
-   reads the newest `dnf history` id and writes it to
-   `$ATLAS_STATE_DIR` (a plain, human-readable file distinct from the marker,
+8. **Record the transaction id immediately, using a before/after boundary.**
+   `install` captures the newest `dnf history` id *before* the transaction in
+   step 7, and reads it again *after*. It records the new id only when a new
+   transaction actually appeared (`after > before`), the id is a well-formed
+   number, and `dnf history info <id>` shows this transaction installing both
+   `aquamarine` and `hyprland` — proving the recorded id is really this
+   install and not an unrelated or concurrent global transaction. The id is
+   written atomically (same-dir temp then `mv`), mode `600`, into
+   `$ATLAS_STATE_DIR` — a plain, human-readable file distinct from the marker,
    so the exact `dnf history undo <id>` command is recoverable from a bare TTY
-   with the state directory as the only thing that has to be readable — no
-   marker parsing required). This happens even if a later step in this list
-   fails, because the packages are already installed at that point and the
-   rollback path must exist regardless.
+   with the state directory as the only thing that has to be readable. If the
+   packages were installed but a valid id cannot be recorded, `install` leaves
+   the marker at `installing` and prints a precise recovery command; it never
+   records an unrelated or no-op transaction, and a reconciling retry never
+   runs a second `dnf` transaction to "fix" the missing id.
 9. **Deploy the five config trees** (§6) and **bake the two wallpapers**
    (§7), applying the adoption rule to any tree/file not already covered by
    step 3's evaluation (a config tree can appear between steps 3 and 9 only if
@@ -330,9 +349,12 @@ units) and its disposition (when it disables itself). It does not own
 ### 10.1 `check`
 
 Returns `0` only when the marker is valid, state is `installed`, Hyprland is
-present (binary on `PATH` or RPM-owned), and all five config trees match
-Atlas source exactly. Any other state returns non-zero so `install` can decide
-whether reconciliation or a fresh install is appropriate.
+present (binary on `PATH` or RPM-owned), `aquamarine` is installed, all five
+config trees match Atlas source exactly, both wallpapers match their recorded
+hashes, the recorded rollback transaction still exists and corresponds to this
+install, and the supersession watcher is in its expected state (§9). Any other
+state returns non-zero so `install` can decide whether reconciliation or a
+fresh install is appropriate.
 
 ### 10.2 `install`
 
@@ -356,8 +378,15 @@ Verification is asymmetric, matching the standing Atlas rule
   healthy state, and failing loudly is what prompts a reconciling `install`.
 - **`installed` marker:** `verify` fails only when Atlas-owned state is
   broken: any of the five config trees drifted from Atlas source, either
-  wallpaper file drifted, the recorded transaction id file is missing or
-  unreadable, or Hyprland itself is no longer present. Otherwise it succeeds.
+  wallpaper file drifted from its recorded hash, the recorded rollback
+  transaction is missing/unreadable/malformed or no longer names this module's
+  `aquamarine`+`hyprland` install in `dnf history`, Hyprland or `aquamarine` is
+  no longer installed, or the supersession watcher is not in its expected
+  state (deployed files must match repository source, and while the local
+  `.atlas1` build is still installed the timer must be enabled and active;
+  after supersession a self-disabled timer is valid — §9). The recorded
+  transaction is validated for identity, not merely for being a well-formed
+  number. Otherwise it succeeds.
 
 `verify` never launches Hyprland, never inspects Plasma, and never checks
 packages outside the fixed set.
@@ -488,8 +517,8 @@ hermetic — sandboxed `HOME`/XDG/state, mocked `dnf`/`rpm`, no host mutation):
   with fonts (RFC-0007 §7).
 - **Security:** no `--nogpgcheck`; the COPR is an explicit, narrow trust
   decision matching RFC-0007 §3's precedent; the local aquamarine build is
-  `mock`-isolated by default; no privilege is used outside the single
-  additive-gated `dnf` transaction.
+  `mock`-isolated (§5, no host build fallback), so the only privileged host
+  package mutation is the single additive-gated `dnf` transaction.
 - **Idempotency:** `install`, `verify`, `update`, `backup`, and `restore` are
   repeatable; `remove` is repeatable after a successful detach and refuses
   cleanly (no partial state) on drift.

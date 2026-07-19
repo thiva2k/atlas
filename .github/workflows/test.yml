@@ -18,7 +18,7 @@ jobs:
 
       - name: Syntax check entrypoints
         run: |
-          bash -n atlas
+          bash -n atlasctl
           bash -n bootstrap.sh
 
       - name: Syntax check shell files
