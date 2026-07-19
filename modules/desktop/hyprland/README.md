@@ -52,11 +52,14 @@ detach (`remove` = detach only).
 
 **Ownership is recorded, not inferred.** Config-tree ownership lives in
 `~/.local/state/atlas/hypr-owned-trees` (mode `600`) and wallpaper ownership in
-the `.atlas-hypr-wall.sha256` sidecar; a surface is Atlas-managed only once
+the `.atlas-hypr-wall.sha256` sidecar (also mode `600`, both files required).
+These records are trust boundaries: wrong mode, partial contents, symlinks, or
+directories at those paths authorize nothing — `verify`/`remove` refuse, and
+`install` aborts before package mutation. A surface is Atlas-managed only once
 Atlas actually created or byte-for-byte adopted it, never because a marker
 exists. The full-tree manifest includes directories (an added empty dir is
-drift) and fails closed on any symlink, so an adopted tree is always exactly
-Atlas source.
+drift) and fails closed on any symlink. Host runtime: `python3` (dnf5 history
+JSON parsing), preflighted before any package mutation.
 
 **Adoption:** byte-identical pre-staged config trees are adopted without
 rewrite; differing unmanaged trees, and any symlinked target path, refuse

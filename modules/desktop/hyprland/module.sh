@@ -75,27 +75,92 @@ _hypr_aquamarine_is_atlas() {
   case "$rel" in *.atlas1) return 0 ;; *) return 1 ;; esac
 }
 
-# Per-tree config ownership. A tree name is present in the record iff Atlas
-# created or adopted that exact tree. Consulted before any destructive rewrite.
-_hypr_tree_owned() {
-  local d="$1" f
+# Per-tree config ownership. The record is a TRUST BOUNDARY (docs/conventions.md
+# "Owning persistent state"): it must be a regular, non-symlink, mode-600 file
+# whose every line is exactly one of the five known tree names, with no
+# duplicates and no unknown entries. Any deviation makes the whole record
+# invalid and is treated as "nothing is owned" (fail closed) — so a tampered or
+# forged record can never authorize a destructive rewrite. Prints the validated
+# owned tree names (one per line) on success; returns 1 if the record is present
+# but malformed. An absent record is valid and yields the empty set.
+_hypr_owned_valid() {
+  local f mode line seen=" "
   f="$(_hypr_owned_file)"
+  [ -e "$f" ] || return 0
   [ -f "$f" ] && [ ! -L "$f" ] || return 1
-  grep -qxF "$d" "$f" 2>/dev/null
+  mode="$(stat -c '%a' "$f" 2>/dev/null)" || return 1
+  [ "$mode" = "600" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [ -z "$line" ] && continue
+    case " $_HYPR_CONFIG_TREES " in *" $line "*) : ;; *) return 1 ;; esac
+    case "$seen" in *" $line "*) return 1 ;; esac
+    seen="$seen$line "
+  done < "$f"
+  printf '%s\n' $seen
 }
+_hypr_tree_owned() {
+  local d="$1" owned
+  owned="$(_hypr_owned_valid)" || return 1
+  # Normalize newlines to spaces so case-matching is reliable.
+  owned="${owned//$'\n'/ }"
+  case " $owned " in *" $d "*) return 0 ;; *) return 1 ;; esac
+}
+# Every one of the five config trees is validly recorded as Atlas-owned.
+_hypr_all_trees_owned() {
+  local owned d
+  owned="$(_hypr_owned_valid)" || return 1
+  owned="${owned//$'\n'/ }"
+  for d in $_HYPR_CONFIG_TREES; do
+    case " $owned " in *" $d "*) : ;; *) return 1 ;; esac
+  done
+  return 0
+}
+# Atomically replace <dst> with <tmp>, never following/into a directory or
+# symlink. GNU `mv -T` treats the destination as a file even if it is a
+# directory; without that, `mv tmp dir` would place the file *inside* dir and
+# leave a forged directory ownership path in place (Sol residual).
+_hypr_atomic_replace() {
+  local tmp="$1" dst="$2"
+  if [ -e "$dst" ] || [ -L "$dst" ]; then
+    if [ -L "$dst" ] || [ ! -f "$dst" ]; then
+      log::error "refusing to replace a non-regular ownership/state path: $dst"
+      return 1
+    fi
+  fi
+  mv -fT "$tmp" "$dst" 2>/dev/null || mv -f -- "$tmp" "$dst"
+}
+
+# Add a tree to the ownership record, rebuilding it from the VALIDATED set so a
+# pre-existing malformed record is never laundered forward into a mode-600 file.
+# Fails closed if the current record is malformed.
 _hypr_mark_tree_owned() {
-  local d="$1" f dir tmp
-  _hypr_tree_owned "$d" && return 0
+  local d="$1" f dir tmp owned n
+  owned="$(_hypr_owned_valid)" || {
+    log::error "hyprland ownership record is malformed; refusing to modify it"; return 1; }
+  owned="${owned//$'\n'/ }"
+  case " $owned " in *" $d "*) return 0 ;; esac
   f="$(_hypr_owned_file)"
   dir="$(dirname "$f")"
   mkdir -p "$dir" || return 1
   chmod 700 "$dir" 2>/dev/null || true
   tmp="$(mktemp "$dir/.hypr-owned.XXXXXX")" || return 1
-  { [ -f "$f" ] && cat "$f"; printf '%s\n' "$d"; } > "$tmp" || { rm -f "$tmp"; return 1; }
+  : > "$tmp" || { rm -f "$tmp"; return 1; }
+  for n in $owned "$d"; do
+    [ -n "$n" ] || continue
+    printf '%s\n' "$n" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  done
   chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
+  _hypr_atomic_replace "$tmp" "$f" || { rm -f "$tmp"; return 1; }
 }
-_hypr_clear_owned() { rm -f "$(_hypr_owned_file)" 2>/dev/null || true; }
+_hypr_clear_owned() {
+  local f
+  f="$(_hypr_owned_file)"
+  # Only remove a validated regular file — never rm -rf a forged directory path.
+  if [ -f "$f" ] && [ ! -L "$f" ]; then
+    rm -f "$f" 2>/dev/null || true
+  fi
+}
 
 _hypr_files_same() { [ "$(_hypr_sha256 "$1")" = "$(_hypr_sha256 "$2")" ]; }
 
@@ -162,51 +227,93 @@ _hypr_configs_match() {
   return 0
 }
 
-_hypr_wallpapers_match() {
-  local f src_hash dst line
-  [ -f "$(_hypr_wall_dir)/.atlas-hypr-wall.sha256" ] || return 1
-  for f in $_HYPR_WALLPAPERS; do
-    dst="$(_hypr_wall_dst "$f")"
-    [ -f "$dst" ] || return 1
-    [ -s "$dst" ] || return 1
-  done
+# Wallpaper sidecar is a TRUST BOUNDARY: regular, non-symlink, mode-600 file
+# that records EXACTLY the two named wallpapers (no missing, no extras, no
+# duplicates). A partial or forged sidecar never authorizes ownership of an
+# unlisted file — and never lets verify/remove treat an unrecorded wallpaper as
+# Atlas-managed. Prints `hash  name` lines for the validated set on success.
+_hypr_wall_sidecar_valid() {
+  local side mode line hash name seen=" " count=0
+  side="$(_hypr_wall_dir)/.atlas-hypr-wall.sha256"
+  [ -e "$side" ] || return 1
+  [ -f "$side" ] && [ ! -L "$side" ] || return 1
+  mode="$(stat -c '%a' "$side" 2>/dev/null)" || return 1
+  [ "$mode" = "600" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
     [ -z "$line" ] && continue
-    src_hash="${line%% *}"
-    f="${line##* }"
-    f="${f#./}"
-    dst="$(_hypr_wall_dst "$f")"
-    [ "$(_hypr_sha256 "$dst")" = "$src_hash" ] || return 1
-  done < "$(_hypr_wall_dir)/.atlas-hypr-wall.sha256"
+    # Canonical form: "<64-hex>  <name>" (two spaces, sha256sum style).
+    case "$line" in
+      [0-9a-f]*"  "*) ;;
+      *) return 1 ;;
+    esac
+    hash="${line%%  *}"
+    name="${line#*  }"
+    name="${name#./}"
+    case "$hash" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*)
+      [ "${#hash}" -eq 64 ] || return 1 ;;
+    *) return 1 ;;
+    esac
+    case " $_HYPR_WALLPAPERS " in *" $name "*) : ;; *) return 1 ;; esac
+    case "$seen" in *" $name "*) return 1 ;; esac
+    seen="$seen$name "
+    count=$((count + 1))
+    printf '%s  %s\n' "$hash" "$name"
+  done < "$side"
+  [ "$count" -eq 2 ] || return 1
+  for name in $_HYPR_WALLPAPERS; do
+    case "$seen" in *" $name "*) : ;; *) return 1 ;; esac
+  done
   return 0
 }
 
-# A wallpaper file is Atlas-owned iff the sidecar records it. The sidecar is
-# written only after Atlas actually bakes/stages the file, so — like the config
-# ownership record — it is never implied by a marker alone.
-_hypr_wall_owned() {
-  local f="$1" side line name
-  side="$(_hypr_wall_dir)/.atlas-hypr-wall.sha256"
-  [ -f "$side" ] && [ ! -L "$side" ] || return 1
+_hypr_wallpapers_match() {
+  local records dst hash name line
+  # Both wallpaper files must exist, be regular, non-empty, and match the
+  # COMPLETE validated sidecar — a partial sidecar is never "matching".
+  records="$(_hypr_wall_sidecar_valid)" || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
-    name="${line##* }"; name="${name#./}"
+    hash="${line%%  *}"
+    name="${line#*  }"
+    dst="$(_hypr_wall_dst "$name")"
+    [ -f "$dst" ] && [ ! -L "$dst" ] && [ -s "$dst" ] || return 1
+    [ "$(_hypr_sha256 "$dst")" = "$hash" ] || return 1
+  done <<< "$records"
+  return 0
+}
+
+# A wallpaper file is Atlas-owned iff the COMPLETE validated sidecar records it.
+# A partial sidecar owns nothing.
+_hypr_wall_owned() {
+  local f="$1" records line name
+  records="$(_hypr_wall_sidecar_valid)" || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    name="${line#*  }"
     [ "$name" = "$f" ] && return 0
-  done < "$side"
+  done <<< "$records"
   return 1
 }
 
+# Both named wallpapers are recorded in a complete, validated sidecar.
+_hypr_all_walls_owned() {
+  _hypr_wall_sidecar_valid >/dev/null
+}
+
 _hypr_record_wall_hashes() {
-  local dir f tmp
+  local dir f tmp side
   dir="$(_hypr_wall_dir)"
+  side="$dir/.atlas-hypr-wall.sha256"
   mkdir -p "$dir" || return 1
   tmp="$(mktemp "$dir/.atlas-hypr-wall.XXXXXX")" || return 1
   : > "$tmp" || { rm -f "$tmp"; return 1; }
   for f in $_HYPR_WALLPAPERS; do
-    [ -f "$dir/$f" ] || { rm -f "$tmp"; return 1; }
+    [ -f "$dir/$f" ] && [ ! -L "$dir/$f" ] || { rm -f "$tmp"; return 1; }
     printf '%s  %s\n' "$(_hypr_sha256 "$dir/$f")" "$f" >> "$tmp" || { rm -f "$tmp"; return 1; }
   done
-  mv -f "$tmp" "$dir/.atlas-hypr-wall.sha256" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+  _hypr_atomic_replace "$tmp" "$side" || { rm -f "$tmp"; return 1; }
 }
 
 # Bake expected wallpapers into a temp dir (the ONLY tested seam for the PNG
@@ -226,7 +333,24 @@ _hypr_preview_bake_wallpapers() {
 # before Atlas created the tree — is refused, never destroyed. Symlinked targets
 # are refused outright (they could redirect a write anywhere).
 _hypr_preflight_targets() {
-  local d src dst f tmp
+  local d src dst f tmp side
+  # A present-but-malformed ownership record (wrong mode, directory, symlink,
+  # unknown names) is refused BEFORE any package mutation — never laundered
+  # into a mode-600 file mid-deploy after dnf has already run.
+  _hypr_owned_valid >/dev/null || {
+    log::error "hyprland ownership record is malformed; remove or repair $(_hypr_owned_file) before install"
+    return 1
+  }
+  # Same for a present wallpaper sidecar: if it exists it must be a complete
+  # valid trust boundary, otherwise refuse before mutation.
+  side="$(_hypr_wall_dir)/.atlas-hypr-wall.sha256"
+  if [ -e "$side" ] || [ -L "$side" ]; then
+    _hypr_wall_sidecar_valid >/dev/null || {
+      log::error "hyprland wallpaper ownership sidecar is malformed; remove or repair $side before install"
+      return 1
+    }
+  fi
+
   for d in $_HYPR_CONFIG_TREES; do
     src="$(_hypr_cfg_src "$d")"
     dst="$(_hypr_cfg_dst "$d")"
@@ -640,7 +764,7 @@ _hypr_record_txn_from_boundary() {
   tmp="$(mktemp "$dir/.hypr-install-txn.XXXXXX")" || return 1
   printf '%s\n' "$after" > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+  _hypr_atomic_replace "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 }
 
 _hypr_watcher_files_ok() {
@@ -695,7 +819,7 @@ _hypr_install_file() {
   tmp="$(mktemp "$dir/.hypr-deploy.XXXXXX")" || return 1
   cp -f "$src" "$tmp" || { rm -f "$tmp"; return 1; }
   chmod "$mode" "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$dst" || { rm -f "$tmp"; return 1; }
+  _hypr_atomic_replace "$tmp" "$dst" || { rm -f "$tmp"; return 1; }
 }
 
 # Deploy the watcher, fail-closed on every safety-critical step (RFC-0038 §9).
@@ -777,12 +901,16 @@ _hypr_marker_write() {
   tmp="$(mktemp "$dir/.desktop-hyprland.XXXXXX")" || return 1
   { printf 'schema=1\nstate=%s\n' "$state"; } > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$m" || { rm -f "$tmp"; return 1; }
+  _hypr_atomic_replace "$tmp" "$m" || { rm -f "$tmp"; return 1; }
 }
 
 # Full healthy-installed predicate (RFC-0038 §10). A healthy state means every
-# owned surface is present and matching, so a healthy repeated install is a no-op.
+# owned surface is present and matching *and* the durable ownership records are
+# complete and valid — byte-identity alone never implies ownership. A healthy
+# repeated install is a no-op.
 _hypr_managed_ok() {
+  _hypr_all_trees_owned || return 1
+  _hypr_all_walls_owned || return 1
   _hypr_configs_match || return 1
   _hypr_wallpapers_match || return 1
   _hypr_txn_ok || return 1
@@ -790,6 +918,18 @@ _hypr_managed_ok() {
   _hypr_aquamarine_installed || return 1
   _hypr_watcher_ok || return 1
   return 0
+}
+
+# python3 is required to parse the stable dnf5 `history info --json` used for
+# rollback-identity validation (RFC-0038 §8 step 8 / conventions). Preflight
+# BEFORE any package mutation so a missing interpreter never leaves packages
+# installed with an unrecordable transaction.
+_hypr_require_python3() {
+  if command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  log::error "hyprland requires python3 to validate dnf history JSON (install python3, or: atlasctl install development/python)"
+  return 1
 }
 
 module::check() {
@@ -815,6 +955,9 @@ module::install() {
   # unowned differing content — is refused here, before the COPR is enabled, the
   # RPM is built, or dnf runs (RFC-0038 §8 step 3).
   _hypr_preflight_targets || return 1
+  # python3 is needed for rollback-identity JSON parsing — refuse before any
+  # package mutation so a missing interpreter never leaves an unrecordable txn.
+  _hypr_require_python3 || return 1
 
   _hypr_marker_write installing || return 1
 
@@ -871,7 +1014,10 @@ module::install() {
   # Phase: watcher (fail-closed).
   _hypr_deploy_watcher || return 1
 
-  # Phase: re-verify everything before promoting the marker.
+  # Phase: re-verify everything before promoting the marker — including the
+  # complete ownership records (byte-identity alone is not enough).
+  _hypr_all_trees_owned || { log::error "hyprland ownership record incomplete after deploy"; return 1; }
+  _hypr_all_walls_owned || { log::error "hyprland wallpaper ownership sidecar incomplete after bake"; return 1; }
   _hypr_configs_match || { log::error "hyprland config deploy mismatch"; return 1; }
   _hypr_wallpapers_match || { log::error "hyprland wallpapers missing after bake"; return 1; }
   _hypr_txn_ok || { log::error "hyprland dnf history id unusable"; return 1; }
@@ -892,6 +1038,8 @@ module::verify() {
       return 1
       ;;
   esac
+  _hypr_all_trees_owned || { log::error "hyprland ownership record missing or malformed"; return 1; }
+  _hypr_all_walls_owned || { log::error "hyprland wallpaper ownership sidecar missing or incomplete"; return 1; }
   _hypr_configs_match || { log::error "hyprland managed config has drifted"; return 1; }
   _hypr_wallpapers_match || { log::error "hyprland managed wallpaper has drifted"; return 1; }
   _hypr_txn_ok || { log::error "hyprland rollback transaction missing or unrelated"; return 1; }
@@ -912,6 +1060,8 @@ module::update() {
   esac
   _hypr_deploy_configs || return 1
   _hypr_bake_wallpapers || { log::error "hyprland wallpaper bake failed"; return 1; }
+  _hypr_all_trees_owned || return 1
+  _hypr_all_walls_owned || return 1
   _hypr_configs_match || return 1
   _hypr_wallpapers_match || return 1
   _hypr_marker_write installed || return 1
@@ -921,19 +1071,27 @@ module::remove() {
   _hypr_marker_load || return 1
   case "$_HYPR_STATE" in absent|detached) return 0 ;; esac
 
-  if ! _hypr_configs_match || ! _hypr_wallpapers_match; then
-    log::error "refusing detach: managed hyprland state has drifted"
+  # Detach deletes ONLY what the durable ownership records prove Atlas owns —
+  # byte-identity alone is never enough. A missing/malformed/partial record
+  # refuses, so a forged or incomplete ownership path can never authorize
+  # destruction of foreign trees or wallpapers.
+  if ! _hypr_all_trees_owned || ! _hypr_all_walls_owned || \
+     ! _hypr_configs_match || ! _hypr_wallpapers_match; then
+    log::error "refusing detach: managed hyprland state has drifted or ownership records are incomplete"
     return 1
   fi
 
-  local d f
+  local d f side
   for d in $_HYPR_CONFIG_TREES; do
     rm -rf "$(_hypr_cfg_dst "$d")" || return 1
   done
   for f in $_HYPR_WALLPAPERS; do
     rm -f "$(_hypr_wall_dst "$f")" || return 1
   done
-  rm -f "$(_hypr_wall_dir)/.atlas-hypr-wall.sha256" 2>/dev/null || true
+  side="$(_hypr_wall_dir)/.atlas-hypr-wall.sha256"
+  if [ -f "$side" ] && [ ! -L "$side" ]; then
+    rm -f "$side" 2>/dev/null || true
+  fi
   _hypr_undeploy_watcher
   _hypr_clear_owned
 

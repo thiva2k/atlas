@@ -513,6 +513,37 @@ assert_status "interrupted retry never destroys a tree created in the crash wind
 assert_status "install refuses a symlinked config target before any mutation" 0 \
   bash -c "$PRE; mkdir -p \"\$XDG_CONFIG_HOME\" \"\$HOME/elsewhere\" && ln -s \"\$HOME/elsewhere\" \"\$XDG_CONFIG_HOME/hypr\" && ! module::install >/dev/null 2>&1 && [ -L \"\$XDG_CONFIG_HOME/hypr\" ] && [ ! -e \"\$(_hypr_marker)\" ]"
 
+# --- ownership-record trust boundary (Sol residual) -------------------------
+# A forged mode-644 ownership record must NOT authorize destroying foreign
+# content. Install refuses; the user's file survives.
+assert_status "forged mode-644 ownership record never authorizes tree destruction" 0 \
+  bash -c "$PRE; mkdir -p \"\$ATLAS_STATE_DIR\" \"\$XDG_CONFIG_HOME/hypr\" && printf 'hypr\nwaybar\nwofi\nmako\nkitty\n' > \"\$(_hypr_owned_file)\" && chmod 644 \"\$(_hypr_owned_file)\" && echo mine > \"\$XDG_CONFIG_HOME/hypr/user.conf\" && ! module::install >/dev/null 2>&1 && [ \"\$(cat \"\$XDG_CONFIG_HOME/hypr/user.conf\")\" = mine ] && [ -f \"\$XDG_CONFIG_HOME/hypr/user.conf\" ]"
+
+# A directory planted at the ownership path must not be written-through / moved
+# into; install fails closed BEFORE any package mutation.
+assert_status "directory at ownership path is refused before package mutation" 0 \
+  bash -c "$PRE; mkdir -p \"\$(_hypr_owned_file)\" && ! module::install >/dev/null 2>&1 && [ -d \"\$(_hypr_owned_file)\" ] && ! [ -f \"\$(_hypr_owned_file)\" ] && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; }"
+
+# Deleting the ownership record after a healthy install: verify fails and
+# remove refuses — byte-identical trees alone never authorize destruction.
+assert_status "missing ownership record fails verify and blocks remove" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1 && rm -f \"\$(_hypr_owned_file)\" && ! module::verify >/dev/null 2>&1 && ! module::remove >/dev/null 2>&1 && [ -d \"\$XDG_CONFIG_HOME/hypr\" ] && grep -qxF state=installed \"\$(_hypr_marker)\""
+
+# Partial wallpaper sidecar (one of two files): owns nothing; verify fails;
+# remove refuses; the edited wallpaper survives.
+assert_status "partial wallpaper sidecar fails verify and blocks remove" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1 && side=\"\$(_hypr_wall_dir)/.atlas-hypr-wall.sha256\" && head -n1 \"\$side\" > \"\$side.tmp\" && mv -f \"\$side.tmp\" \"\$side\" && chmod 600 \"\$side\" && echo edited >> \"\$(_hypr_wall_dst atlas-wall-bw.png)\" && ! module::verify >/dev/null 2>&1 && ! module::remove >/dev/null 2>&1 && grep -q edited \"\$(_hypr_wall_dst atlas-wall-bw.png)\" && grep -qxF state=installed \"\$(_hypr_marker)\""
+
+# Wrong-mode wallpaper sidecar (644) is not a valid ownership record.
+assert_status "mode-644 wallpaper sidecar fails verify" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1 && chmod 644 \"\$(_hypr_wall_dir)/.atlas-hypr-wall.sha256\" && ! module::verify >/dev/null 2>&1"
+
+# python3 is preflighted before any package mutation. Override command -v via a
+# wrapper function in the same shell that sources the module (bash functions
+# shadow external commands for `command -v` when not using -p).
+assert_status "missing python3 aborts before any package transaction" 0 \
+  bash -c "$PRE; command() { if [ \"\$1\" = -v ] && [ \"\$2\" = python3 ]; then return 1; fi; builtin command \"\$@\"; }; ! module::install >/dev/null 2>&1 && { [ ! -f \"\$FAKE_STATE/dnf.log\" ] || ! grep -q 'install -y' \"\$FAKE_STATE/dnf.log\"; } && [ ! -f \"\$(_hypr_txn_file)\" ]"
+
 # --- watcher lifecycle (fail-closed) ----------------------------------------
 
 assert_status "install fails when systemctl daemon-reload fails" 1 \

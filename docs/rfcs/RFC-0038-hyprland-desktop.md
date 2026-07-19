@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Created** | 2026-07-19 |
 | **Phase / order** | Desktop — dual-session compositor, module 1 of 1 |
-| **Depends on** | Nothing — `MODULE_DEPENDS=()` |
+| **Depends on** | Nothing in the Atlas module graph — `MODULE_DEPENDS=()`. Host runtime: `python3` (see §8 / §14). |
 | **Establishes** | Ownership, adoption, install-safety & rollback contract for `desktop/hyprland`, gating Part B's `module.sh` |
 
 ## 0. Why this RFC exists
@@ -235,15 +235,22 @@ narrow, explicit exception instead of a general adoption mechanism:
   byte-for-byte, and that fact is recorded in a durable ownership record
   (`$ATLAS_STATE_DIR/hypr-owned-trees`, mode `600`), consistent with the
   standing rule that ownership is *recorded, never inferred*
-  (`docs/conventions.md` "Owning persistent state"). For a tree Atlas owns,
-  `install` and `update` may rewrite drift from source, and drift is a `verify`
-  failure (§10), exactly as in RFC-0007 §4/§6.3. A tree that is **not** in the
-  ownership record and differs from Atlas source is refused and never
-  destroyed — even under an `installing`/`installed` marker. This closes the
-  crash-window in which a marker written before any tree existed could otherwise
-  let a reconciling retry delete unrelated content that appeared in the gap. The
-  marker records lifecycle state (`installing`/`installed`/`detached`); it is not
-  a blanket ownership claim over the five paths.
+  (`docs/conventions.md` "Owning persistent state"). The record is itself a
+  **trust boundary**: it must be a regular, non-symlink, mode-`600` file whose
+  every line is exactly one of the five known tree names, with no duplicates and
+  no unknown entries. A wrong-mode, symlink, directory, partial, or otherwise
+  malformed record authorizes **nothing** — Atlas treats it as "no trees owned"
+  and refuses to rewrite or detach based on it. Writes replace the path with
+  `mv -T` semantics so a forged directory at the ownership path can never be
+  written-through. For a tree Atlas owns, `install` and `update` may rewrite
+  drift from source, and drift is a `verify` failure (§10), exactly as in
+  RFC-0007 §4/§6.3. A tree that is **not** in a *valid* ownership record and
+  differs from Atlas source is refused and never destroyed — even under an
+  `installing`/`installed` marker. This closes the crash-window in which a
+  marker written before any tree existed could otherwise let a reconciling
+  retry delete unrelated content that appeared in the gap. The marker records
+  lifecycle state (`installing`/`installed`/`detached`); it is not a blanket
+  ownership claim over the five paths.
 - This exception applies only to the five named trees at their exact paths.
   It is not a general "adopt if it matches" primitive for other modules to
   reuse without their own RFC — RFC-0031 §2.2/§4 found "adopt iff
@@ -462,8 +469,12 @@ hook:
 
 1. Load the marker. `absent`/`detached` → return `0` (already detached, or
    nothing to detach).
-2. **Verify every managed config tree and both wallpaper files still match
-   Atlas source before deleting anything.** If any tree or file has drifted,
+2. **Require complete, valid ownership records** (all five trees in
+   `hypr-owned-trees`, both wallpapers in a mode-`600` sidecar) **and** verify
+   every managed config tree and both wallpaper files still match Atlas source
+   before deleting anything. Byte-identity alone never authorizes deletion. If
+   ownership records are missing/malformed/partial, or any tree or file has
+   drifted,
    `remove` **refuses** — the whole operation, not just the drifted item — and
    leaves the marker at `installed`. Deleting a file that may now hold
    uncommitted user edits is exactly the silent-data-loss case
@@ -568,11 +579,20 @@ hermetic — sandboxed `HOME`/XDG/state, mocked `dnf`/`rpm`, no host mutation):
 - **Dependency model:** `MODULE_DEPENDS=()`. This module does not depend on
   `desktop/theme`, `desktop/fonts`, `desktop/icons`, or `desktop/cursor`; it
   references their outputs by name only, the same relationship Ghostty has
-  with fonts (RFC-0007 §7).
+  with fonts (RFC-0007 §7). Host runtime dependency: **`python3`**, used solely
+  to parse the stable dnf5 `history info --json` for rollback-identity
+  validation (§8 step 8). This is the second Atlas host-runtime dependency after
+  `gpg` (RFC-0004 / `docs/conventions.md`). `install` preflights `python3`
+  **before** any package mutation so a missing interpreter never leaves packages
+  installed with an unrecordable transaction. Suggested recovery:
+  `dnf install python3` or `atlasctl install development/python`.
 - **Security:** no `--nogpgcheck`; the COPR is an explicit, narrow trust
   decision matching RFC-0007 §3's precedent; the local aquamarine build is
   `mock`-isolated (§5, no host build fallback), so the only privileged host
-  package mutation is the single additive-gated `dnf` transaction.
+  package mutation is the single additive-gated `dnf` transaction. Ownership
+  records (`hypr-owned-trees`, wallpaper sidecar) are trust boundaries: regular
+  non-symlink mode-`600` files with exact known entries; malformed/partial/
+  wrong-mode records authorize nothing and refuse detach.
 - **Idempotency:** `install`, `verify`, `update`, `backup`, and `restore` are
   repeatable; `remove` is repeatable after a successful detach and refuses
   cleanly (no partial state) on drift.
