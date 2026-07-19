@@ -8,9 +8,9 @@ source "$ATLAS_ROOT/internal/log.sh"
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/module.sh"   # uses real ATLAS_MODULES_DIR ($ATLAS_ROOT/modules)
 
-expected="apps/brave core/git core/ssh desktop/cursor desktop/fastfetch desktop/fonts desktop/icons desktop/kde desktop/kde-profile desktop/ksplash desktop/lockscreen desktop/login-canvas desktop/notifications desktop/plymouth desktop/power desktop/sddm desktop/theme desktop/utilities desktop/wallpapers development/claude development/codex development/docker development/fish development/ghostty development/github-cli development/node development/pnpm development/python development/starship development/uv"
+expected="apps/brave core/git core/ssh desktop/cursor desktop/fastfetch desktop/fonts desktop/hyprland desktop/icons desktop/kde desktop/kde-profile desktop/ksplash desktop/lockscreen desktop/login-canvas desktop/notifications desktop/plymouth desktop/power desktop/sddm desktop/theme desktop/utilities desktop/wallpapers development/claude development/codex development/docker development/fish development/ghostty development/github-cli development/node development/pnpm development/python development/starship development/uv"
 got="$(module::discover | tr '\n' ' ' | sed 's/ *$//')"
-assert_eq "all thirty modules discovered" "$got" "$expected"
+assert_eq "all 31 modules discovered" "$got" "$expected"
 
 # every module satisfies the contract: metadata + three required hooks + README
 fail=0

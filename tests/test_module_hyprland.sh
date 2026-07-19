@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# desktop/hyprland — hermetic. No test touches the host, /etc, dnf, or a session.
+PRE='
+set -euo pipefail
+HOME="$(mktemp -d)"; export HOME
+trap "rm -rf \"$HOME\"" EXIT
+XDG_CONFIG_HOME="$HOME/.config"; export XDG_CONFIG_HOME
+ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
+DNF_LOG="$HOME/dnf.log"; export DNF_LOG; : > "$DNF_LOG"
+RPMS="$HOME/atlas-hypr-rpms"; export RPMS
+mkdir -p "$RPMS"
+: > "$RPMS/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm"
+
+source "$ATLAS_ROOT/internal/error.sh"
+source "$ATLAS_ROOT/internal/log.sh"
+source "$ATLAS_ROOT/internal/os.sh"
+source "$ATLAS_ROOT/modules/desktop/hyprland/module.sh"
+
+# point the module at the sandbox RPM dir + a stub build helper that "succeeds"
+_hypr_rpm_path() { printf "%s\n" "$RPMS/aquamarine-0.9.5-2.fc44.atlas1.x86_64.rpm"; }
+_hypr_build_rpm() { return 0; }        # pretend the artifact is present
+os::is_fedora() { [ "${FEDORA_OK:-1}" = 1 ]; }
+os::dnf_install() { printf "%s\n" "$*" >> "$DNF_LOG"; [ "${DNF_FAIL:-0}" = 1 ] && return 1; return 0; }
+_hypr_run_privileged() { "$@"; }
+_hypr_dnf_install_local() { printf "install-local %s\n" "$*" >> "$DNF_LOG"; [ "${DNF_FAIL:-0}" = 1 ] && return 1; return 0; }
+_hypr_hyprland_present() { [ "${HYPR_PRESENT:-0}" = 1 ]; }
+# seam: never bake real wallpapers in tests
+_hypr_bake_wallpapers() { return 0; }
+# seam: never touch real systemd in tests
+_hypr_deploy_watcher() { printf "watcher-deploy\n" >> "$DNF_LOG"; return 0; }
+_hypr_undeploy_watcher() { printf "watcher-undeploy\n" >> "$DNF_LOG"; return 0; }
+_hypr_rpm_ok() { [ "${RPM_OK:-1}" = 1 ]; }
+_hypr_rehearse_additive() { [ "${ADDITIVE_OK:-1}" = 1 ]; }
+_hypr_record_txn() { printf "42\n" > "$(_hypr_txn_file)"; }
+_hypr_is_fedora44() { [ "${FEDORA_OK:-1}" = 1 ]; }
+'
+PRE="${PRE%$'\n'}"
+
+assert_status "hyprland check fails before install" 1 \
+  bash -c "$PRE; module::check"
+
+assert_status "hyprland verify passes before install (absent)" 0 \
+  bash -c "$PRE; module::verify"
+
+assert_status "hyprland install fails on non-Fedora before mutation" 0 \
+  bash -c "$PRE; FEDORA_OK=0; export FEDORA_OK; if module::install >/dev/null 2>&1; then exit 9; fi; [ ! -e \"\$(_hypr_marker)\" ]"
+
+assert_status "hyprland install writes installed marker" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -qxF state=installed \"\$(_hypr_marker)\""
+
+assert_status "hyprland install deploys all five config trees" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; for d in hypr waybar wofi mako kitty; do [ -e \"\$XDG_CONFIG_HOME/\$d\" ] || exit 1; done"
+
+assert_status "hyprland install uses the local atlas1 aquamarine rpm" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -q 'aquamarine-0.9.5-2.fc44.atlas1' \"\$DNF_LOG\""
+
+assert_status "hyprland install backs up a pre-existing user config instead of deleting it" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'user-owned\n' > \"\$XDG_CONFIG_HOME/kitty/mine.conf\"; module::install >/dev/null 2>&1; grep -qxF user-owned \"\$XDG_CONFIG_HOME/kitty.atlas-bak/mine.conf\""
+
+assert_status "hyprland remove leaves a drifted managed tree in place" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::remove >/dev/null 2>&1; [ -e \"\$XDG_CONFIG_HOME/waybar\" ]"
+
+assert_status "hyprland install refuses an RPM that fails the linkage gate" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 RPM_OK=0; export HYPR_PRESENT RPM_OK; if module::install >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\"; ! grep -q 'install-local' \"\$DNF_LOG\""
+
+assert_status "hyprland install aborts a non-additive transaction before mutating" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 ADDITIVE_OK=0; export HYPR_PRESENT ADDITIVE_OK; if module::install >/dev/null 2>&1; then exit 9; fi; ! grep -q 'install-local' \"\$DNF_LOG\""
+
+assert_status "hyprland install records a rollback transaction id" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; [ -s \"\$(_hypr_txn_file)\" ]"
+
+# regression: back up only on first adoption -> a later update (Atlas owns the tree) must
+# refresh our own files without a spurious backup or the '.atlas-bak exists' hard-refuse.
+assert_status "hyprland update over an adopted tree does not refuse on an existing backup" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'old\n' > \"\$XDG_CONFIG_HOME/kitty/old.conf\"; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/kitty/kitty.conf\"; module::update >/dev/null 2>&1 && module::verify"
+
+# regression (Critical, Fable): a first install that FAILS at the RPM gate over a pre-existing
+# user config leaves state=installing; the retry must STILL back up that config (installing
+# counts as first-adoption) rather than silently rm -rf it.
+assert_status "hyprland install retried after a failed first attempt still protects user config" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; mkdir -p \"\$XDG_CONFIG_HOME/kitty\"; printf 'user-owned\n' > \"\$XDG_CONFIG_HOME/kitty/mine.conf\"; RPM_OK=0; export RPM_OK; module::install >/dev/null 2>&1 || true; RPM_OK=1; export RPM_OK; module::install >/dev/null 2>&1 || true; grep -qxF user-owned \"\$XDG_CONFIG_HOME/kitty.atlas-bak/mine.conf\""
+
+assert_status "hyprland check passes after install" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::check"
+
+assert_status "hyprland install is idempotent" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; cp \"\$(_hypr_marker)\" \"\$HOME/m1\"; module::install >/dev/null 2>&1; cmp -s \"\$HOME/m1\" \"\$(_hypr_marker)\""
+
+assert_status "hyprland repeated install runs no second dnf transaction" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; n1=\$(wc -l < \"\$DNF_LOG\"); module::install >/dev/null 2>&1; n2=\$(wc -l < \"\$DNF_LOG\"); [ \"\$n1\" = \"\$n2\" ]"
+
+assert_status "hyprland verify fails when a managed config drifts" 1 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::verify"
+
+assert_status "hyprland update restores drift" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; echo drift >> \"\$XDG_CONFIG_HOME/waybar/config.jsonc\"; module::update >/dev/null 2>&1; module::verify"
+
+assert_status "hyprland install fails leave installing marker" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; if module::install >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\""
+
+assert_status "hyprland update refuses to promote a failed install" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1 DNF_FAIL=1; export HYPR_PRESENT DNF_FAIL; module::install >/dev/null 2>&1 || true; if module::update >/dev/null 2>&1; then exit 9; fi; grep -qxF state=installing \"\$(_hypr_marker)\""
+
+assert_status "hyprland install activates the supersession watcher" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; grep -q 'watcher-deploy' \"\$DNF_LOG\""
+
+assert_status "hyprland remove deactivates the supersession watcher" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -q 'watcher-undeploy' \"\$DNF_LOG\""
+
+assert_status "hyprland remove detaches configs but leaves packages" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1 && module::remove >/dev/null 2>&1 && grep -qxF state=detached \"\$(_hypr_marker)\" && [ ! -e \"\$XDG_CONFIG_HOME/hypr\" ] && ! grep -q 'dnf history undo' \"\$DNF_LOG\" && ! grep -qi 'remove' \"\$DNF_LOG\""
+
+assert_status "hyprland remove is idempotent" 0 \
+  bash -c "$PRE; HYPR_PRESENT=1; export HYPR_PRESENT; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; module::remove"
+
+assert_status "hyprland backup is a documented no-op" 0 bash -c "$PRE; module::backup"
+assert_status "hyprland restore is a documented no-op" 0 bash -c "$PRE; module::restore"

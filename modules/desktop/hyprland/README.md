@@ -5,31 +5,20 @@ The Atlas Hyprland desktop — a full B&W word-only Wayland session that runs
 Plasma 6.7 locks down (chiefly the lock screen). See
 `docs/superpowers/specs/2026-07-16-atlas-hyprland-desktop-design.md`.
 
-## ⚠ Blocked on a missing dependency (as of 2026-07-16)
+## Shipped via a local aquamarine rebuild (2026-07-19)
 
-**This desktop is fully built and staged, but cannot be installed yet** — not
-because of anything here, but an upstream Fedora-44 packaging gap:
+Fedora 44 bumped `libdisplay-info` 0.2 → 0.3 (`.so.2` → `.so.3`), and the COPR's
+`aquamarine-0.9.5-2` was still built against the old `.so.2`, so stock Hyprland
+would not install. Rather than wait for the upstream rebuild, Atlas ships a local
+rebuild of the **same** aquamarine 0.9.5 against `.so.3`, released as
+`0.9.5-2.fc44.atlas1`. It installs now and — because `2.fc44.atlas1` sorts below the
+future official `-3` — a routine `dnf upgrade` silently hands off to the official
+package when it lands. Nothing to do when that happens; `assets/watch-availability.sh`
+notices the `.atlas1` release disappear and says so.
 
-- Fedora 44 bumped **`libdisplay-info` 0.2 → 0.3** (`.so.2` → `.so.3`).
-- Hyprland's renderer **`aquamarine`** (only packaged in COPR
-  `solopasha/hyprland` as `0.9.5-2`) was built against the old `.so.2` and
-  **will not install** — dnf reports *"nothing provides libdisplay-info.so.2"*.
-- No other repo packages full Hyprland for F44 (Terra and Fedora base ship only
-  the low-level libs `hyprlang`/`hyprutils`).
-- A compat shim was rejected: `libdisplay-info` has **no symbol versioning**, so
-  loading `.so.2` and `.so.3` in one process can clash at runtime.
-
-**Unblocking (either lands it):**
-1. **Wait** — solopasha rebuilds `aquamarine` against `.so.3` (a Fedora-wide
-   breakage, so this is imminent). A user systemd timer
-   (`assets/watch-availability.sh`) checks daily and notifies when it's
-   installable, then self-disables.
-2. **Build our own** — compile the latest `aquamarine` (which supports
-   `libdisplay-info 0.3`) + matching Hyprland from source. Planned for the
-   weekend of 2026-07-19.
-
-Everything else (all configs, theming, wallpapers) is done — it's a single
-install once the renderer is available.
+- Build the renderer: `bash modules/desktop/hyprland/build/build-aquamarine.sh`
+- Install everything (reversible module): `atlas install desktop/hyprland`
+- Full runbook: `docs/superpowers/plans/2026-07-19-hyprland-source-build.md`
 
 ## Layout
 
@@ -42,22 +31,24 @@ install once the renderer is available.
 
 ## Status
 
-Configs are the source of truth here and are currently **deployed directly to
-`~/.config/`** (user scope, no root) so the Hyprland session is live-ready. A
-reversible `module.sh` (package install + config deploy + wallpaper generation,
-check/install/verify/remove) is a follow-up once the desktop is validated live.
+Configs are the source of truth here and are deployed via the reversible
+`module.sh` (local aquamarine build + package install + config deploy +
+wallpaper generation + supersession watcher activation, with
+check/install/verify/update/remove hooks). Install it with
+`atlas install desktop/hyprland`; `module::remove` detaches the configs and
+watcher but leaves the packages in place (roll back with `dnf history undo`).
 
 ## Install
 
-Hyprland comes from COPR `solopasha/hyprland` (not Fedora base). As of 2026-07-16
-the COPR's `aquamarine` is stale against Fedora 44's `libdisplay-info 0.3` — see
-the spec §7. Once rebuilt:
+Hyprland comes from COPR `solopasha/hyprland` (not Fedora base). As of
+2026-07-16 the COPR's `aquamarine` was stale against Fedora 44's
+`libdisplay-info 0.3` — see the spec §7 — so Atlas builds and ships a local
+`0.9.5-2.fc44.atlas1` rebuild instead of the stock package:
 
 ```
 sudo dnf copr enable -y solopasha/hyprland
-sudo dnf install -y hyprland hyprlock hypridle hyprpaper xdg-desktop-portal-hyprland \
-  waybar wofi mako kitty grim slurp brightnessctl playerctl
-bash modules/desktop/hyprland/assets/generate.sh    # (re)bake the wallpapers
+bash modules/desktop/hyprland/build/build-aquamarine.sh    # rebuild aquamarine against .so.3
+atlas install desktop/hyprland                              # configs, wallpapers, watcher
 ```
 
 Then log out → pick "Hyprland" at the Atlas login. Plasma stays as fallback.

@@ -1,42 +1,36 @@
 #!/usr/bin/env bash
-# Atlas — Hyprland availability watcher.
-# Checks whether the solopasha COPR's `aquamarine` has been rebuilt against
-# Fedora 44's libdisplay-info 0.3 (the one thing blocking the Hyprland install).
-# Notifies once it's installable, then disables itself. No sudo; the query is
-# read-only against the COPR results dir. Driven by a daily user systemd timer.
+# Atlas — Hyprland renderer supersession watcher.
+# The Atlas Hyprland desktop is installed from a locally-rebuilt aquamarine
+# (0.9.5-2.fc44.atlas1, linked against libdisplay-info.so.3). When the COPR ships
+# an official rebuild, `dnf upgrade` replaces it and the `.atlas1` release
+# disappears — that is the "all clear, superseded" signal. No sudo; read-only
+# rpm query. Driven by a daily user systemd timer; self-disables once superseded
+# or if aquamarine is not installed.
 set -uo pipefail
 
-COPR="https://download.copr.fedorainfracloud.org/results/solopasha/hyprland/fedora-44-x86_64/"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/atlas"
 mkdir -p "$STATE" 2>/dev/null || true
 LOG="$STATE/hypr-watch.log"
 stamp() { date '+%Y-%m-%dT%H:%M:%S'; }
 
-# Already installed? Nothing to watch — stand down.
-if rpm -q hyprland >/dev/null 2>&1 || command -v Hyprland >/dev/null 2>&1; then
-    echo "$(stamp) hyprland already installed; disabling watcher" >>"$LOG"
+# Not installed yet (or removed) -> nothing to watch; stand down.
+if ! rpm -q aquamarine >/dev/null 2>&1; then
+    echo "$(stamp) aquamarine not installed; nothing to watch" >>"$LOG"
     systemctl --user disable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
     exit 0
 fi
 
-req="$(dnf repoquery --repofrompath "atlaswatch,$COPR" \
-        --setopt=atlaswatch.gpgcheck=0 --repoid=atlaswatch --refresh \
-        --requires aquamarine 2>/dev/null)"
-
-if [ -z "$req" ]; then
-    echo "$(stamp) could not query COPR (offline?); will retry" >>"$LOG"
-    exit 0
-fi
-
-if printf '%s\n' "$req" | grep -q 'libdisplay-info.so.2'; then
-    echo "$(stamp) still blocked: aquamarine needs libdisplay-info.so.2" >>"$LOG"
-    exit 0
-fi
-
-# aquamarine no longer requires the old soname -> it's been rebuilt.
-echo "$(stamp) READY: aquamarine rebuilt; Hyprland is installable" >>"$LOG"
-notify-send -u critical -a "Atlas" "Atlas · Hyprland is ready to install" \
-    "The aquamarine rebuild has landed. Run the Atlas Hyprland install to go live — then pick Hyprland at the login screen." 2>/dev/null || true
-touch "$STATE/hypr-ready" 2>/dev/null || true
-# Stop checking now that it's ready.
-systemctl --user disable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
+installed_rel="$(rpm -q --qf '%{RELEASE}' aquamarine 2>/dev/null)"
+case "$installed_rel" in
+  *.atlas*)
+    # still on any Atlas local rebuild (.atlas1, a patched .atlas2, …); keep watching
+    echo "$(stamp) still on the Atlas local rebuild ($installed_rel)" >>"$LOG"
+    ;;
+  *)
+    # release no longer carries our marker -> the official rebuild landed
+    echo "$(stamp) SUPERSEDED: official aquamarine ($installed_rel) is in place" >>"$LOG"
+    notify-send -a "Atlas" "Atlas · Hyprland renderer superseded" \
+      "The official aquamarine rebuild ($installed_rel) has replaced the Atlas local build. No action needed." 2>/dev/null || true
+    systemctl --user disable --now atlas-hypr-check.timer >/dev/null 2>&1 || true
+    ;;
+esac
