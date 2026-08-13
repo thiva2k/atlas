@@ -5,6 +5,13 @@ All notable changes to Atlas are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+- CI and bootstrap now use `atlasctl` after the launcher rename (CI on `main`
+  was failing at `bash -n atlas`). Bootstrap help/next-steps no longer recommend
+  `./atlas install`.
+- README status reframed for first-time installers: Fedora + Plasma is the
+  supported happy path; Hyprland remains staged and optional.
+
 ### Added
 - Added release-grade user and contributor documentation: Quick Start,
   Installation, Philosophy, Roadmap, documentation index, expanded Module
