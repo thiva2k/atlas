@@ -10,28 +10,19 @@ irreplaceable bits.
 Atlas is not a migration script, a dotfiles repo, or a package installer.
 Those are *capabilities*, expressed as modules.
 
-## Project status — mid-migration (2026-07)
+## Status
 
-Atlas is partway through a visual + platform migration, so a few surfaces are
-intentionally incomplete right now. If the experience doesn't feel "full" yet,
-this is why:
+Atlas is ready to install on a fresh Fedora workstation today.
 
-- **Visual identity → black & white, word-only.** Boot (Plymouth), login (SDDM),
-  and terminal (fastfetch) now render a monochrome ASCII "ATLAS" masthead; the
-  old cyan "starship console" look is being retired.
-- **Desktop → Hyprland (built, not yet live).** Plasma 6.7 seals its login
-  greeter and lock screen against customization, so Atlas is moving to a full
-  Hyprland desktop that runs *alongside* Plasma as a second session. Every
-  piece — compositor, hyprlock, waybar, wofi, mako, kitty — is written and
-  themed (`modules/desktop/hyprland/`), but **not yet installed**: Fedora 44
-  bumped `libdisplay-info` 0.2→0.3 and the Hyprland ecosystem hasn't rebuilt
-  `aquamarine` against it yet. Until that upstream rebuild lands, the live
-  Hyprland desktop and its `hyprlock` lock screen can't be installed — which is
-  why the desktop half doesn't feel complete. A user timer watches for the
-  rebuild and notifies when it's installable. See
-  [the design spec](docs/superpowers/specs/2026-07-16-atlas-hyprland-desktop-design.md).
+- **Supported desktop:** KDE Plasma (the daily driver).
+- **Included:** Core and Development modules — git, ssh, Python, uv, Node.js,
+  pnpm, Docker, Fish, Starship, GitHub CLI, Claude Code, Codex, and the Atlas
+  black-and-white visual identity (Plymouth, SDDM, lock screen, wallpapers).
+- **Optional / not default:** a Hyprland dual-session desktop is staged under
+  `modules/desktop/hyprland/` but is **not part of `atlasctl install` yet**
+  (Fedora packaging gap). Plasma remains the supported path.
 
-Plasma remains the working desktop and a permanent fallback throughout.
+Fresh Fedora is always valid state. Atlas owns only what it creates.
 
 ## Quick start
 
@@ -103,13 +94,6 @@ binary, config file, or service merely existing on the machine.
 - Bash.
 - GNU coreutils and standard Fedora base utilities.
 - Git. `bootstrap.sh` installs it if needed.
-
-## Status
-
-Atlas v1.0.0 is the first stable release. The module architecture is frozen,
-the Core, Development, and current UX workstation modules are implemented, and
-Atlas self-management is available for checkouts created by `bootstrap.sh`.
-See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

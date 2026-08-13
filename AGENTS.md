@@ -46,9 +46,12 @@ Work on one module at a time. Complete these phases in order:
 
 ## Current module sequence
 
-After `development/python`, the intended follow-on modules are:
+Public `main` is the installable Fedora + Plasma workstation. Active follow-on
+work (not required for a happy first install):
 
-1. `development/uv` — depends on Python.
-2. Node.js and pnpm.
-3. Claude Code.
-4. Codex.
+1. Optional Hyprland dual-session — staged configs in-tree; reversible module
+   and live install remain on feature branches until the Fedora packaging gate
+   and session-ownership contract are closed.
+2. Finish or explicitly defer placeholders: `apps/brave`, `desktop/kde`.
+3. Contributor polish from `docs/roadmap.md` v1.1 (issue/PR templates, README
+   consistency, real-Fedora validation notes).

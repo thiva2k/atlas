@@ -14,7 +14,7 @@ Atlas bootstrap
 Prepares a fresh machine, then hands off to Atlas:
   1. ensure Git is installed
   2. clone Atlas into $ATLAS_HOME (if not already there)
-  3. run:  cd $ATLAS_HOME && ./atlas install
+  3. run:  cd $ATLAS_HOME && ./atlasctl install
      or:   atlasctl install
 
 Usage: bootstrap.sh [--help]
@@ -188,7 +188,7 @@ main() {
 
   echo
   echo "Bootstrap complete. Next:"
-  echo "  cd $ATLAS_HOME && ./atlas install"
+  echo "  cd $ATLAS_HOME && ./atlasctl install"
   echo
   echo "If $HOME/.local/bin is on PATH, you can also run:"
   echo "  atlasctl install"
