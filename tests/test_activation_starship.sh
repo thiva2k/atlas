@@ -14,6 +14,12 @@ ATLAS_CONFIG_HOME="$HOME/.config/atlas"; export ATLAS_CONFIG_HOME
 ATLAS_STATE_DIR="$HOME/.local/state/atlas"; export ATLAS_STATE_DIR
 STARSHIP_BIN="$HOME/bin/starship"; export STARSHIP_BIN
 mkdir -p "$HOME/bin"
+# Mock must be a runnable PATH entry: install calls `starship prompt` after
+# os::has_cmd. An empty executable + has_cmd-only stub passed on hosts that
+# already had starship and failed on Ubuntu CI.
+printf "%s\n" "#!/bin/sh" "exit 0" > "$STARSHIP_BIN"
+chmod +x "$STARSHIP_BIN"
+PATH="$HOME/bin:$PATH"; export PATH
 
 source "$ATLAS_ROOT/internal/error.sh"
 source "$ATLAS_ROOT/internal/log.sh"
@@ -21,15 +27,13 @@ source "$ATLAS_ROOT/internal/os.sh"
 source "$ATLAS_ROOT/modules/development/starship/module.sh"
 
 os::is_fedora() { [ "${FEDORA_OK:-1}" = 1 ]; }
-# Binary present iff the mock executable exists (tests toggle it explicitly).
+# Toggle presence via STARSHIP_BIN so a host starship cannot leak into absent cases.
 os::has_cmd() {
   case "$1" in
     starship) [ -x "$STARSHIP_BIN" ] ;;
     *) command -v "$1" >/dev/null 2>&1 ;;
   esac
 }
-# Make starship "present" by default; individual tests remove it to test refusal.
-: > "$STARSHIP_BIN"; chmod +x "$STARSHIP_BIN"
 
 ACT()  { _starship_act_marker; }
 SNIP() { _starship_act_snippet_file; }

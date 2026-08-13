@@ -11,6 +11,8 @@ All notable changes to Atlas are documented here. Format loosely follows
   `./atlas install`.
 - README status reframed for first-time installers: Fedora + Plasma is the
   supported happy path; Hyprland remains staged and optional.
+- Starship activation tests ship a runnable PATH mock so CI (Ubuntu) no longer
+  depends on a host `starship` binary for `starship prompt` validation.
 
 ### Added
 - Added release-grade user and contributor documentation: Quick Start,
