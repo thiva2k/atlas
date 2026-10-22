@@ -56,7 +56,7 @@ the spec §7. Once rebuilt:
 ```
 sudo dnf copr enable -y solopasha/hyprland
 sudo dnf install -y hyprland hyprlock hypridle hyprpaper xdg-desktop-portal-hyprland \
-  waybar wofi mako kitty grim slurp brightnessctl playerctl
+  waybar wofi mako kitty grim slurp brightnessctl playerctl cliphist wl-clipboard pavucontrol
 bash modules/desktop/hyprland/assets/generate.sh    # (re)bake the wallpapers
 ```
 
