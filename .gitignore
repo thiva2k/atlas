@@ -2,6 +2,9 @@
 .local/
 *.log
 
+# Agent scratch (never committed)
+.superpowers/
+
 # Secrets. atlas.env normally lives in $ATLAS_CONFIG_HOME (outside the repo), but
 # a developer pointing ATLAS_CONFIG_HOME at a checkout must never commit one.
 atlas.env
