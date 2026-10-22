@@ -127,8 +127,7 @@ atlas/
 ├── modules/              # every capability lives here, grouped by category
 │   ├── core/             #   fundamentals (git, base packages, shell)
 │   ├── development/      #   dev tooling (docker, language runtimes, terminals, AI CLIs)
-│   ├── apps/             #   applications (brave)
-│   └── desktop/          #   desktop environment (kde, fonts)
+│   └── desktop/          #   desktop environment (fonts)
 ├── docs/                 # architecture, conventions, module-authoring guide
 ├── tests/                # pure-Bash test harness (no external framework)
 ├── assets/               # static, non-code assets
