@@ -5,8 +5,9 @@ the desktop appearing. Atlas does not ship a separate KSplash package:
 `org.atlas.hud` (installed at
 `$XDG_DATA_HOME/plasma/look-and-feel/org.atlas.hud/` by `desktop/lockscreen`)
 already carries a `contents/splash/Splash.qml`, so `desktop/ksplash` depends on
-`desktop/lockscreen` and is **activation-only** — `install`/`check`/`verify`
-just confirm the splash file that ships with that package is present.
+`desktop/lockscreen` and is **activation-only**. `install` and `check` confirm
+the splash file is present. `verify` passes when it is, and reports not-installed
+when the splash was never installed.
 
 ## Activating
 

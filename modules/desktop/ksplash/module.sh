@@ -3,9 +3,10 @@
 #
 # Atlas does not ship its own KSplash package — the org.atlas.hud look-and-feel
 # package already carries a contents/splash/Splash.qml (installed by
-# desktop/lockscreen). desktop/ksplash is activation-only: install/check/verify
-# are thin hooks that confirm the splash the package needs is present (they own
-# nothing new to install), and module::activate/deactivate reversibly switch
+# desktop/lockscreen). desktop/ksplash is activation-only: install/check confirm
+# the splash is present (nothing new to install). verify passes when that file
+# is present and reports not-installed when it was never installed.
+# module::activate/deactivate reversibly switch
 # ksplashrc [KSplash] Theme to org.atlas.hud, reusing the RFC-0029 escrow
 # pattern exactly as desktop/lockscreen does for kscreenlockerrc [Greeter] Theme.
 MODULE_NAME="ksplash"
@@ -31,10 +32,9 @@ module::install() {
   log::info "the Atlas KSplash theme (org.atlas.hud) is present; nothing further to install"
 }
 module::verify() {
-  _ksplash_present || {
-    log::error "the org.atlas.hud KSplash package is missing or unreadable: $(_ksplash_splash_qml)"
-    return 1
-  }
+  _ksplash_present && return 0
+  log::info "desktop/ksplash is not installed by Atlas"
+  return 0
 }
 module::update()  { module::verify; }
 module::remove()  { log::info "desktop/ksplash owns no installed files; nothing to remove (the package itself belongs to desktop/lockscreen)"; }
