@@ -67,7 +67,7 @@ _runner_run_module() {
 runner::run() {
   local verb="${1:-}"; shift || true
   _runner_hooks_for_verb "$verb" >/dev/null 2>&1 || \
-    die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'"
+    die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run '${PROGRAM_NAME:-atlasctl} --help'"
 
   local -a ids
   if [ "$#" -gt 0 ]; then ids=("$@"); else mapfile -t ids < <(module::discover); fi
@@ -76,7 +76,7 @@ runner::run() {
   _ordered="$(module::resolve_order "${ids[@]}")" || return $?
   mapfile -t ids <<<"$_ordered"
 
-  log::step "atlas $verb (${#ids[@]} modules)"
+  log::step "${PROGRAM_NAME:-atlasctl} $verb (${#ids[@]} modules)"
   local id out rc ok=0 skip=0 fail=0
   for id in "${ids[@]}"; do
     out="$(_runner_run_module "$verb" "$id")"; rc=$?

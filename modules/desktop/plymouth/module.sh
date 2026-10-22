@@ -79,14 +79,14 @@ _plymouth_act_write() {
 _plymouth_privilege_ok() { os::is_root || sudo -n true 2>/dev/null; }
 _plymouth_sudo_guidance() {
   log::error "plymouth activation requires root to rebuild the initramfs (plymouth-set-default-theme -R). Re-run with sudo available and a terminal, e.g.:"
-  log::error "  sudo atlas activate desktop/plymouth"
+  log::error "  sudo atlasctl activate desktop/plymouth"
   log::error "This step rebuilds the initramfs and takes seconds to minutes."
 }
 module::activate() {
   # §5.4 step 1: preconditions.
   _plymouth_marker_load || return 1
-  [ "$_PLYMOUTH_MARKER_STATE" = "installed" ] || { log::error "desktop/plymouth is not installed; run 'atlas install desktop/plymouth' before activating"; return 1; }
-  os::pkg_installed plymouth-plugin-script || { log::error "plymouth-plugin-script not installed; run 'atlas install desktop/plymouth' before activating"; return 1; }
+  [ "$_PLYMOUTH_MARKER_STATE" = "installed" ] || { log::error "desktop/plymouth is not installed; run 'atlasctl install desktop/plymouth' before activating"; return 1; }
+  os::pkg_installed plymouth-plugin-script || { log::error "plymouth-plugin-script not installed; run 'atlasctl install desktop/plymouth' before activating"; return 1; }
   command -v plymouth-set-default-theme >/dev/null 2>&1 || { log::error "plymouth-set-default-theme not found; cannot activate the Atlas boot splash"; return 1; }
   _plymouth_privilege_ok || { _plymouth_sudo_guidance; return 1; }
   # §5.4 step 2: load activation state; read current default (unprivileged, never empty).

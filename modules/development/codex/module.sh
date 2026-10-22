@@ -252,7 +252,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/codex install is incomplete; rerun 'atlas install development/codex'"
+      log::error "development/codex install is incomplete; rerun 'atlasctl install development/codex'"
       return 1
       ;;
   esac
@@ -264,7 +264,7 @@ module::update() {
   _codex_marker_load || return 1
   case "$_CODEX_MARKER_STATE" in
     absent) log::info "Codex is not installed by Atlas; nothing to update"; return 0 ;;
-    installing) log::error "development/codex install is incomplete; rerun 'atlas install development/codex'"; return 1 ;;
+    installing) log::error "development/codex install is incomplete; rerun 'atlasctl install development/codex'"; return 1 ;;
   esac
   _codex_preflight_npm || return 1
   _codex_npm_install || return 1

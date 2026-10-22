@@ -115,7 +115,7 @@ Consequences that shape the whole codebase:
 
 ```text
 atlas/
-├── atlas                 # the CLI entrypoint — parses args, dispatches a verb
+├── atlasctl              # the CLI entrypoint — parses args, dispatches a verb
 ├── bootstrap.sh          # zero-dependency first touch on a fresh machine
 ├── internal/             # the reusable engine (shared, not user-facing)
 │   ├── log.sh            # logging system (§9)
@@ -229,7 +229,7 @@ reach inside a module, the contract is wrong and should be extended instead.
 
 Failure behaviour is predictable and loud.
 
-- The `atlas` entrypoint runs under `set -uo pipefail` and propagates exit
+- The `atlasctl` entrypoint runs under `set -uo pipefail` and propagates exit
   codes explicitly; each **module hook subshell** runs under `set -euo
   pipefail`. Fatal paths go through `die`.
 - **Module isolation.** Each module hook runs in its own subshell, so one

@@ -15,7 +15,7 @@ npm packages, then records Atlas ownership with a marker.
 **Depends on:** nothing.
 
 Atlas owns only Fedora package intent and its install marker. Existing Node.js
-or npm installations are valid user-owned state until `atlas install
+or npm installations are valid user-owned state until `atlasctl install
 development/node` writes the marker.
 
 Atlas never manages:

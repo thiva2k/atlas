@@ -46,7 +46,7 @@ this contract.
 
 ## 2. Goals
 
-- Activation is **explicit and opt-in** — never part of `atlas install`.
+- Activation is **explicit and opt-in** — never part of `atlasctl install`.
 - Activation is **exactly reversible** — `deactivate` restores the recorded prior
   value (or deletes a key that was absent); a drifted/user-changed active value is
   reported, never silently clobbered.
@@ -82,7 +82,7 @@ deactivate) echo "deactivate" ;;
 ```
 
 ```
-# atlas (CLI entrypoint) verb case
+# atlasctl (CLI entrypoint) verb case
 install|update|verify|backup|restore|doctor|status|activate|deactivate)
   runner::run "$verb" "$@" ;;
 ```
@@ -91,7 +91,7 @@ install|update|verify|backup|restore|doctor|status|activate|deactivate)
 real runner, a module that merely lacks a hook hits
 `module::has_hook "$hook" || { log::debug "no $hook hook"; continue; }`, the loop
 ends, the subshell exits 0 with no `__SKIP__` token, and `runner::run` counts it
-as **ok** — so `atlas activate` over all ~25 modules would report "25 ok" when one
+as **ok** — so `atlasctl activate` over all ~25 modules would report "25 ok" when one
 actually activated. That is wrong. `_runner_run_module` therefore gains an
 explicit skip for these two verbs, mirroring the existing `status` skip path:
 
@@ -109,7 +109,7 @@ both verbs map to a single hook, this fully covers them. Now non-look modules ar
 reported as *skipped*, look modules that ran as *ok*, and a failing hook as
 *failed* — the accurate three-way split `runner::run` already prints.
 
-`atlas`'s `usage()` gains `activate <module>` / `deactivate <module>` lines so the
+`atlasctl`'s `usage()` gains `activate <module>` / `deactivate <module>` lines so the
 verbs are discoverable. No change to any other verb.
 
 ## 5. The activation contract
@@ -262,7 +262,7 @@ Refuse-to-clobber must not be a dead end. Two escape paths, mirroring
 - "verify fails only for broken Atlas-owned state": activation state is separate
   from the install marker and does not make `verify` (the install-health hook)
   fail. (Activation state is inspectable via the `activated/` file; a dedicated
-  query verb is future work — `atlas status` stays install-focused.)
+  query verb is future work — `atlasctl status` stays install-focused.)
 - The refuse-to-clobber rule plus the documented disown path mean Atlas never
   destroys a user choice it no longer owns, and the user is never stuck — the same
   discipline as the SSH/theme drift guards.
@@ -275,7 +275,7 @@ Refuse-to-clobber must not be a dead end. Two escape paths, mirroring
   and a single module would centralise unrelated privilege/session concerns. A
   convenience aggregate can still be built later *on top of* per-module activate
   hooks.
-- **`ATLAS_ACTIVATE=1 atlas install`**: couples activation to install and muddies
+- **`ATLAS_ACTIVATE=1 atlasctl install`**: couples activation to install and muddies
   reversibility. Rejected — activation must be independently opt-in and undoable.
 - **Overloading the install marker with activation state** (Rev 2 note): rejected —
   the install marker's strict parser rejects unknown keys, so this would force a
@@ -318,7 +318,7 @@ test style):
 12. **Interrupted deactivate (Rev 2):** seed `state=active`, `prior=BreezeDark`, and
     set the current scheme to `BreezeDark` (restore landed, state write didn't).
     `deactivate` must finalize to `inactive` (already restored), not misreport drift.
-13. Full suite stays green; `atlas install` behaviour is unchanged.
+13. Full suite stays green; `atlasctl install` behaviour is unchanged.
 
 ## 9. Decision required
 

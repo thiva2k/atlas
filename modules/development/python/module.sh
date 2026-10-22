@@ -206,7 +206,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/python install is incomplete; rerun 'atlas install development/python'"
+      log::error "development/python install is incomplete; rerun 'atlasctl install development/python'"
       return 1
       ;;
   esac

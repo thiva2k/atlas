@@ -73,7 +73,7 @@ _cursor_act_write() {
 }
 module::activate() {
   _cursor_marker_load || return 1
-  [ "$_CURSOR_MARKER_STATE" = installed ] || { log::error "desktop/cursor is not installed; run 'atlas install desktop/cursor' before activating"; return 1; }
+  [ "$_CURSOR_MARKER_STATE" = installed ] || { log::error "desktop/cursor is not installed; run 'atlasctl install desktop/cursor' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found"; return 1; }
   _cursor_act_load || return 1
   local current; current="$(_cursor_read)"

@@ -1029,7 +1029,7 @@ requires a superseding RFC, not an implementation decision.
 **Owner ruling (2026-07-10): no dependency. `MODULE_DEPENDS=()`.**
 
 `core/ssh` needs `gh` only for an optional step, but `MODULE_DEPENDS` is Atlas's only
-ordering mechanism, and `module::discover` sorts alphabetically — so on a bare `atlas
+ordering mechanism, and `module::discover` sorts alphabetically — so on a bare `atlasctl
 install`, `core/ssh` runs **before** `development/github-cli`. The first draft therefore
 proposed declaring the dependency to force ordering.
 

@@ -198,7 +198,7 @@ guard, as a bug fix. It walks *every* line of `atlas.env` to find one key, so
 under an operator's `bash -x` a `core/git` identity lookup was tracing
 `line=ATLAS_GH_TOKEN=ghp_…`: a module leaking a credential belonging to a
 different module, during a lookup of something else entirely. Found by running
-`bash -x ./atlas install development/github-cli` end to end; no unit test on
+`bash -x ./atlasctl install development/github-cli` end to end; no unit test on
 `env::get_secret` could have caught it, because `env::get_secret` was never on
 that call path.
 
@@ -399,7 +399,7 @@ Same sandbox discipline as RFC-0001, extended for a binary Atlas does not own:
   was asked of it *and* that the token arrived intact on stdin.
 - Hook-level tests run under `set -euo pipefail`, the flags `internal/runner.sh`
   gives a hook subshell. Runner-level tests, which drive the module through
-  `runner::run`, must instead use the `atlas` entrypoint's flags — `set +e; set -uo
+  `runner::run`, must instead use the `atlasctl` entrypoint's flags — `set +e; set -uo
   pipefail`. Under a caller's `-e` the runner dies at the first failing module
   before its failure tally runs, so `ATLAS_EXIT_MODULE` is never returned and an
   "exit 4" assertion proves nothing.

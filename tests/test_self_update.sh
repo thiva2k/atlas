@@ -266,5 +266,5 @@ case "$out" in
   *) _t_ok "self-update redacts remote credentials" ;;
 esac
 
-assert_status "atlas update atlas is not a self-update alias" 3 \
+assert_status "atlasctl update atlas is not a self-update alias" 3 \
   bash -c 'ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules" bash "$ATLAS_ROOT/atlasctl" update atlas'

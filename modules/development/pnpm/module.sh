@@ -208,7 +208,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/pnpm install is incomplete; rerun 'atlas install development/pnpm'"
+      log::error "development/pnpm install is incomplete; rerun 'atlasctl install development/pnpm'"
       return 1
       ;;
   esac

@@ -77,7 +77,7 @@ from `marker_load` (which now only validates marker *structure*); drift is detec
 where it belongs — on-disk-vs-source in `check`/`verify` — and `update` now
 **refreshes the marker** after rewriting the config. Result: a legitimate Atlas
 content change is reported by `check` as not-satisfied and reconciled by a clean
-`atlas update <module>`.
+`atlasctl update <module>`.
 
 ## 5. Testing
 

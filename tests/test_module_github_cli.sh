@@ -410,7 +410,7 @@ development/github-cli"
 # through the runner (production flags: set -euo pipefail)
 # ---------------------------------------------------------------------------
 
-# `set +e; set -uo pipefail` is what the `atlas` entrypoint runs with (a fresh
+# `set +e; set -uo pipefail` is what the `atlasctl` entrypoint runs with (a fresh
 # script has no `-e`; PRE turned it on, so it must be turned back off — `set -uo
 # pipefail` alone does NOT clear it). This is load-bearing:
 # runner::run tallies failures via `out="$(_runner_run_module …)"`;
@@ -425,7 +425,7 @@ set +e; set -uo pipefail
 source "$ATLAS_ROOT/internal/module.sh"
 source "$ATLAS_ROOT/internal/runner.sh"'
 
-# `atlas install development/github-cli` installs core/git first. Tests that
+# `atlasctl install development/github-cli` installs core/git first. Tests that
 # exercise a verb *after* provisioning must do the same.
 DEPS='runner::run install core/git development/github-cli >/dev/null 2>&1'
 

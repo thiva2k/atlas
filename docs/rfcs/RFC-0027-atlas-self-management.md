@@ -13,7 +13,7 @@
 
 Atlas needs a first-class way to update Atlas itself without weakening the
 module ownership model. Repository-local execution remains available as
-`./atlas`, while the managed global launcher is `atlasctl`. The canonical
+`./atlasctl`, while the managed global launcher is `atlasctl`. The canonical
 operator interface is:
 
 ```
@@ -23,9 +23,9 @@ atlasctl self-update
 The current engine cannot provide this command through a module-local change:
 
 - `atlasctl self-update` is not a supported platform verb;
-- `atlas update atlas` is intentionally rejected because `update` is a module
+- `atlasctl update atlas` is intentionally rejected because `update` is a module
   lifecycle verb and self-update is an engine lifecycle verb;
-- `atlas update core/atlas` is intentionally rejected because it would expose
+- `atlasctl update core/atlas` is intentionally rejected because it would expose
   Atlas self-updates as just another workstation dependency and require a module
   namespace special case.
 
@@ -54,8 +54,8 @@ must preserve the module lifecycle contract unchanged.
 - Resolving local merge conflicts automatically.
 - Force-resetting a dirty working tree.
 - Managing authentication to the Git remote.
-- Supporting `atlas update atlas`.
-- Supporting `atlas update core/atlas`.
+- Supporting `atlasctl update atlas`.
+- Supporting `atlasctl update core/atlas`.
 
 ## 4. Ownership model
 
@@ -93,11 +93,11 @@ atlasctl self-update
 Explicitly unsupported:
 
 ```
-atlas update atlas
+atlasctl update atlas
 ```
 
 `atlasctl self-update` is a platform verb because it updates the Atlas engine, not a
-workstation capability module. `atlas update atlas` must not be implemented,
+workstation capability module. `atlasctl update atlas` must not be implemented,
 because `update` is a module lifecycle verb. Keeping those concepts separate
 preserves the architecture and avoids a special case in module resolution.
 
@@ -120,9 +120,9 @@ This RFC requires changes to the CLI/runner layer:
 2. Add help text for the self-management commands.
 3. Add a dedicated self-management implementation path.
 4. Keep `module::discover` and normal module lifecycle resolution unchanged.
-5. Add tests proving that `atlas update atlas` is rejected as normal module
+5. Add tests proving that `atlasctl update atlas` is rejected as normal module
    resolution, not treated as an alias.
-6. Add tests proving that `atlas update core/atlas` is not required for the
+6. Add tests proving that `atlasctl update core/atlas` is not required for the
    self-update command to work.
 
 The engine must not special-case a normal module in a way that weakens the
@@ -147,11 +147,11 @@ module contract.
 9. Fast-forward only.
 10. Refuse merge commits, rebases, force resets, and conflict resolution.
 11. Re-run post-update validation:
-   - `bash -n atlas`;
+   - `bash -n atlasctl`;
    - `bash -n` over `internal/*.sh` and module scripts;
-   - `atlasctl version` or repository-local `./atlas version`;
-   - `atlasctl help` or repository-local `./atlas help`;
-   - `atlasctl status` or repository-local `./atlas status`.
+   - `atlasctl version` or repository-local `./atlasctl version`;
+   - `atlasctl help` or repository-local `./atlasctl help`;
+   - `atlasctl status` or repository-local `./atlasctl status`.
 12. Run the full test suite only when explicitly requested with:
    - `atlasctl self-update --verify`; or
    - `atlasctl self-update --full-test`.
@@ -243,7 +243,7 @@ Tests must cover:
 - `atlasctl self-update` command dispatch;
 - `atlasctl self-version` command dispatch;
 - `atlasctl self-verify` command dispatch without fetch/merge;
-- `atlas update atlas` is rejected and does not dispatch self-update;
+- `atlasctl update atlas` is rejected and does not dispatch self-update;
 - normal module resolution remains unchanged.
 
 ## 11. Decision required
@@ -252,8 +252,8 @@ Accepted decisions:
 
 1. The public self-management commands are `atlasctl self-update`,
    `atlasctl self-version`, and `atlasctl self-verify`; repository-local
-   `./atlas ...` remains supported.
-2. `atlas update atlas` must not be implemented.
+   `./atlasctl ...` remains supported.
+2. `atlasctl update atlas` must not be implemented.
 3. `atlasctl self-update` belongs to an engine self-management namespace, separate
    from module lifecycle verbs.
 4. The update must verify exact recorded remote, exact recorded branch, clean
@@ -266,7 +266,7 @@ Accepted decisions:
 
 Erratum — managed launcher name:
 
-- The repository-local executable remains `./atlas`.
+- The repository-local executable remains `./atlasctl`.
 - Bootstrap installs the managed global launcher at `~/.local/bin/atlasctl`.
 - The launcher name avoids collision with existing software distributions that
   provide an `atlas` executable, including Fedora's Ariga Atlas package.

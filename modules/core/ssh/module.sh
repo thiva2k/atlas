@@ -133,7 +133,7 @@ _ssh_manifest_load() {
   # `set -f` for the whole function: the field split below is `set -- $line`,
   # which performs PATHNAME EXPANSION. A path field with a glob would otherwise
   # be rewritten against $CWD, so the same manifest would parse differently
-  # depending on where `atlas` was run. This parser is a trust boundary; its
+  # depending on where `atlasctl` was run. This parser is a trust boundary; its
   # result must depend only on the file. `local -` restores globbing on return,
   # and this function has no legitimate glob of its own.
   local -; set -f
@@ -385,7 +385,7 @@ _ssh_register() {
   _ssh_gh_authed || {
     if [ "$n" -gt 0 ]; then
       log::warn "gh is not authenticated — not registering your key with GitHub"
-      log::warn "  fix: run 'gh auth login', then re-run 'atlas install core/ssh'"
+      log::warn "  fix: run 'gh auth login', then re-run 'atlasctl install core/ssh'"
     fi
     return 0
   }
@@ -610,7 +610,7 @@ module::verify() {
     else
       log::error "Atlas installed core/ssh but its pinned known_hosts is gone: $(_ssh_known_hosts)"
     fi
-    log::error "  fix: re-run 'atlas install core/ssh' (or 'atlas update core/ssh') to re-pin it"
+    log::error "  fix: re-run 'atlasctl install core/ssh' (or 'atlasctl update core/ssh') to re-pin it"
     fail=1
   fi
 
@@ -621,7 +621,7 @@ module::verify() {
     local gm; gm="$(_ssh_gen_mode)"
     if [ "$gm" != "none" ] && [ -e "$(_ssh_default_key)" ]; then
       log::warn "  a passphrase is set, but $(_ssh_default_key) exists and Atlas does not own it"
-      log::warn "  fix: ATLAS_SSH_IMPORT_KEY=$(_ssh_default_key) atlas install core/ssh"
+      log::warn "  fix: ATLAS_SSH_IMPORT_KEY=$(_ssh_default_key) atlasctl install core/ssh"
     fi
   fi
 
@@ -645,7 +645,7 @@ module::verify() {
 }
 
 module::update() {
-  os::has_cmd ssh || { log::error "ssh is not installed — run 'atlas install core/ssh'"; return 1; }
+  os::has_cmd ssh || { log::error "ssh is not installed — run 'atlasctl install core/ssh'"; return 1; }
   mkdir -p "$(_ssh_cfg_dir)" || { log::error "cannot create $(_ssh_cfg_dir)"; return 1; }
   chmod 700 "$(_ssh_cfg_dir)" || return 1
   cp -f "$_SSH_MODULE_DIR/config/known_hosts" "$(_ssh_known_hosts)" \

@@ -26,7 +26,7 @@ $ sudo plymouth-set-default-theme -R atlas
 This was found in live use. It is the audit's headline failure class — a module
 reporting healthy for software that cannot actually function: `module::check`
 and `module::verify` only hash the theme *files* (`_plymouth_matches`), so
-`atlas status`/`doctor desktop/plymouth` report "installed"/healthy for a theme
+`atlasctl status`/`doctor desktop/plymouth` report "installed"/healthy for a theme
 that is non-functional because its runtime plugin is absent.
 
 ## 2. Change
@@ -59,7 +59,7 @@ in RFC-0024 — that is user-owned (or handled by RFC-0029).
 - `check`: `installed` iff marker=installed AND theme files match AND
   `plymouth-plugin-script` installed. (A machine that had the buggy state —
   marker=installed, plugin absent — now correctly reports not-satisfied, so
-  `atlas install` re-runs and installs the plugin instead of skipping.)
+  `atlasctl install` re-runs and installs the plugin instead of skipping.)
 - `verify`: absent/detached → 0 (fresh is valid); installing → 1; installed →
   fail with a clear message if the plugin is missing or the theme drifted.
 - `install`: idempotent; installs the plugin, writes the theme, promotes marker.

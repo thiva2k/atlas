@@ -6,8 +6,8 @@ os::has_cmd() { command -v "$1" >/dev/null 2>&1; }
 # --- RPM query cache (RFC-0028) ----------------------------------------------
 # Memoises `rpm -q` presence for the life of the module subshell the runner
 # spawns. Inherently per-invocation and per-module (a subshell cannot outlive the
-# atlas process; a `( … )` inherits only a copy of this map). Populated ONLY
-# inside module subshells — never from the atlas parent process, or a stale entry
+# atlasctl process; a `( … )` inherits only a copy of this map). Populated ONLY
+# inside module subshells — never from the atlasctl parent process, or a stale entry
 # would be inherited by every later module subshell.
 declare -gA _OS_PKG_INSTALLED=()   # pkg name -> "0" installed / "1" not
 

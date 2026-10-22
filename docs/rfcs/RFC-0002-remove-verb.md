@@ -15,12 +15,12 @@
 "Cleanly remove it" — but its **platform verb** list omits it:
 
 ```
-atlasctl install    atlas update    atlasctl verify    atlasctl backup
+atlasctl install    atlasctl update    atlasctl verify    atlasctl backup
 atlasctl restore    atlasctl doctor    atlasctl status
 ```
 
 `_runner_hooks_for_verb` in `internal/runner.sh` has no `remove` case, so
-`atlas remove core/git` exits `2` (unknown command). Every other optional hook
+`atlasctl remove core/git` exits `2` (unknown command). Every other optional hook
 (`update`, `backup`, `restore`) has a verb; `remove` alone does not.
 
 This went unnoticed while every module was a placeholder. The Git module
@@ -35,7 +35,7 @@ with no verb is unreachable by construction.
 fan-out defaults are all wrong for it:
 
 1. **Bare invocation.** `runner::run` fans an argument-less verb across *every*
-   discovered module. `atlas remove` would tear down the entire workstation.
+   discovered module. `atlasctl remove` would tear down the entire workstation.
 2. **Dependency order.** `module::resolve_order` emits dependency-first order, so
    `install` builds foundations before dependents. Teardown is the mirror image:
    removing `core/git` before a module that layers config on top of Git operates
@@ -51,7 +51,7 @@ RFC-0001's branch.
 
 ## 3. Questions this RFC must answer
 
-- Does `atlas remove` with no module ids **refuse** (exit `2`)? (Atlas must run
+- Does `atlasctl remove` with no module ids **refuse** (exit `2`)? (Atlas must run
   unattended, so an interactive confirmation prompt is not available.)
 - Does the runner **reverse** the topological order for `remove`?
 - Does removing a module that another *installed* module depends on refuse with

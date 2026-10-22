@@ -20,7 +20,7 @@ refuses by default.
 | **external** | anything else in `~/.ssh` | **detects and reports it. Nothing else.** |
 
 An external key is not a problem to be solved. It is the normal state of a
-developer's machine. `atlas install core/ssh` on a box that already has keys changes
+developer's machine. `atlasctl install core/ssh` on a box that already has keys changes
 **nothing**.
 
 Ownership is not guessed from the filename. It is recorded in
@@ -43,7 +43,7 @@ you ask:
 ATLAS_SSH_KEY_PASSPHRASE=a long passphrase you can actually remember
 ```
 
-Then `atlas install core/ssh` creates `~/.ssh/id_ed25519`, encrypted with it.
+Then `atlasctl install core/ssh` creates `~/.ssh/id_ed25519`, encrypted with it.
 
 The passphrase never becomes a command-line argument (`argv` is world-readable in
 `/proc`), never a shell variable, and never appears in a log or a `bash -x` trace. It
@@ -58,7 +58,7 @@ no `-N` neither hangs nor fails — it silently produces an *unencrypted* key an
 If you genuinely want an unencrypted key (you rely on full-disk encryption, say):
 
 ```sh
-ATLAS_SSH_ALLOW_EMPTY_PASSPHRASE=1 atlas install core/ssh
+ATLAS_SSH_ALLOW_EMPTY_PASSPHRASE=1 atlasctl install core/ssh
 ```
 
 Atlas will do it, and warn you loudly. Setting **both** is a contradiction and Atlas
@@ -69,7 +69,7 @@ If `~/.ssh/id_ed25519` already exists, Atlas never overwrites it — owned or no
 ## Adopting a key you already have
 
 ```sh
-ATLAS_SSH_IMPORT_KEY=~/.ssh/id_work atlas install core/ssh
+ATLAS_SSH_IMPORT_KEY=~/.ssh/id_work atlasctl install core/ssh
 ```
 
 This writes a line to the manifest. It does **not** chmod, rewrite, move or re-encrypt
@@ -96,12 +96,12 @@ If `gh` is not authenticated, Atlas warns and moves on. `install` never fails be
 you have no GitHub account.
 
 > **Ordering.** `core/ssh` runs before `development/github-cli` on a bare
-> `atlas install`. So on a fresh box: run `atlas install`, then `gh auth login`, then
-> **`atlas install` again** — the second run notices the key is unregistered and
+> `atlasctl install`. So on a fresh box: run `atlasctl install`, then `gh auth login`, then
+> **`atlasctl install` again** — the second run notices the key is unregistered and
 > registers it. Atlas tells you this when it happens.
 >
 > One caveat: `gh auth token` only proves a token *exists*, not that it still works.
-> With a revoked token, Atlas keeps trying to register on every run and `atlas status`
+> With a revoked token, Atlas keeps trying to register on every run and `atlasctl status`
 > keeps reporting `core/ssh` as not installed, until you re-authenticate.
 
 ## Backup and restore
@@ -114,8 +114,8 @@ ATLAS_BACKUP_PASSPHRASE=another long passphrase
 ```
 
 ```sh
-atlas backup            # -> ~/.local/state/atlas/backup/core-ssh.tar.gpg
-atlas restore
+atlasctl backup            # -> ~/.local/state/atlas/backup/core-ssh.tar.gpg
+atlasctl restore
 ```
 
 What goes in: the manifest, every key Atlas owns (private and public), and Atlas's own
@@ -143,7 +143,7 @@ Atlas does not own.
 **Restore never overwrites anything silently.** It checks every destination first. If a
 single file exists and differs, it writes **nothing at all**, lists the conflicts, and
 exits. Files that are already byte-identical are skipped, which is what makes a second
-`atlas restore` a no-op. It will not write through a symlink, and it inspects the
+`atlasctl restore` a no-op. It will not write through a symlink, and it inspects the
 archive's member types before extracting so a tampered artifact cannot escape into
 `$HOME`.
 
@@ -194,7 +194,7 @@ module genuinely is unhealthy — and prints the exact `chmod`. It does not run 
 you: changing the mode of a file you created is modifying your state, and this module
 does not do that.
 
-`atlas verify` passes offline. Set `ATLAS_SSH_NO_NETWORK=1` to skip the GitHub probe
+`atlasctl verify` passes offline. Set `ATLAS_SSH_NO_NETWORK=1` to skip the GitHub probe
 entirely.
 
 **There is no `remove` hook.** Atlas will not delete a private key. It may be registered

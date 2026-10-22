@@ -196,12 +196,12 @@ _login_canvas_act_write() {
 _login_canvas_privilege_ok() { os::is_root || sudo -n true 2>/dev/null; }
 _login_canvas_sudo_guidance() {
   log::error "login-canvas activation requires root to edit $_LOGIN_CANVAS_CONF. Re-run with sudo available, e.g.:"
-  log::error "  sudo atlas activate desktop/login-canvas"
+  log::error "  sudo atlasctl activate desktop/login-canvas"
 }
 
 module::activate() {
   _login_canvas_marker_load || return 1
-  [ "$_LOGIN_CANVAS_MARKER_STATE" = "installed" ] || { log::error "desktop/login-canvas is not installed; run 'atlas install desktop/login-canvas' before activating"; return 1; }
+  [ "$_LOGIN_CANVAS_MARKER_STATE" = "installed" ] || { log::error "desktop/login-canvas is not installed; run 'atlasctl install desktop/login-canvas' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found; cannot manage the greeter wallpaper"; return 1; }
   _login_canvas_privilege_ok || { _login_canvas_sudo_guidance; return 1; }
   _login_canvas_act_load || return 1

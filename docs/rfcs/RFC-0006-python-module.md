@@ -213,7 +213,7 @@ upgrades or change interpreter versions implicitly.
 
 ### 5.5 `remove` hook
 
-The platform still has no `atlas remove` verb, but the module hook is specified
+The platform still has no `atlasctl remove` verb, but the module hook is specified
 for future use.
 
 `remove` deletes only Atlas's marker. It never uninstalls `python3` or

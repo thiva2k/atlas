@@ -136,7 +136,7 @@ _theme_act_write() {
 }
 module::activate() {
   _theme_marker_load || return 1
-  [ "$_THEME_MARKER_STATE" = "installed" ] || { log::error "desktop/theme is not installed; run 'atlas install desktop/theme' before activating"; return 1; }
+  [ "$_THEME_MARKER_STATE" = "installed" ] || { log::error "desktop/theme is not installed; run 'atlasctl install desktop/theme' before activating"; return 1; }
   command -v plasma-apply-colorscheme >/dev/null 2>&1 || { log::error "plasma-apply-colorscheme not found; cannot activate the Atlas color scheme"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found; cannot manage the color scheme"; return 1; }
   _theme_act_load || return 1

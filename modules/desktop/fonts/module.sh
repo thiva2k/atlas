@@ -303,7 +303,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "desktop/fonts install is incomplete; rerun 'atlas install desktop/fonts'"
+      log::error "desktop/fonts install is incomplete; rerun 'atlasctl install desktop/fonts'"
       return 1
       ;;
   esac
@@ -397,7 +397,7 @@ _fonts_act_write() {
 }
 module::activate() {
   _fonts_marker_load || return 1
-  [ "$_FONTS_MARKER_STATE" = installed ] || { log::error "desktop/fonts is not installed; run 'atlas install desktop/fonts' before activating"; return 1; }
+  [ "$_FONTS_MARKER_STATE" = installed ] || { log::error "desktop/fonts is not installed; run 'atlasctl install desktop/fonts' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found"; return 1; }
   _fonts_act_load || return 1
   local cur_g cur_f; cur_g="$(_fonts_read_general)"; cur_f="$(_fonts_read_fixed)"

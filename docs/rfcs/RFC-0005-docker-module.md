@@ -324,7 +324,7 @@ semantics.
 
 ### 5.5 `remove` (module hook only)
 
-The platform has no `atlas remove` verb (RFC-0002 remains proposed), but the
+The platform has no `atlasctl remove` verb (RFC-0002 remains proposed), but the
 module hook is specified and tested for future use.
 
 `remove` is a safe detachment, not an uninstall. It must:

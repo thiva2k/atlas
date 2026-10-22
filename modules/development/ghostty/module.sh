@@ -288,7 +288,7 @@ _ghostty_verify_managed() {
       return 0
       ;;
     installing)
-      log::error "development/ghostty install is incomplete; rerun 'atlas install development/ghostty'"
+      log::error "development/ghostty install is incomplete; rerun 'atlasctl install development/ghostty'"
       return 1
       ;;
   esac

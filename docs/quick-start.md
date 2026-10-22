@@ -41,7 +41,7 @@ Expected target:
 
 ```text
 /home/<user>/.local/bin/atlasctl
-/home/<user>/atlas/atlas
+/home/<user>/atlas/atlasctl
 ```
 
 If `atlasctl` is unavailable, use repository-local execution:

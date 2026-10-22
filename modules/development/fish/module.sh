@@ -272,7 +272,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/fish install is incomplete; rerun 'atlas install development/fish'"
+      log::error "development/fish install is incomplete; rerun 'atlasctl install development/fish'"
       return 1
       ;;
   esac

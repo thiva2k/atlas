@@ -8,7 +8,7 @@ never overwrites `kscreenlockerrc` on `install`.
 
 ## Activating
 
-`atlas activate desktop/lockscreen` reversibly switches
+`atlasctl activate desktop/lockscreen` reversibly switches
 `kscreenlockerrc [Greeter] Theme` to `org.atlas.hud`, recording whatever
 theme was active before (write-once escrow, per RFC-0029). The new theme
 takes effect at the **next lock**, not live — `kscreenlocker_greet` reads
@@ -16,7 +16,7 @@ takes effect at the **next lock**, not live — `kscreenlocker_greet` reads
 
 ## Reverting
 
-- `atlas deactivate desktop/lockscreen` restores the prior theme exactly (or
+- `atlasctl deactivate desktop/lockscreen` restores the prior theme exactly (or
   removes the `Theme` key if none was set before).
 - Manual escape (from a TTY, or if the greeter won't come up): run
   `kwriteconfig6 --file kscreenlockerrc --group Greeter --key Theme --delete`

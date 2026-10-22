@@ -211,7 +211,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "desktop/fastfetch install is incomplete; rerun 'atlas install desktop/fastfetch'"
+      log::error "desktop/fastfetch install is incomplete; rerun 'atlasctl install desktop/fastfetch'"
       return 1
       ;;
   esac

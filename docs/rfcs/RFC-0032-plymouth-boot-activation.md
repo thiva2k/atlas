@@ -110,7 +110,7 @@ interface. Two facts from its source drive the whole contract:
 
 ## 2. Goals
 
-- Boot-splash activation is **explicit and opt-in** — never part of `atlas install`
+- Boot-splash activation is **explicit and opt-in** — never part of `atlasctl install`
   (RFC-0024/0024a keep install limited to shipping the theme + plugin).
 - Activation is **exactly reversible** — `deactivate` restores the recorded prior
   default theme verbatim; a user-changed default is reported, never silently
@@ -159,9 +159,9 @@ interface. Two facts from its source drive the whole contract:
 
 - `activate)`/`deactivate)` to `_runner_hooks_for_verb` (each maps to a single
   same-named optional hook);
-- the `activate`/`deactivate` verb case in the `atlas` CLI entrypoint;
+- the `activate`/`deactivate` verb case in the `atlasctl` CLI entrypoint;
 - the explicit skip-accounting (`__SKIP__`) for modules lacking the hook, so
-  `atlas activate` over all modules reports non-look modules as *skipped*, the
+  `atlasctl activate` over all modules reports non-look modules as *skipped*, the
   module that ran as *ok*, and a failing hook as *failed*;
 - the `usage()` lines for the two verbs.
 
@@ -302,7 +302,7 @@ immediately otherwise. Two consequences, both required for correctness:
   ```
   plymouth activation requires root to rebuild the initramfs
   (plymouth-set-default-theme -R). Re-run with sudo available and a terminal, e.g.:
-    sudo atlas activate desktop/plymouth
+    sudo atlasctl activate desktop/plymouth
   This step rebuilds the initramfs and takes seconds to minutes.
   ```
 
@@ -318,7 +318,7 @@ immediately otherwise. Two consequences, both required for correctness:
   on a non-root run makes `sudo -n true` fail, which is the same clean refusal — the
   same discipline `desktop/theme` uses for an absent apply tool.)
 
-If a real interactive `sudo atlas activate …` is run with a terminal, `sudo -n true`
+If a real interactive `sudo atlasctl activate …` is run with a terminal, `sudo -n true`
 succeeds against the cached credential (or the user is prompted once, up front, by
 the harness) and the subsequent `_plymouth_run_privileged` calls reuse that
 credential; no second prompt appears mid-rebuild. Should the actual privileged
@@ -330,7 +330,7 @@ never in a lying `active` state.
 
 1. **Preconditions.** Require the plymouth install marker to be `installed` (the
    atlas theme files present *and* `plymouth-plugin-script` installed, per RFC-0024a's
-   `module::check`); else fail: "run `atlas install desktop/plymouth` before
+   `module::check`); else fail: "run `atlasctl install desktop/plymouth` before
    activating." Require `plymouth-set-default-theme` present; else fail. **Preflight
    privilege (§5.3) with `os::is_root || sudo -n true` before any state write**; on
    failure, refuse with the sudo-guidance message and write nothing.
@@ -456,7 +456,7 @@ and `core/ssh`'s manifest-line disown):
 ## 7. Alternatives considered
 
 - **Activation inside `install`** (`plymouth-set-default-theme -R atlas` during
-  `module::install`, or an `ATLAS_ACTIVATE=1 atlas install`). Rejected: it couples a
+  `module::install`, or an `ATLAS_ACTIVATE=1 atlasctl install`). Rejected: it couples a
   privileged, slow, hard-to-reverse boot change to install, contradicts RFC-0024's
   scope, and muddies reversibility. RFC-0024/0024a explicitly kept the default-theme
   selection out of install and pointed it here.
@@ -573,8 +573,8 @@ never just CONF):
 12. **Strict parser:** rejects `prior_*` under `inactive`, missing/empty `prior_*`
     under `active`/`activating`, and unknown keys — the same malformed-marker guards as
     `tests/test_activation.sh`.
-13. Full suite stays green; `atlas install desktop/plymouth` behaviour (RFC-0024/
-    0024a) is unchanged; `atlas activate` skip-accounting (RFC-0029 §4) still counts
+13. Full suite stays green; `atlasctl install desktop/plymouth` behaviour (RFC-0024/
+    0024a) is unchanged; `atlasctl activate` skip-accounting (RFC-0029 §4) still counts
     non-plymouth modules as *skipped*; hook stdout is clean of rebuild chatter (assert
     the runner's `__SKIP__` parse is unaffected — §4 stdout discipline).
 

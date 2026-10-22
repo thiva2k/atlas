@@ -216,7 +216,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/node install is incomplete; rerun 'atlas install development/node'"
+      log::error "development/node install is incomplete; rerun 'atlasctl install development/node'"
       return 1
       ;;
   esac
