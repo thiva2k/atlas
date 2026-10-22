@@ -26,3 +26,4 @@ assert_status "cursor verify fails when managed package missing" 1 bash -c "$PRE
 assert_status "cursor remove detaches without uninstalling" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_cursor_marker)\"; grep -qxF adwaita-cursor-theme \"\$PKGS\""
 assert_status "cursor backup no-op" 0 bash -c "$PRE; module::backup"
 assert_status "cursor restore no-op" 0 bash -c "$PRE; module::restore"
+

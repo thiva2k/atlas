@@ -12,3 +12,4 @@ drop-in that selects it.
 Atlas owns only `/usr/share/sddm/themes/atlas`,
 `/etc/sddm.conf.d/90-atlas-theme.conf`, and its marker. It refuses unmanaged
 files at those paths and removes only unchanged Atlas-owned files.
+

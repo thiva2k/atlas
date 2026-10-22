@@ -44,3 +44,4 @@ if command -v kreadconfig6 >/dev/null 2>&1 && command -v kwriteconfig6 >/dev/nul
 else
   _t_ok "power bool round-trip skipped (kreadconfig6/kwriteconfig6 not installed)"
 fi
+

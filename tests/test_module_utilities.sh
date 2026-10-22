@@ -27,3 +27,4 @@ assert_status "utilities verify fails when managed package missing" 1 bash -c "$
 assert_status "utilities remove detaches without uninstalling" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_utilities_marker)\"; grep -qxF btop \"\$PKGS\""
 assert_status "utilities backup no-op" 0 bash -c "$PRE; module::backup"
 assert_status "utilities restore no-op" 0 bash -c "$PRE; module::restore"
+

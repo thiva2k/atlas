@@ -13,3 +13,4 @@ The module never forces permanent performance mode and never changes battery
 health behavior. It manages only the keys listed in `profile.tsv`, refuses
 pre-existing keys, verifies drift only after Atlas ownership, and removes only
 unchanged Atlas-owned keys.
+

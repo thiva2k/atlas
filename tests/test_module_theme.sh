@@ -28,3 +28,4 @@ assert_status "theme remove detaches and deletes asset" 0 bash -c "$PRE; module:
 assert_status "theme remove refuses drift" 1 bash -c "$PRE; module::install >/dev/null 2>&1; printf drift >> \"\$(_theme_asset_file)\"; module::remove"
 assert_status "theme backup no-op" 0 bash -c "$PRE; module::backup"
 assert_status "theme restore no-op" 0 bash -c "$PRE; module::restore"
+

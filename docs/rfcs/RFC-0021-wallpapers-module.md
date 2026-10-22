@@ -29,3 +29,4 @@ directory, then promotes the marker to `installed`. Verify succeeds before
 install and after detach. Remove deletes only unchanged Atlas-owned wallpapers.
 
 Backup and restore are no-ops.
+

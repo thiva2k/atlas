@@ -12,3 +12,4 @@ KConfig key set.
 The module does not disable critical system notifications. It manages only keys
 listed in `profile.tsv`, refuses pre-existing keys, and removes only unchanged
 Atlas-owned keys.
+
