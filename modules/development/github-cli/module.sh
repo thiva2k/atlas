@@ -67,7 +67,7 @@ _gh_authenticate() {
     log::error "gh did not accept the supplied token"
     log::error "  why: the token was rejected, or GitHub was unreachable — gh validates over the network and the two are indistinguishable"
     log::error "  why: or the secret stopped being readable between resolving it and using it (its file changed mid-run)"
-    log::error "  fix: check ATLAS_GH_TOKEN's value and scopes, then re-run 'atlas install development/github-cli'"
+    log::error "  fix: check ATLAS_GH_TOKEN's value and scopes, then re-run 'atlasctl install development/github-cli'"
     return 1
   fi
   log::info "gh authenticated"
@@ -100,13 +100,13 @@ module::verify() {
       return 0
     fi
     log::error "gh is not installed"
-    log::error "  fix: run 'atlas install development/github-cli'"
+    log::error "  fix: run 'atlasctl install development/github-cli'"
     return 1
   fi
 
   if ! gh --version >/dev/null 2>&1; then
     log::error "gh is not runnable"
-    log::error "  fix: run 'atlas install development/github-cli'"
+    log::error "  fix: run 'atlasctl install development/github-cli'"
     return 1
   fi
 

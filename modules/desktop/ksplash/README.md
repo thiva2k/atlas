@@ -10,7 +10,7 @@ just confirm the splash file that ships with that package is present.
 
 ## Activating
 
-`atlas activate desktop/ksplash` reversibly switches
+`atlasctl activate desktop/ksplash` reversibly switches
 `ksplashrc [KSplash] Theme` to `org.atlas.hud`, recording whatever theme was
 active before (write-once escrow, per RFC-0029 — same pattern
 `desktop/lockscreen` uses for `kscreenlockerrc [Greeter] Theme`). The new
@@ -27,7 +27,7 @@ resolves something other than `KSplashQML`.
 
 ## Reverting
 
-- `atlas deactivate desktop/ksplash` restores the prior theme exactly (or
+- `atlasctl deactivate desktop/ksplash` restores the prior theme exactly (or
   removes the `Theme` key if none was set before).
 - Manual escape: run
   `kwriteconfig6 --file ksplashrc --group KSplash --key Theme --delete` and

@@ -43,7 +43,7 @@ change — only the content of the theme asset the module already ships and hash
 - Still "owns only `/usr/share/plymouth/themes/atlas` and the marker." The asset's
   content changes; its manifest hash changes with it, so a machine with the old
   theme installed correctly reports drift on `verify`/`check` and re-installs via
-  `atlas install`/`update desktop/plymouth`, exactly as the manifest mechanism
+  `atlasctl install`/`update desktop/plymouth`, exactly as the manifest mechanism
   (RFC-0024) intends.
 - Activation (making `atlas` the default and rebuilding the initramfs) remains out
   of scope here — that is RFC-0032. But note that a theme content change only

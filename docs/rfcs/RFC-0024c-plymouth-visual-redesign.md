@@ -44,7 +44,7 @@ splash". No package, marker, or ownership change.
 Still owns only `/usr/share/plymouth/themes/atlas` and the marker. The added PNGs
 are part of the theme content the manifest already hashes, so a machine with the
 old theme reports drift on `check`/`verify` and re-installs via
-`atlas install`/`update desktop/plymouth`. As with any theme content change, it
+`atlasctl install`/`update desktop/plymouth`. As with any theme content change, it
 reaches the boot only after the initramfs is rebuilt
 (`plymouth-set-default-theme -R` / `dracut -f`).
 

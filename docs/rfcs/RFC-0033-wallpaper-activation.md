@@ -251,7 +251,7 @@ module first so the marker is `installed`. Cases:
     unknown key/state/schema.
 15. No-live path: without `plasma-apply-wallpaperimage`, activate/deactivate still
     write config and report "applies at next login."
-16. Full suite stays green; `atlas install desktop/wallpapers` unchanged.
+16. Full suite stays green; `atlasctl install desktop/wallpapers` unchanged.
 
 ## 9. Decision required
 

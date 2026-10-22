@@ -116,11 +116,11 @@ KSplash-incompatible theme.
   degrades the *splash* only, for one screen, for about a second. It never
   blocks or delays startup, and it cannot lock the user out (login and the
   lock screen are untouched by this module).
-- **Revert:** `atlas deactivate desktop/ksplash` restores the prior theme.
+- **Revert:** `atlasctl deactivate desktop/ksplash` restores the prior theme.
   Manual escape:
   `kwriteconfig6 --file ksplashrc --group KSplash --key Theme --delete ""`
   and log in again.
-- Activation is never part of a default `atlas activate` sweep — it is an
+- Activation is never part of a default `atlasctl activate` sweep — it is an
   explicit, named, opt-in step, best verified by a login (or
   `ksplashqml org.atlas.hud --test` if available) before being trusted.
 

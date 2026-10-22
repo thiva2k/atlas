@@ -175,7 +175,7 @@ _lockscreen_act_write() {
 
 module::activate() {
   _lockscreen_marker_load || return 1
-  [ "$_LOCKSCREEN_MARKER_STATE" = "installed" ] || { log::error "desktop/lockscreen is not installed; run 'atlas install desktop/lockscreen' before activating"; return 1; }
+  [ "$_LOCKSCREEN_MARKER_STATE" = "installed" ] || { log::error "desktop/lockscreen is not installed; run 'atlasctl install desktop/lockscreen' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found; cannot manage the lock-screen theme"; return 1; }
   _lockscreen_act_load || return 1
   local current; current="$(_lockscreen_read_theme)"

@@ -387,12 +387,12 @@ refuses a locked config, and leaves the Git package and the user's identity alon
 However, `docs/architecture.md` §3 lists `remove` among the *module hooks* while its
 *platform verb* list (`install update verify backup restore doctor status`) omits it,
 and `_runner_hooks_for_verb` in `internal/runner.sh` has no `remove` case. So
-`atlas remove core/git` exits `2` (unknown command) and the hook is unreachable from
+`atlasctl remove core/git` exits `2` (unknown command) and the hook is unreachable from
 the CLI. Every other optional hook has a verb; `remove` alone does not.
 
 This is an **engine gap**, not a defect in this module, and closing it is out of scope
 here: a `remove` verb would be Atlas's first *destructive* verb, and it needs decisions
-this RFC never made. Must a bare `atlas remove` be refused, rather than tearing down the
+this RFC never made. Must a bare `atlasctl remove` be refused, rather than tearing down the
 whole workstation? Must the runner reverse its topological order, so a module is removed
 before the dependencies it was built on? Must a module with no `remove` hook report a
 visible skip instead of counting as "ok"? Per `docs/rfcs/README.md`, a change to the

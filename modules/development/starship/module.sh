@@ -203,7 +203,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "development/starship install is incomplete; rerun 'atlas install development/starship'"
+      log::error "development/starship install is incomplete; rerun 'atlasctl install development/starship'"
       return 1
       ;;
   esac
@@ -278,7 +278,7 @@ _starship_act_snippet_file() {
 # ownership check is a SHA256 comparison, not a fragile text diff.
 _starship_act_snippet_content() {
   printf '%s\n' "# Managed by Atlas: development/starship activation (RFC-0031). Do not edit."
-  printf '%s\n' "# Reversible: run 'atlas deactivate development/starship' to remove this file."
+  printf '%s\n' "# Reversible: run 'atlasctl deactivate development/starship' to remove this file."
   printf '%s\n' 'fish_add_path -gp $HOME/.local/bin'
   printf '%s\n' "if status is-interactive"
   printf '%s\n' '    set -gx STARSHIP_CONFIG $HOME/.config/atlas/starship/starship.toml'
@@ -455,9 +455,9 @@ _starship_act_config_path_ok() {
 module::activate() {
   _starship_marker_load || return 1
   [ "$_STARSHIP_MARKER_STATE" = "installed" ] || {
-    log::error "development/starship is not installed; run 'atlas install development/starship' before activating"; return 1; }
+    log::error "development/starship is not installed; run 'atlasctl install development/starship' before activating"; return 1; }
   _starship_config_matches_source || {
-    log::error "development/starship managed config is missing or drifted; run 'atlas install development/starship' before activating"; return 1; }
+    log::error "development/starship managed config is missing or drifted; run 'atlasctl install development/starship' before activating"; return 1; }
   os::has_cmd starship || {
     log::error "starship binary not found on PATH; install it (e.g. to ~/.local/bin) before activating development/starship"; return 1; }
   _starship_act_config_path_ok || {
@@ -536,7 +536,7 @@ module::activate() {
   _starship_act_write activating || return 1
   _starship_act_write_snippet || return 1
   _starship_act_write active || return 1
-  log::info "Atlas Starship prompt activated; open a new interactive fish (or source $(_starship_act_snippet_file)) to see it — already-open shells are unchanged. This wiring runs the starship binary at shell start; if you later remove it from ~/.local/bin/PATH, run 'atlas deactivate development/starship' (or re-install the binary) to avoid per-shell errors."
+  log::info "Atlas Starship prompt activated; open a new interactive fish (or source $(_starship_act_snippet_file)) to see it — already-open shells are unchanged. This wiring runs the starship binary at shell start; if you later remove it from ~/.local/bin/PATH, run 'atlasctl deactivate development/starship' (or re-install the binary) to avoid per-shell errors."
 }
 
 module::deactivate() {

@@ -76,7 +76,7 @@ _icons_act_write() {
 }
 module::activate() {
   _icons_marker_load || return 1
-  [ "$_ICONS_MARKER_STATE" = installed ] || { log::error "desktop/icons is not installed; run 'atlas install desktop/icons' before activating"; return 1; }
+  [ "$_ICONS_MARKER_STATE" = installed ] || { log::error "desktop/icons is not installed; run 'atlasctl install desktop/icons' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found"; return 1; }
   [ -x "$_ICONS_CHANGEICONS" ] || { log::error "plasma-changeicons not found at $_ICONS_CHANGEICONS; cannot activate icons"; return 1; }
   _icons_act_load || return 1

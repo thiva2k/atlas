@@ -45,8 +45,8 @@ Revised: 2026-07-14
 
 ## 1. Summary
 
-RFC-0029 added the reversible, opt-in **activation framework** (`atlas activate` /
-`atlas deactivate`, the optional `module::activate` / `module::deactivate` hook
+RFC-0029 added the reversible, opt-in **activation framework** (`atlasctl activate` /
+`atlasctl deactivate`, the optional `module::activate` / `module::deactivate` hook
 pair, and the separate `$ATLAS_STATE_DIR/activated/<category>-<name>` state file),
 and shipped **`desktop/theme`** (the KDE `ColorScheme`) as its one reference
 implementation. It explicitly deferred icons, cursor, fonts, and wallpapers to a
@@ -146,12 +146,12 @@ activate)   echo "activate"   ;;
 deactivate) echo "deactivate" ;;
 ```
 
-and the `activate|deactivate` cases in the `atlas` verb dispatch, the explicit
+and the `activate|deactivate` cases in the `atlasctl` verb dispatch, the explicit
 `__SKIP__` accounting for a module lacking the hook, and the `usage()` lines. All
 of that is live. A module gains activation purely by defining `module::activate` /
 `module::deactivate`; the three modules in this RFC do exactly that and change no
 shared code. Adding three modules' hooks therefore correctly reports, under
-`atlas activate`, the accurate three-way split RFC-0029 §4 describes: modules with
+`atlasctl activate`, the accurate three-way split RFC-0029 §4 describes: modules with
 a hook that ran are *ok*, modules without are *skipped*, a failing hook is *failed*.
 
 ## 5. Per-module activation contract
@@ -548,7 +548,7 @@ key state):
 
 **Suite-wide:** `activate`/`deactivate` over all modules still produce the correct
 skip/ok/failed accounting (the RFC-0029 §4 engine behaviour is unchanged); the full
-existing suite stays green; `atlas install` behaviour is untouched.
+existing suite stays green; `atlasctl install` behaviour is untouched.
 
 ## 9. Decision required
 

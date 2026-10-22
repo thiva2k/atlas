@@ -14,7 +14,7 @@ pip package, then records Atlas ownership with a marker.
 
 Atlas owns only the Fedora package intent and its install marker. Existing
 Fedora Python is normal on a workstation; Atlas does not infer ownership from
-the runtime's presence until `atlas install development/python` writes the
+the runtime's presence until `atlasctl install development/python` writes the
 marker.
 
 Atlas never manages:

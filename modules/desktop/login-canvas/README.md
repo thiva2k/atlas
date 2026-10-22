@@ -12,7 +12,7 @@ only Atlas-brandable surface is the wallpaper it renders via its
 
 ## Activating
 
-`atlas activate desktop/login-canvas` reversibly switches the greeter's
+`atlasctl activate desktop/login-canvas` reversibly switches the greeter's
 wallpaper config in `/etc/plasmalogin.conf`:
 
 - `[Greeter] WallpaperPluginId` → `org.kde.image`
@@ -23,7 +23,7 @@ RFC-0029). Because this file is system-scoped, activation requires root —
 run with `sudo`, or as root directly:
 
 ```
-sudo atlas activate desktop/login-canvas
+sudo atlasctl activate desktop/login-canvas
 ```
 
 The change takes effect at the **next login screen**, not live —
@@ -33,7 +33,7 @@ greeter session.
 ## Reverting
 
 ```
-sudo atlas deactivate desktop/login-canvas
+sudo atlasctl deactivate desktop/login-canvas
 ```
 
 restores the prior plugin/image exactly (or removes the keys if neither was

@@ -40,13 +40,13 @@ This RFC deliberately does not oversell the speedup. See §3 and §6.
 - Preserve every existing behavioural contract exactly: the presence predicate's
   exit code, and the owner query's stdout **and** exit code.
 - Guarantee the cache can never report state that contradicts reality — during a
-  run that mutates packages, or across separate `atlas` invocations — and make
+  run that mutates packages, or across separate `atlasctl` invocations — and make
   that guarantee rest on the design, not on a caller convention.
 
 ## 3. Non-goals
 
 - **No persistent or on-disk cache.** The cache lives in shell memory and dies
-  with the process. A package removed with `dnf` between two `atlas` runs is
+  with the process. A package removed with `dnf` between two `atlasctl` runs is
   always re-seen next run. The correctness audit that motivated v1.0.1 found bugs
   of the form "reports satisfied without checking reality"; a cross-run cache
   manufactures exactly that class. It is prohibited, not merely omitted.
@@ -68,7 +68,7 @@ This RFC deliberately does not oversell the speedup. See §3 and §6.
 sources the module fresh there. Two consequences follow for free:
 
 - **Per-invocation by construction.** The cache is a Bash associative array; a
-  subshell cannot outlive the `atlas` process, so no cached answer survives to a
+  subshell cannot outlive the `atlasctl` process, so no cached answer survives to a
   later run. There is no persistence path to get wrong.
 - **Cross-module isolation by construction.** A `( … )` subshell inherits a
   *copy* of parent variables; mutations inside do not escape. Module A's cache
@@ -76,7 +76,7 @@ sources the module fresh there. Two consequences follow for free:
 
 The isolation argument depends on the cache being populated **only inside module
 subshells**. Therefore: the helpers are called only from module hooks. The
-`atlas` entrypoint and the runner itself MUST NOT call `os::pkg_installed`
+`atlasctl` entrypoint and the runner itself MUST NOT call `os::pkg_installed`
 (a parent-populated entry would be inherited by every later module subshell,
 which no per-module flush can clear). This is a standing rule (§9, decision 3).
 
@@ -91,7 +91,7 @@ makes it present), then `verify` (must see "present"). §5.2 closes this.
 ```bash
 # Per-process cache of `rpm -q` results. Scoped to the module subshell the runner
 # spawns, so it is inherently per-invocation and per-module (RFC-0028 §4). Only
-# ever populated inside a module subshell; never from the atlas parent process.
+# ever populated inside a module subshell; never from the atlasctl parent process.
 declare -gA _OS_PKG_INSTALLED=()   # pkg name -> "0" installed / "1" not
 
 # Is an RPM package installed? Same exit-code contract as a bare
@@ -216,7 +216,7 @@ Note the one variant contract: `development/ghostty` (module.sh:218) uses
 - **The speedup is real but bounded and applies only to `rpm -q`.** It helps most
   on the fresh-`install` path (`check`+`install`+`verify` re-querying the same
   packages) and any hook that asks the same package twice. It does **not** help
-  `atlas status`/`doctor` across modules (one hook per module subshell), and it
+  `atlasctl status`/`doctor` across modules (one hook per module subshell), and it
   does **not** touch `rpm -qf` at all (§5.4).
 - No headline number is claimed. If the fork savings prove negligible, the
   deduplication and single contract still justify the change, and nothing about
@@ -263,5 +263,5 @@ invocations via a counter file:
 2. Accept **unconditional** flush inside `os::dnf_install`, and the standing rule
    that any future package mutation calls `os::pkg_cache_flush` (§5.2, §7).
 3. Accept the rule that the helpers are only ever called inside module subshells,
-   never from the `atlas` parent process (§4).
+   never from the `atlasctl` parent process (§4).
 4. Accept migrating all 20 sites in this RFC rather than opportunistically.

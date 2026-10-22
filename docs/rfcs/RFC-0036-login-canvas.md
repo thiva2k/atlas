@@ -206,7 +206,7 @@ default, and vice versa).
 1. **Preconditions.** Install marker `installed`; `kreadconfig6` and
    `kwriteconfig6` present; root or non-interactive `sudo -n` available (checked
    *before* any state is written — a no-privilege environment fails cleanly with
-   the `sudo atlas activate desktop/login-canvas` guidance, mirroring
+   the `sudo atlasctl activate desktop/login-canvas` guidance, mirroring
    `desktop/plymouth`'s `_plymouth_privilege_ok`/`_plymouth_sudo_guidance`).
 2. **Load activation state.** Read current `WallpaperPluginId` and `Image` (each
    with the absent sentinel as the `kreadconfig6 --default`), through the
@@ -315,14 +315,14 @@ Atlas does not run privileged commands or touch `/etc` itself; the advisor
 applies. From the repo root:
 
 ```
-./atlas install desktop/login-canvas      # ships the wallpaper asset, no root
-sudo ./atlas activate desktop/login-canvas   # switches /etc/plasmalogin.conf, applies at next login screen
+./atlasctl install desktop/login-canvas      # ships the wallpaper asset, no root
+sudo ./atlasctl activate desktop/login-canvas   # switches /etc/plasmalogin.conf, applies at next login screen
 ```
 
 To revert:
 
 ```
-sudo ./atlas deactivate desktop/login-canvas
+sudo ./atlasctl deactivate desktop/login-canvas
 ```
 
 ## 8. Decision required

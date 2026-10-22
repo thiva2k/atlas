@@ -45,7 +45,7 @@ ATLAS_GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 
 Create it at <https://github.com/settings/tokens>. A classic token needs at least
 the `repo` scope to be useful, plus `read:org` if you work in an organisation, and
-`admin:public_key` if you want a later `atlas install core/ssh` to register your
+`admin:public_key` if you want a later `atlasctl install core/ssh` to register your
 SSH key for you. `gh` will reject a token with no scopes at all.
 
 That file must be mode `600`. If it is readable by anyone else, Atlas **refuses to
@@ -103,9 +103,9 @@ because that is work `install` can do — and the runner skips `install` entirel
 whenever `check` passes.
 
 One consequence worth knowing: on a box where `gh` is installed and you never
-supplied a token, `atlas install` skips this module (it logs `already satisfied`)
+supplied a token, `atlasctl install` skips this module (it logs `already satisfied`)
 without saying anything about authentication. The "installed but not
-authenticated" warning shows up under `atlas verify` and `atlas doctor`.
+authenticated" warning shows up under `atlasctl verify` and `atlasctl doctor`.
 
 `backup` and `restore` do nothing on purpose. `gh`'s only state is an OAuth token
 in `hosts.yml` — regenerating one is cheap, leaking one is not, so Atlas will not

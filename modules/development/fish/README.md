@@ -13,7 +13,7 @@ Atlas-owned Fish snippet.
 
 Atlas owns only Fedora package intent, the install marker, and the isolated
 `00-atlas.fish` snippet it creates. Existing Fish installations are valid
-user-owned state until `atlas install development/fish` writes the marker.
+user-owned state until `atlasctl install development/fish` writes the marker.
 
 Atlas never manages:
 

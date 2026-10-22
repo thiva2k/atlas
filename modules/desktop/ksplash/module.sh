@@ -25,7 +25,7 @@ module::check() { _ksplash_present; }
 module::install() {
   _ksplash_present || {
     log::error "the org.atlas.hud KSplash package is missing: $(_ksplash_splash_qml)"
-    log::error "  fix: run 'atlas install desktop/lockscreen' first (it ships the splash)"
+    log::error "  fix: run 'atlasctl install desktop/lockscreen' first (it ships the splash)"
     return 1
   }
   log::info "the Atlas KSplash theme (org.atlas.hud) is present; nothing further to install"
@@ -101,7 +101,7 @@ _ksplash_act_write() {
 }
 
 module::activate() {
-  _ksplash_present || { log::error "the org.atlas.hud KSplash package is not installed; run 'atlas install desktop/lockscreen' before activating"; return 1; }
+  _ksplash_present || { log::error "the org.atlas.hud KSplash package is not installed; run 'atlasctl install desktop/lockscreen' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found; cannot manage the KSplash theme"; return 1; }
   local engine; engine="$(_ksplash_read_engine)"
   [ "$engine" = "KSplashQML" ] || { log::error "ksplashrc [KSplash] Engine is '$engine', not KSplashQML; Atlas will not activate a QML splash theme that will not run — set Engine=KSplashQML first"; return 1; }

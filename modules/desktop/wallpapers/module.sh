@@ -123,7 +123,7 @@ _wp_act_write() {
 _wp_live_nudge() { command -v plasma-apply-wallpaperimage >/dev/null 2>&1 && plasma-apply-wallpaperimage "$1" >/dev/null 2>&1; }
 module::activate() {
   _wallpapers_marker_load || return 1
-  [ "$_WALLPAPERS_MARKER_STATE" = installed ] || { log::error "desktop/wallpapers is not installed; run 'atlas install desktop/wallpapers' before activating"; return 1; }
+  [ "$_WALLPAPERS_MARKER_STATE" = installed ] || { log::error "desktop/wallpapers is not installed; run 'atlasctl install desktop/wallpapers' before activating"; return 1; }
   { command -v kreadconfig6 && command -v kwriteconfig6; } >/dev/null 2>&1 || { log::error "kreadconfig6/kwriteconfig6 not found"; return 1; }
   [ -f "$(_wp_appletsrc)" ] || { log::error "Plasma appletsrc not found; is this a Plasma session?"; return 1; }
   local ids id; ids="$(_wp_discover)"

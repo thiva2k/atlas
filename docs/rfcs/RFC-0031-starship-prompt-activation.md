@@ -105,8 +105,8 @@ Extends: RFC-0029 (Activation framework)
 
 ## 1. Summary
 
-RFC-0029 established a reversible, opt-in activation model (`atlas activate` /
-`atlas deactivate`, an optional `module::activate` / `module::deactivate` hook
+RFC-0029 established a reversible, opt-in activation model (`atlasctl activate` /
+`atlasctl deactivate`, an optional `module::activate` / `module::deactivate` hook
 pair, and a separate `$ATLAS_STATE_DIR/activated/<category>-<name>` state file
 with a **write-once** prior escrow). It implemented exactly one reference:
 `desktop/theme`, a KDE ColorScheme flip. RFC-0029 §3 explicitly deferred
@@ -149,7 +149,7 @@ preserved and restored, not deleted on a byte-identity guess.
 ## 2. Goals
 
 - Make the Atlas Starship prompt **actually active** in interactive fish, via an
-  explicit, opt-in `atlas activate development/starship` — never during install.
+  explicit, opt-in `atlasctl activate development/starship` — never during install.
 - Reuse the RFC-0029 contract **exactly**: the two verbs and the hook pair already
   exist (no engine change), the `activated/development-starship` state file, the
   write-once prior escrow via a transitional `activating` state, the refuse-to-
@@ -194,7 +194,7 @@ preserved and restored, not deleted on a byte-identity guess.
 
 **None.** RFC-0029 already added the `activate` / `deactivate` verbs, mapped them
 to the `activate` / `deactivate` hooks in `_runner_hooks_for_verb`, added them to
-the `atlas` verb `case`, added explicit `__SKIP__` accounting so a module without
+the `atlasctl` verb `case`, added explicit `__SKIP__` accounting so a module without
 the hook is counted *skipped* (not *ok*), and added the `usage()` lines. A module
 that implements `module::activate` / `module::deactivate` is picked up by that
 machinery automatically. This RFC adds those two hooks to
@@ -305,7 +305,7 @@ pattern so the ownership check is a SHA256 comparison, not a fragile text diff):
 
 ```fish
 # Managed by Atlas: development/starship activation (RFC-0031). Do not edit.
-# Reversible: run 'atlas deactivate development/starship' to remove this file.
+# Reversible: run 'atlasctl deactivate development/starship' to remove this file.
 fish_add_path -gp $HOME/.local/bin
 if status is-interactive
     set -gx STARSHIP_CONFIG $HOME/.config/atlas/starship/starship.toml
@@ -546,7 +546,7 @@ already-running shell. So:
 binary's continued presence. If, *after* a successful activation, the user
 deletes `~/.local/bin/starship` (or removes it from `PATH`), every **new**
 interactive fish will run the wired `starship init fish` against a missing binary
-and print a per-shell startup error — while `atlas verify development/starship`
+and print a per-shell startup error — while `atlasctl verify development/starship`
 still passes, because `verify` is install-health only and the install marker plus
 the managed config are both intact (§6). This is precisely RFC-0024a's headline
 failure class: *a module reporting healthy for software that cannot actually
@@ -554,12 +554,12 @@ function.* Rev 2 does not paper over it:
 
 - The activation success message names the dependency explicitly: "…active in new
   interactive fish; this wiring runs the `starship` binary at shell start — if you
-  later remove it from `~/.local/bin`/`PATH`, run `atlas deactivate
+  later remove it from `~/.local/bin`/`PATH`, run `atlasctl deactivate
   development/starship` (or re-install the binary) to avoid per-shell errors."
 - Unlike RFC-0024a (which widened `install`/`verify` to own its runtime plugin),
   this RFC deliberately does **not** make activation own the binary's lifecycle —
   that is the binary-install boundary deferred to a future RFC-0011 amendment
-  (§5.1, §7). A future `atlas doctor` extension that inspects `activated/` records
+  (§5.1, §7). A future `atlasctl doctor` extension that inspects `activated/` records
   and warns when a wired binary went missing is the right home for a live health
   signal; it is out of this RFC's scope but named here so the gap is on record,
   not hidden.
@@ -770,7 +770,7 @@ are asserted directly on disk.
     value; an unknown key; an unknown `state`; a wrong `schema`.
 20. **Deactivate is a no-op before activation** (no record ⇒ exit 0, nothing
     written).
-21. Full suite stays green; `atlas install` behavior is unchanged.
+21. Full suite stays green; `atlasctl install` behavior is unchanged.
 
 ## 9. Decision required
 

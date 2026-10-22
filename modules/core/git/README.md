@@ -30,7 +30,7 @@ an include where the directive sits. Because the include comes first, anything
 you set below it overrides the Atlas default. Set `pull.rebase = false` in your
 own config and it stays `false`.
 
-The corollary: `atlas verify core/git` checks that the fragment is intact and that
+The corollary: `atlasctl verify core/git` checks that the fragment is intact and that
 Git *resolves* it. It does **not** check that Atlas's value is the winning one,
 because for any key you have overridden it deliberately is not.
 
@@ -55,7 +55,7 @@ identity you have already set is never overwritten.
 
 ## Lifecycle
 
-The module implements these **hooks** (`atlas <verb> core/git` fans a verb out to
+The module implements these **hooks** (`atlasctl <verb> core/git` fans a verb out to
 the matching hook):
 
 | Hook | What happens |
@@ -67,7 +67,7 @@ the matching hook):
 | `remove` | drop the include and delete the fragment |
 
 > **`remove` is not reachable from the CLI yet.** Atlas's frozen architecture
-> defines a `remove` *hook* but no `remove` *platform verb*, so `atlas remove
+> defines a `remove` *hook* but no `remove` *platform verb*, so `atlasctl remove
 > core/git` currently exits `2` (unknown command). The hook is implemented and
 > covered by the test suite; closing the engine gap is tracked by RFC-0002.
 

@@ -67,11 +67,11 @@ verified by **locking the screen** — a bounded, reversible test:
 - A lock-screen theme that fails to load falls back to kscreenlocker's default
   locker (kscreenlocker behavior) — a broken theme degrades the *lock* only, never
   the *login* path (plasma-login-manager is untouched). It cannot lock the user out.
-- **Revert:** `atlas deactivate desktop/lockscreen` restores the prior theme. Manual
+- **Revert:** `atlasctl deactivate desktop/lockscreen` restores the prior theme. Manual
   escape from a TTY or System Settings:
   `kwriteconfig6 --file kscreenlockerrc --group Greeter --key Theme --delete ""`
   then relock (or `loginctl unlock-session`).
-- Activation is never part of a default `atlas activate` sweep — it is an explicit,
+- Activation is never part of a default `atlasctl activate` sweep — it is an explicit,
   named, opt-in step, verified by a canary lock before being trusted.
 
 ## 5. Testing

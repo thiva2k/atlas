@@ -11,7 +11,7 @@ with a marker.
 **Depends on:** `development/python`.
 
 Atlas owns only Fedora package intent and its install marker. Existing uv
-installations are valid user-owned state until `atlas install development/uv`
+installations are valid user-owned state until `atlasctl install development/uv`
 writes the marker.
 
 Atlas never manages:

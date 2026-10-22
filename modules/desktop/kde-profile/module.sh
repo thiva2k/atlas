@@ -210,7 +210,7 @@ module::verify() {
       return 0
       ;;
     installing)
-      log::error "desktop/kde-profile install is incomplete; rerun 'atlas install desktop/kde-profile'"
+      log::error "desktop/kde-profile install is incomplete; rerun 'atlasctl install desktop/kde-profile'"
       return 1
       ;;
   esac

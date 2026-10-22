@@ -218,7 +218,7 @@ state. It does not upgrade packages; package currency remains Fedora/DNF policy.
 
 ### 6.5 `remove`
 
-The platform still has no `atlas remove` verb, but the hook is specified for the
+The platform still has no `atlasctl remove` verb, but the hook is specified for the
 future.
 
 `remove` deletes only Atlas-owned `config.ghostty` and
