@@ -147,8 +147,14 @@ assert_status "fonts checksum failure leaves installing marker" 1 \
 assert_status "fonts update restores missing Atlas font files" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; rm -f \"\$(_fonts_font_dir)/JetBrainsMonoNerdFont-Regular.ttf\"; JETBRAINS_INSTALLED=0; export JETBRAINS_INSTALLED; module::update >/dev/null 2>&1; module::verify"
 
+assert_status "fonts update rewrites a marker recorded at an older Nerd Font version" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; m=\"\$(_fonts_marker)\"; sed -i -e 's/^nerd_font_version=.*/nerd_font_version=v3.3.0/' -e 's|^nerd_font_url=.*|nerd_font_url=https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/JetBrainsMono.tar.xz|' \"\$m\"; chmod 600 \"\$m\"; module::update >/dev/null 2>&1; grep -qxF \"nerd_font_version=\$_FONTS_NERD_VERSION\" \"\$m\"; grep -qxF \"nerd_font_url=\$_FONTS_NERD_URL\" \"\$m\""
+
 assert_status "fonts remove detaches and deletes only Atlas font dir" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; grep -qxF state=detached \"\$(_fonts_marker)\"; [ ! -e \"\$(_fonts_font_dir)\" ]; [ \"\${INTER_INSTALLED:-0}\" = 1 ]"
+
+assert_status "fonts remove refreshes font cache on the parent directory" 0 \
+  bash -c "$PRE; module::install >/dev/null 2>&1; source \"\$ATLAS_ROOT/modules/desktop/fonts/module.sh\"; fc-cache() { [ -d \"\${2:-}\" ] && printf '%s\n' \"\$*\" >> \"\$FC_CACHE_LOG\"; }; : > \"\$FC_CACHE_LOG\"; module::remove >/dev/null 2>&1; grep -qxF -- \"-f \$(dirname \"\$(_fonts_font_dir)\")\" \"\$FC_CACHE_LOG\""
 
 assert_status "fonts remove is idempotent after detach" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; module::remove >/dev/null 2>&1; module::remove"
