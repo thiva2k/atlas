@@ -19,7 +19,7 @@ _wallpapers_marker_load() {
   [ "$(stat -c '%a' "$marker" 2>/dev/null)" = "600" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"; [ -z "$line" ] && continue
-    case "$line" in schema=1) seen_schema=1 ;; state=*) val="${line#state=}"; case "$val" in installing|installed|detached) _WALLPAPERS_MARKER_STATE="$val" ;; *) return 1 ;; esac; seen_state=1 ;; *) ;; esac
+    case "$line" in schema=1) seen_schema=1 ;; state=*) val="${line#state=}"; case "$val" in installing|installed|detached) _WALLPAPERS_MARKER_STATE="$val" ;; *) return 1 ;; esac; seen_state=1 ;; *) log::error "wallpapers marker has an unknown line: $line"; return 1 ;; esac
   done < "$marker"
   [ "$seen_schema" -eq 1 ] && [ "$seen_state" -eq 1 ]
 }
@@ -32,21 +32,56 @@ _wallpapers_marker_write() {
 }
 _wallpapers_match() { [ -d "$(_wallpapers_dir)" ] && [ "$(_wallpapers_manifest)" = "$(_wallpapers_current_manifest)" ]; }
 _wallpapers_write() {
-  local dest="$(_wallpapers_dir)" parent tmp
-  parent="$(dirname "$dest")"; mkdir -p "$parent" || return 1
-  tmp="$(mktemp -d "$parent/.atlas-wallpapers.XXXXXX")" || return 1
-  cp "$(_wallpapers_source_dir)"/*.svg "$tmp"/ || { rm -rf "$tmp"; return 1; }
-  chmod 755 "$tmp" || { rm -rf "$tmp"; return 1; }
-  chmod 644 "$tmp"/*.svg || { rm -rf "$tmp"; return 1; }
-  rm -rf "$dest" || { rm -rf "$tmp"; return 1; }
-  mv "$tmp" "$dest" || { rm -rf "$tmp"; return 1; }
+  local dest="$(_wallpapers_dir)" parent src tmp f base
+  src="$(_wallpapers_source_dir)"
+  if [ -L "$dest" ] || { [ -e "$dest" ] && [ ! -d "$dest" ]; }; then
+    log::error "wallpapers path is not a directory: $dest"
+    return 1
+  fi
+  parent="$(dirname "$dest")"
+  mkdir -p "$dest" || { log::error "cannot create $dest"; return 1; }
+  tmp="$(mktemp -d "$parent/.atlas-wallpapers.XXXXXX")" || { log::error "cannot stage wallpapers"; return 1; }
+  cp "$src"/*.svg "$tmp"/ || { rm -rf "$tmp"; log::error "cannot stage wallpapers"; return 1; }
+  chmod 644 "$tmp"/*.svg || { rm -rf "$tmp"; log::error "cannot chmod staged wallpapers"; return 1; }
+  for f in "$tmp"/*.svg; do
+    base="${f##*/}"
+    mv -f "$f" "$dest/$base" || { rm -rf "$tmp"; log::error "cannot replace $dest/$base"; return 1; }
+  done
+  rm -rf "$tmp" || { log::error "cannot remove $tmp"; return 1; }
+  for f in "$dest"/*.svg; do
+    [ -e "$f" ] || continue
+    [ -f "$src/${f##*/}" ] && continue
+    rm -f "$f" || { log::error "cannot remove stale wallpaper: $f"; return 1; }
+  done
 }
-_wallpapers_preflight_absent() { [ ! -e "$(_wallpapers_dir)" ] && [ ! -L "$(_wallpapers_dir)" ]; }
+_wallpapers_preflight_absent() {
+  local dest="$(_wallpapers_dir)" f
+  if [ -L "$dest" ] || { [ -e "$dest" ] && [ ! -d "$dest" ]; }; then
+    log::error "wallpapers path is not a directory: $dest"
+    return 1
+  fi
+  [ -d "$dest" ] || return 0
+  for f in "$dest"/*.svg; do
+    [ -e "$f" ] || continue
+    log::error "Atlas wallpaper already exists and is not Atlas-owned: $f"
+    return 1
+  done
+}
 module::check() { _wallpapers_marker_load || return 1; [ "$_WALLPAPERS_MARKER_STATE" = installed ] || return 1; _wallpapers_match; }
 module::install() { os::is_fedora || return 1; _wallpapers_marker_load || return 1; case "$_WALLPAPERS_MARKER_STATE" in absent|detached) _wallpapers_preflight_absent || return 1 ;; esac; _wallpapers_marker_write installing || return 1; _wallpapers_write || return 1; _wallpapers_match || return 1; _wallpapers_marker_write installed; }
 module::verify() { _wallpapers_marker_load || return 1; case "$_WALLPAPERS_MARKER_STATE" in absent|detached) return 0 ;; installing) return 1 ;; esac; _wallpapers_match; }
 module::update() { _wallpapers_marker_load || return 1; case "$_WALLPAPERS_MARKER_STATE" in absent|detached) return 0 ;; esac; _wallpapers_write || return 1; _wallpapers_marker_write installed; }
-module::remove() { _wallpapers_marker_load || return 1; case "$_WALLPAPERS_MARKER_STATE" in absent|detached) return 0 ;; esac; _wallpapers_match || return 1; rm -rf "$(_wallpapers_dir)" || return 1; _wallpapers_marker_write detached; }
+module::remove() {
+  _wallpapers_marker_load || return 1
+  case "$_WALLPAPERS_MARKER_STATE" in absent|detached) return 0 ;; esac
+  _wallpapers_match || { log::error "refusing to remove drifted Atlas wallpapers"; return 1; }
+  local dest="$(_wallpapers_dir)" f
+  for f in "$(_wallpapers_source_dir)"/*.svg; do
+    rm -f "$dest/${f##*/}" || { log::error "cannot remove $dest/${f##*/}"; return 1; }
+  done
+  rmdir "$dest" 2>/dev/null || true
+  _wallpapers_marker_write detached
+}
 module::backup() { log::info "nothing to back up: desktop/wallpapers is reconstructable from Atlas"; }
 module::restore() { log::info "nothing to restore: reinstall desktop/wallpapers to reconstruct Atlas-owned wallpapers"; }
 
