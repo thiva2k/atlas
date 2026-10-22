@@ -53,8 +53,8 @@ shipped · `Superseded by RFC-NNNN` · `Rejected`.
 | [0023](RFC-0023-notifications-module.md) | Notifications module | Accepted |
 | [0024](RFC-0024-plymouth-module.md) | Plymouth module | Accepted |
 | [0024a](RFC-0024a-plymouth-plugin-dependency.md) | Plymouth — script-plugin dependency (amends 0024) | Accepted |
-| [0024b](RFC-0024b-plymouth-passphrase-prompt.md) | Plymouth — LUKS passphrase prompt (amends 0024) | Proposed |
-| [0024c](RFC-0024c-plymouth-visual-redesign.md) | Plymouth — HUD boot-ignition redesign (amends 0024) | Proposed |
+| [0024b](RFC-0024b-plymouth-passphrase-prompt.md) | Plymouth — LUKS passphrase prompt (amends 0024) | Implemented |
+| [0024c](RFC-0024c-plymouth-visual-redesign.md) | Plymouth — HUD boot-ignition redesign (amends 0024) | Superseded by the 2026-07-16 B&W identity spec |
 | [0025](RFC-0025-sddm-module.md) | SDDM module | Accepted |
 | [0026](RFC-0026-codex-module.md) | Codex module — npm-packaged AI coding CLI lifecycle | Accepted |
 | [0027](RFC-0027-atlas-self-management.md) | Atlas self-management and self-update command | Accepted |
