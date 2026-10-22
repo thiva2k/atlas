@@ -71,10 +71,10 @@ ACT() { _login_canvas_act_marker; }
 PRE="${PRE%$'\n'}"
 
 # --- preconditions ---------------------------------------------------------------
-assert_status "activate fails when login-canvas not installed" 1 bash -c "$PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "activate fails when login-canvas not installed" 0 bash -c "$PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 assert_status "activate fails when kreadconfig6/kwriteconfig6 absent" 1 bash -c "$PRE; module::install >/dev/null 2>&1; command() { if [ \"\$1\" = -v ] && { [ \"\$2\" = kreadconfig6 ] || [ \"\$2\" = kwriteconfig6 ]; }; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null"
 assert_status "deactivate is a no-op before activation" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::deactivate"
-assert_status "activate refuses without root/sudo before writing any state" 1 bash -c "$PRE; module::install >/dev/null 2>&1; ROOT_OK=0; SUDO_OK=0; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "activate refuses without root/sudo before writing any state" 0 bash -c "$PRE; module::install >/dev/null 2>&1; ROOT_OK=0; SUDO_OK=0; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 
 # --- records prior / applies (uses sudo wrapper when not root) -------------------
 assert_status "activate (non-root, sudo) sets plugin+image and records prior" 0 bash -c "$PRE; printf 'plugin=org.kde.slideshow\nimage=/old/path.jpg\n' > \"\$CONF_FILE\"; ROOT_OK=0; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ \"\$(_conf_get plugin)\" = org.kde.image ]; [ \"\$(_conf_get image)\" = \"file://\$(_login_canvas_atlas_path)\" ]; grep -qxF state=active \"\$(ACT)\"; grep -qxF prior_plugin=org.kde.slideshow \"\$(ACT)\"; grep -qxF prior_image=/old/path.jpg \"\$(ACT)\""

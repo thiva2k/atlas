@@ -21,7 +21,7 @@ MARK() { _wp_act_marker; }
 PRE="${PRE%$'\n'}"
 
 # --- preconditions -------------------------------------------------------------
-assert_status "wallpapers activate fails when not installed" 1 bash -c "$PRE; wp_seed_single; module::activate >/dev/null 2>&1; [ ! -e \"\$(MARK)\" ]; exit 1"
+assert_status "wallpapers activate fails when not installed" 0 bash -c "$PRE; wp_seed_single; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(MARK)\" ]"
 assert_status "wallpapers activate fails with no appletsrc" 1 bash -c "$PRE; module::install >/dev/null 2>&1; module::activate 2>/dev/null"
 
 # --- discovery + record prior + apply ------------------------------------------

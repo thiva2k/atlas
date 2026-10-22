@@ -23,7 +23,7 @@ ACT() { _theme_act_marker; }
 PRE="${PRE%$'\n'}"
 
 # --- preconditions -------------------------------------------------------------
-assert_status "activate fails when theme not installed" 1 bash -c "$PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "activate fails when theme not installed" 0 bash -c "$PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 # shadow `command -v` for the tool only (the real binary exists on a live KDE host)
 assert_status "activate fails when plasma-apply-colorscheme absent" 1 bash -c "$PRE; module::install >/dev/null 2>&1; command() { if [ \"\$1\" = -v ] && [ \"\$2\" = plasma-apply-colorscheme ]; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null"
 assert_status "deactivate is a no-op before activation" 0 bash -c "$PRE; module::install >/dev/null 2>&1; module::deactivate"
