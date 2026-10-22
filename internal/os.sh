@@ -68,6 +68,3 @@ os::dnf_install() {
     return 1
   fi
 }
-
-# flatpak install placeholder (promoted when the first flatpak module lands).
-os::flatpak_install() { log::info "would flatpak install: $*"; }

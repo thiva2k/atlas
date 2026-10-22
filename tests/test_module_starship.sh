@@ -23,7 +23,6 @@ source "$ATLAS_ROOT/internal/os.sh"
 source "$ATLAS_ROOT/modules/development/starship/module.sh"
 
 _starship_binary() { printf "%s\n" starship; }
-_starship_user_config_file() { printf "%s\n" "$XDG_CONFIG_HOME/starship.toml"; }
 os::is_fedora() { [ "${FEDORA_OK:-1}" = 1 ]; }
 os::has_cmd() {
   case "$1" in
