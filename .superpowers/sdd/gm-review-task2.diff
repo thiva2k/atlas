@@ -19,22 +19,22 @@ index 472d731..7ed3823 100755
  done
  ATLAS_ROOT="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
  export ATLAS_ROOT
- 
+
  ATLAS_VERSION="0.1.0-dev"
- 
+
  source "$ATLAS_ROOT/internal/log.sh"
  source "$ATLAS_ROOT/internal/error.sh"
  source "$ATLAS_ROOT/internal/os.sh"
 +source "$ATLAS_ROOT/internal/env.sh"
  source "$ATLAS_ROOT/internal/module.sh"
  source "$ATLAS_ROOT/internal/runner.sh"
- 
+
  usage() {
    cat <<EOF
  Atlas — workstation lifecycle manager (v$ATLAS_VERSION)
- 
+
  Usage: atlas <command> [modules...] [options]
- 
+
  Commands:
 diff --git a/internal/env.sh b/internal/env.sh
 new file mode 100644

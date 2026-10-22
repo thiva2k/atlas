@@ -1,5 +1,4 @@
 * text=auto eol=lf
 *.sh text eol=lf
-atlas text eol=lf
-bootstrap.sh text eol=lf
+atlasctl text eol=lf
 *.md text eol=lf

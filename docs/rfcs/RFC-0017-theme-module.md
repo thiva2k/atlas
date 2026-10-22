@@ -36,4 +36,3 @@ Backup and restore are no-ops because the asset is reconstructable.
 
 The color scheme is dark, quiet, professional, and uses Atlas blue as the accent.
 Activation remains user-owned until a separate explicit preference module exists.
-

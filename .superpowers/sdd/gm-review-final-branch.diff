@@ -4,7 +4,7 @@ index d08caf0..98309d1 100644
 +++ b/CHANGELOG.md
 @@ -6,10 +6,36 @@ All notable changes to Atlas are documented here. Format loosely follows
  ## [Unreleased]
- 
+
  ### Added
 +- **The `git` module** — the first real module, and the reference implementation
 +  for every module after it (see `RFC-0001`). Installs Git, layers Atlas's
@@ -20,7 +20,7 @@ index d08caf0..98309d1 100644
  - Eight placeholder modules across core / development / apps / desktop.
  - Zero-dependency `bootstrap.sh`.
  - Pure-Bash test harness under `tests/`.
- 
+
 +### Fixed
 +- **git: Atlas defaults no longer override your own git settings.** The managed
 +  config was wired into `~/.gitconfig` with `git config --add`, which appends —
@@ -50,7 +50,7 @@ index 472d731..7ed3823 100755
 +source "$ATLAS_ROOT/internal/env.sh"
  source "$ATLAS_ROOT/internal/module.sh"
  source "$ATLAS_ROOT/internal/runner.sh"
- 
+
 diff --git a/docs/conventions.md b/docs/conventions.md
 index 3cdbf32..7805d94 100644
 --- a/docs/conventions.md
@@ -836,9 +836,9 @@ index dbdf175..e25e452 100644
 --- a/internal/os.sh
 +++ b/internal/os.sh
 @@ -18,6 +18,19 @@ os::is_fedora() {
- 
+
  os::is_root() { [ "$(id -u)" -eq 0 ]; }
- 
+
 -# --- placeholder installers (real logic lands with the modules that need them) ---
 -os::dnf_install()     { log::info "would dnf install: $*"; }
 +# Install one or more packages via dnf. Idempotent (dnf is a no-op for
@@ -863,11 +863,11 @@ index 4e48cc6..f76c323 100644
 +++ b/modules/core/git/README.md
 @@ -1,10 +1,103 @@
  # git
- 
+
 -**What it does:** Installs Git and applies a global configuration.
 +**What it does:** Installs Git and layers Atlas's opinionated defaults *underneath*
 +your own global configuration.
- 
+
 -**Installs / configures:** the `git` package; a global `~/.gitconfig` derived
 -from `config/gitconfig.template`.
 +**Installs / configures:**
@@ -875,9 +875,9 @@ index 4e48cc6..f76c323 100644
 +- an Atlas-owned config fragment at `~/.config/atlas/git/gitconfig`
 +- one `include.path` directive at the **top** of your `~/.gitconfig`
 +- optionally `user.name` / `user.email`, only if they are not already set
- 
+
  **Depends on:** nothing.
- 
+
 -> Status: placeholder. Hooks log "not yet implemented"; real logic lands later.
 +**Design:** [RFC-0001](../../../docs/rfcs/RFC-0001-git-module.md).
 +
@@ -1011,7 +1011,7 @@ index 23576f5..7345124 100644
 -MODULE_DESCRIPTION="Distributed version control: installs git and applies global config."
 +MODULE_DESCRIPTION="Distributed version control: installs git and applies Atlas's global defaults."
  MODULE_DEPENDS=()
- 
+
 -module::check()   { return 1; }               # TODO: os::has_cmd git && gitconfig applied
 -module::install() { not_implemented "git: dnf install git + apply config/gitconfig.template"; }
 -module::verify()  { not_implemented "git: git --version and config sanity"; }
@@ -1696,7 +1696,7 @@ index 2b3838e..a12130d 100644
 @@ -8,5 +8,5 @@ assert_status "has_cmd false for nonesuch" 1 os::has_cmd this_command_does_not_e
  assert_status "require_cmd dies on missing" 5 \
    bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; source "$ATLAS_ROOT/internal/os.sh"; os::require_cmd nope_xyz'
- 
+
 -out="$(os::dnf_install git curl 2>&1 || true)"
 -assert_contains "dnf_install logs intent" "$out" "git curl"
 +# os::dnf_install is now a real primitive (requires real dnf on PATH via

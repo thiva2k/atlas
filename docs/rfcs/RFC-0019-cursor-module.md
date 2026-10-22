@@ -21,4 +21,3 @@ Verify succeeds before install and after detach; when installed, it verifies the
 package is present. Remove detaches without uninstalling packages.
 
 Backup and restore are no-ops.
-

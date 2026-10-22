@@ -5,7 +5,7 @@ index d08caf0..4e3edd9 100644
 @@ -12,4 +12,21 @@ All notable changes to Atlas are documented here. Format loosely follows
  - Zero-dependency `bootstrap.sh`.
  - Pure-Bash test harness under `tests/`.
- 
+
 +### Fixed
 +- **git: Atlas defaults no longer override your own git settings.** The managed
 +  config was wired into `~/.gitconfig` with `git config --add`, which appends —
@@ -72,7 +72,7 @@ index 6f9fb71..3d61743 100644
 @@ -13,12 +13,149 @@ _git_fragment_dir() {
  }
  _git_fragment() { printf '%s\n' "$(_git_fragment_dir)/gitconfig"; }
- 
+
 +# The global config file git itself would read/write.
 +_git_config_file() { printf '%s\n' "${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig}"; }
 +
@@ -81,7 +81,7 @@ index 6f9fb71..3d61743 100644
    git config --global --get-all include.path 2>/dev/null \
      | grep -qxF "$(_git_fragment)"
  }
- 
+
 +# The block we prepend. Git resolves config positionally and expands an include
 +# at the position of the directive, so this must come BEFORE the user's own
 +# sections: then anything they set below overrides our default (RFC-0001 §4.4).
@@ -229,11 +229,11 @@ index 6f9fb71..3d61743 100644
 +  _git_include_is_first "$(_git_config_file)" || return 1
    return 0
  }
- 
+
 @@ -70,13 +211,8 @@ module::install() {
    cp -f "$_GIT_MODULE_DIR/config/gitconfig" "$frag" || { log::error "cannot write $frag"; return 1; }
    log::info "wrote managed git config: $frag"
- 
+
 -  # 3. ensure exactly one include.path line
 -  if _git_include_present; then
 -    log::info "include.path already present"
@@ -243,7 +243,7 @@ index 6f9fb71..3d61743 100644
 -  fi
 +  # 3. wire the fragment in as the FIRST section, so the user's own settings win
 +  _git_ensure_include || return 1
- 
+
    # 4. identity (optional, non-blocking, set-if-unset)
    _git_apply_identity
 @@ -87,8 +223,13 @@ module::verify() {

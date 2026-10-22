@@ -8,7 +8,7 @@ Task 1: os::dnf_install real (commit cea00d1). DONE_WITH_CONCERNS: also trimmed 
 Task 1: COMPLETE (commit cea00d1, approved). Deviation OK: trimmed obsolete unsafe assertion from test_os.sh, superseded by test_os_dnf.sh; suite 51->54 verified. Note: brief file-list omitted test_os.sh (brief-authoring gap, reconciled).
 Task 2: COMPLETE (commit 512ca51, approved; env.sh + entrypoint wiring, 54->59). Minors (plan-mandated, defer to final): unpaired-quote stripping can corrupt edge values; empty env var falls through to file; test does not cover last-wins/mismatched-quotes.
 Task 3: git module core (commit 588796f). DONE_WITH_CONCERNS, both verified by controller:
-  (1) REAL FIX: git config --global --get does NOT expand include.path without --includes; implementer added --includes to verify value-check + one test assertion (correct; _git_include_present reads the literal key so needs none). 
+  (1) REAL FIX: git config --global --get does NOT expand include.path without --includes; implementer added --includes to verify value-check + one test assertion (correct; _git_include_present reads the literal key so needs none).
   (2) ENV DECISION: Git Bash/MSYS Windows-git mangles POSIX sandbox temp paths -> 3 git tests fail under Git Bash but PASS 70/70 under WSL native Linux. Atlas targets Fedora, so WSL is now the AUTHORITATIVE test env. Controller verified: git-bash 67/3, WSL 70/0, real ~/.gitconfig untouched. All future implementers/reviewers must verify via: wsl.exe -d Ubuntu -e bash -lc "cd /home/thiva/atlas && bash tests/run.sh".
 
 ## Task 3 review (Opus) — 2026-07-09

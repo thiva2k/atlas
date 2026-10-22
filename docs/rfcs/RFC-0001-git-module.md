@@ -126,7 +126,7 @@ a single Atlas-owned file and adds *one* `include.path` line to the user's
 - One idempotent include line added to `~/.gitconfig`:
   ```
   [include]
-  	path = ~/.config/atlas/git/gitconfig
+        path = ~/.config/atlas/git/gitconfig
   ```
   added via `git config --global --add include.path <path>` **only if that exact
   path is not already included** (checked with `git config --global --get-all

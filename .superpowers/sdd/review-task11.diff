@@ -181,24 +181,24 @@ index 17a768b..1a5b8ef 100644
  ├── assets/               # static, non-code assets
  ├── README.md  LICENSE  CONTRIBUTING.md  CHANGELOG.md
  ```
- 
+
  Notes:
- 
+
  - **`internal/` vs `modules/`.** `internal/` is the engine and is shared by every
    module. `modules/` is where capabilities live. The engine must not know the
    name of any specific module.
  - **Categories are directories.** A module's category is simply the directory it
 @@ -209,22 +209,23 @@ module::restore() { ... }
- 
+
  Modules communicate **only** through this contract. If the runner ever needs to
  reach inside a module, the contract is wrong and should be extended instead.
- 
+
  ---
- 
+
  ## 8. Error handling
- 
+
  Failure behaviour is predictable and loud.
- 
+
 -- Every entry point runs under `set -euo pipefail` plus an `ERR` trap installed
 -  by `internal/error.sh`.
 +- The `atlas` entrypoint runs under `set -uo pipefail` and propagates exit
@@ -213,7 +213,7 @@ index 17a768b..1a5b8ef 100644
  - **No silent failures.** Every failure is logged and surfaced in the final
    summary.
  - **Meaningful exit codes** (defined once in `internal/error.sh`):
- 
+
 diff --git a/docs/conventions.md b/docs/conventions.md
 new file mode 100644
 index 0000000..3cdbf32

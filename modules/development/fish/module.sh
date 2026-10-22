@@ -22,7 +22,7 @@ _fish_config_file() {
 
 _fish_config_content() {
   printf '%s\n' "# Managed by Atlas: development/fish. Do not edit."
-  printf '%s\n' "set -g""x ATLAS_SHELL fish"
+  printf '%s\n' "set -gx ATLAS_SHELL fish"
   # RFC-0034: the cursor is the HUD's one live element — a blinking bar (Ghostty
   # paints it cyan). Ghostty's shell-integration hands cursor control to fish, so
   # fish must set the blink itself or the config setting is overridden.

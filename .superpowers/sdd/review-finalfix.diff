@@ -19,23 +19,23 @@ index f7f0e5a..30492d7 100644
 --- a/CONTRIBUTING.md
 +++ b/CONTRIBUTING.md
 @@ -22,14 +22,19 @@ See [`docs/module-authoring.md`](docs/module-authoring.md).
- 
+
  Run the whole suite with:
- 
+
  ```bash
  bash tests/run.sh
  ```
- 
+
  Tests are pure Bash (no framework). Add `tests/test_<area>.sh` and use the
  assertions in `tests/lib/assert.sh`. Every behavioural change ships with a test.
- 
+
 +> Test files are `source`d into one shell by `tests/run.sh`. `run.sh` resets
 +> `ATLAS_MODULES_DIR` to the real `modules/` dir before each file; a test that
 +> needs a fixtures dir must `export ATLAS_MODULES_DIR` itself (do not rely on a
 +> value left by another test file).
 +
  ## Commits
- 
+
  Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, …). Keep them small and
  focused.
 diff --git a/docs/architecture.md b/docs/architecture.md
@@ -44,9 +44,9 @@ index 1a5b8ef..1891c4e 100644
 +++ b/docs/architecture.md
 @@ -102,21 +102,21 @@ Consequences that shape the whole codebase:
  ---
- 
+
  ## 5. Repository layout
- 
+
  ```text
  atlas/
  ├── atlas                 # the CLI entrypoint — parses args, dispatches a verb
@@ -69,13 +69,13 @@ index 1a5b8ef..1891c4e 100644
  log::warn  "docker service not enabled"
  log::error "failed to write ~/.gitconfig"
  ```
- 
+
  ---
- 
+
  ## 10. How a command flows through the system
- 
+
  Walkthrough of `atlas install`:
- 
+
 -1. **`atlas`** parses global flags (`--verbose`, `--dry-run`, …) and the verb,
 +1. **`atlas`** parses global flags (`--verbose`, `--quiet`, …) and the verb,
     then calls into `internal/runner.sh`.
@@ -94,13 +94,13 @@ index 83dffce..69fcb1b 100644
 +++ b/internal/module.sh
 @@ -38,20 +38,26 @@ module::deps_of() {
  }
- 
+
  # Print ids + transitive deps in dependency-first order. Cycle => exit 3.
  module::resolve_order() {
    local -a input=("$@")
    local -A _state=()          # unset | temp | done
    local -a _order=()
- 
+
    _module_visit() {
      local id="$1" d
 +    if [ ! -r "$(module::path "$id")" ]; then
@@ -124,13 +124,13 @@ index 859ac0a..1270914 100644
 --- a/internal/runner.sh
 +++ b/internal/runner.sh
 @@ -57,21 +57,23 @@ _runner_run_module() {
- 
+
  # runner::run <verb> [id...]
  runner::run() {
    local verb="${1:-}"; shift || true
    _runner_hooks_for_verb "$verb" >/dev/null 2>&1 || \
      die "$ATLAS_EXIT_USAGE" "unknown command: $verb" "" "run 'atlas --help'"
- 
+
    local -a ids
    if [ "$#" -gt 0 ]; then ids=("$@"); else mapfile -t ids < <(module::discover); fi
    if [ "${#ids[@]}" -eq 0 ]; then log::warn "no modules found"; return 0; fi
@@ -138,7 +138,7 @@ index 859ac0a..1270914 100644
 +  local _ordered
 +  _ordered="$(module::resolve_order "${ids[@]}")" || return $?
 +  mapfile -t ids <<<"$_ordered"
- 
+
    log::step "atlas $verb (${#ids[@]} modules)"
    local id out rc ok=0 skip=0 fail=0
    for id in "${ids[@]}"; do
@@ -169,9 +169,9 @@ index 5a4d573..71bc45c 100644
  export ATLAS_ROOT
  # keep test state out of the real state dir
  export ATLAS_STATE_DIR="$ATLAS_ROOT/.local/state/atlas"
- 
+
  source "$ATLAS_ROOT/tests/lib/assert.sh"
- 
+
  total_pass=0 total_fail=0
  for t in "$ATLAS_ROOT"/tests/test_*.sh; do
    [ -e "$t" ] || continue
@@ -185,7 +185,7 @@ index 5a4d573..71bc45c 100644
    total_pass=$((total_pass + ATLAS_TESTS_PASS))
    total_fail=$((total_fail + ATLAS_TESTS_FAIL))
  done
- 
+
  printf '\n== %d passed, %d failed ==\n' "$total_pass" "$total_fail"
  [ "$total_fail" -eq 0 ]
 diff --git a/tests/test_module_order.sh b/tests/test_module_order.sh
@@ -193,13 +193,13 @@ index 1bcc8b9..5f3f774 100644
 --- a/tests/test_module_order.sh
 +++ b/tests/test_module_order.sh
 @@ -6,10 +6,18 @@ source "$ATLAS_ROOT/internal/module.sh"
- 
+
  assert_eq "beta declares its dep" "$(module::deps_of apps/beta)" "core/alpha"
- 
+
  # resolving beta pulls in alpha first
  order="$(module::resolve_order apps/beta | tr '\n' ' ')"
  assert_eq "dependency comes before dependent" "$order" "core/alpha apps/beta "
- 
+
  # a cycle is a fatal dependency error (exit 3)
  assert_status "cycle detected as exit 3" 3 \
    bash -c 'source "$ATLAS_ROOT/internal/log.sh"; source "$ATLAS_ROOT/internal/error.sh"; export ATLAS_MODULES_DIR="$ATLAS_ROOT/tests/fixtures/modules"; source "$ATLAS_ROOT/internal/module.sh"; module::resolve_order core/cyc_a'

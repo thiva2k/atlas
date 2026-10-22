@@ -26,7 +26,7 @@ jobs:
           find internal modules tests -name "*.sh" -exec bash -n {} \;
 
       - name: Whitespace check
-        run: git diff --check
+        run: git diff --check $(git hash-object -t tree /dev/null) HEAD
 
       - name: Run test suite
         run: bash tests/run.sh

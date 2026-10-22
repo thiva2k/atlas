@@ -228,7 +228,6 @@ _git_ensure_include() {
   # _git_rewrite_config only ever *returns* non-zero. (A `trap … RETURN` here
   # would outlive this function and fire under `set -u` with $lock out of scope.)
 
-  # `A && B` would abort the hook under `set -e` when A is false — use `if`.
   if _git_include_present; then log::info "relocating include.path to the top of $real"; fi
   if _git_rewrite_config "$real" with-block; then rc=0; else rc=1; fi
   rm -f "$real.lock"
