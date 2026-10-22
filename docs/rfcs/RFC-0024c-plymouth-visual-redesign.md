@@ -1,6 +1,6 @@
 # RFC-0024c: Plymouth Theme — Visual Redesign (amends RFC-0024)
 
-Status: Proposed
+Status: Superseded by the 2026-07-16 B&W identity spec
 
 Date: 2026-07-14
 

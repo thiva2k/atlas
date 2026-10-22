@@ -1,6 +1,6 @@
 # RFC-0024b: Plymouth Theme — Passphrase Prompt (amends RFC-0024)
 
-Status: Proposed
+Status: Implemented
 
 Date: 2026-07-14
 
