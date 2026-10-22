@@ -32,7 +32,7 @@ ACT() { _cursor_act_marker; }
 '
 CUR_PRE="${CUR_PRE%$'\n'}"
 
-assert_status "cursor: activate fails when not installed" 1 bash -c "$CUR_PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "cursor: activate fails when not installed" 0 bash -c "$CUR_PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 assert_status "cursor: activate fails when kwriteconfig6 absent" 1 bash -c "$CUR_PRE; module::install >/dev/null 2>&1; command() { if [ \"\$1\" = -v ] && { [ \"\$2\" = kwriteconfig6 ] || [ \"\$2\" = kreadconfig6 ]; }; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null"
 assert_status "cursor: deactivate is a no-op before activation" 0 bash -c "$CUR_PRE; module::install >/dev/null 2>&1; module::deactivate"
 # records prior + applies Adwaita, and succeeds with NO plasma-apply-cursortheme / qdbus6 present
@@ -79,7 +79,7 @@ ACT() { _icons_act_marker; }
 '
 ICO_PRE="${ICO_PRE%$'\n'}"
 
-assert_status "icons: activate fails when not installed" 1 bash -c "$ICO_PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "icons: activate fails when not installed" 0 bash -c "$ICO_PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 assert_status "icons: activate fails when ATLAS_ICONS_CHANGEICONS is non-executable" 1 bash -c "$ICO_PRE; module::install >/dev/null 2>&1; ATLAS_ICONS_CHANGEICONS=\"\$HOME/nope\"; _ICONS_CHANGEICONS=\"\$HOME/nope\"; module::activate 2>/dev/null"
 assert_status "icons: activate records prior, applies Papirus-Dark, invokes tool mock" 0 bash -c "$ICO_PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ \"\$(cat \"\$KEY_FILE\")\" = Papirus-Dark ]; grep -qxF state=active \"\$(ACT)\"; grep -qxF prior_icontheme=breeze \"\$(ACT)\"; grep -q Papirus-Dark \"\$CHANGE_LOG\""
 assert_status "icons: activate never runs real /usr/libexec (only the override mock's log has entries)" 0 bash -c "$ICO_PRE; module::install >/dev/null 2>&1; module::activate >/dev/null 2>&1; [ -s \"\$CHANGE_LOG\" ]; [ \"\$_ICONS_CHANGEICONS\" = \"\$CHANGE\" ]"
@@ -126,7 +126,7 @@ FIX="JetBrainsMono Nerd Font,10,-1,5,50,0,0,0,0,0"
 '
 FON_PRE="${FON_PRE%$'\n'}"
 
-assert_status "fonts: activate fails when not installed" 1 bash -c "$FON_PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "fonts: activate fails when not installed" 0 bash -c "$FON_PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 assert_status "fonts: activate fails when kwriteconfig6 absent" 1 bash -c "$FON_PRE; _fon_install >/dev/null 2>&1; command() { if [ \"\$1\" = -v ] && { [ \"\$2\" = kwriteconfig6 ] || [ \"\$2\" = kreadconfig6 ]; }; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null"
 assert_status "fonts: deactivate is a no-op before activation" 0 bash -c "$FON_PRE; _fon_install >/dev/null 2>&1; module::deactivate"
 # records BOTH priors, both keys hold their Atlas descriptors, applies at next login

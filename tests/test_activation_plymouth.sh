@@ -58,7 +58,7 @@ RC() { cat "$REBUILDS"; }
 PRE="${PRE%$'\n'}"
 
 # --- 1. requires installed / requires tool -------------------------------------
-assert_status "activate fails when plymouth not installed; no marker, no rebuild" 1 bash -c "$PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; [ \"\$(RC)\" = 0 ]; exit 1"
+assert_status "activate fails when plymouth not installed; no marker, no rebuild" 0 bash -c "$PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]; [ \"\$(RC)\" = 0 ]"
 assert_status "activate fails when plugin absent (not installed)" 0 bash -c "$PRE; module::install >/dev/null 2>&1; rm -f \"\$PLUGIN_STATE\"; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]; [ \"\$(RC)\" = 0 ]"
 assert_status "activate fails when plymouth-set-default-theme absent; no marker" 0 bash -c "$PRE; module::install >/dev/null 2>&1; command() { if [ \"\$1\" = -v ] && [ \"\$2\" = plymouth-set-default-theme ]; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]; [ \"\$(RC)\" = 0 ]"
 

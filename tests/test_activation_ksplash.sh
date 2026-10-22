@@ -39,7 +39,7 @@ ACT() { _ksplash_act_marker; }
 PRE="${PRE%$'\n'}"
 
 # --- preconditions -------------------------------------------------------------
-assert_status "activate fails when the splash package is not present" 1 bash -c "$PRE; module::activate >/dev/null 2>&1; [ ! -e \"\$(ACT)\" ]; exit 1"
+assert_status "activate fails when the splash package is not present" 0 bash -c "$PRE; module::activate 2>/dev/null && exit 1; [ ! -e \"\$(ACT)\" ]"
 assert_status "activate fails when kreadconfig6/kwriteconfig6 absent" 1 bash -c "$PRE; install_splash; command() { if [ \"\$1\" = -v ] && { [ \"\$2\" = kreadconfig6 ] || [ \"\$2\" = kwriteconfig6 ]; }; then return 1; fi; builtin command \"\$@\"; }; module::activate 2>/dev/null"
 assert_status "activate fails when Engine is not KSplashQML" 1 bash -c "$PRE; install_splash; printf OtherEngine > \"\$ENGINE_FILE\"; module::activate 2>/dev/null; [ ! -e \"\$(ACT)\" ]"
 assert_status "deactivate is a no-op before activation" 0 bash -c "$PRE; install_splash; module::deactivate"
