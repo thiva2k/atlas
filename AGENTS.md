@@ -52,6 +52,5 @@ work (not required for a happy first install):
 1. Optional Hyprland dual-session — staged configs in-tree; reversible module
    and live install remain on feature branches until the Fedora packaging gate
    and session-ownership contract are closed.
-2. Finish or explicitly defer placeholders: `apps/brave`, `desktop/kde`.
-3. Contributor polish from `docs/roadmap.md` v1.1 (issue/PR templates, README
+2. Contributor polish from `docs/roadmap.md` v1.1 (issue/PR templates, README
    consistency, real-Fedora validation notes).

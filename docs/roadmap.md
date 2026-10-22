@@ -19,8 +19,6 @@ Planned work:
 - Tighten module README consistency across Core, Development, Desktop, and Apps.
 - Improve diagnostics where successful commands currently emit confusing
   warnings.
-- Finish or explicitly defer placeholder application/desktop modules such as
-  `apps/brave` and `desktop/kde`.
 - Add more real-Fedora validation notes for supported Fedora releases.
 
 Non-goals:
