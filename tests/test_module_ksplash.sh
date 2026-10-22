@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # desktop/ksplash - RFC-0037
-# Activation-only: install/check/verify are thin presence checks against the
-# org.atlas.hud package's contents/splash/Splash.qml, shipped by desktop/lockscreen.
+# Activation-only: install/check confirm Splash.qml (shipped by desktop/lockscreen).
+# verify passes when it is present and reports not-installed when it was never installed.
 
 PRE='
 set -euo pipefail
@@ -18,7 +18,9 @@ SPLASH_QML() { _ksplash_splash_qml; }
 PRE="${PRE%$'\n'}"
 
 assert_status "ksplash check fails before the splash package exists" 1 bash -c "$PRE; module::check"
-assert_status "ksplash verify fails before the splash package exists" 1 bash -c "$PRE; module::verify"
+assert_status "ksplash verify passes before the splash package exists" 0 bash -c "$PRE; module::verify"
+out="$(bash -c "$PRE; module::verify" 2>&1)"
+assert_contains "ksplash verify reports not installed before the splash package exists" "$out" "not installed by Atlas"
 assert_status "ksplash install fails before the splash package exists" 1 bash -c "$PRE; module::install"
 
 assert_status "ksplash check/verify/install pass once the splash file is present" 0 bash -c "$PRE; mkdir -p \"\$(dirname \"\$(SPLASH_QML)\")\"; printf 'Rectangle {}' > \"\$(SPLASH_QML)\"; module::check; module::verify; module::install"
