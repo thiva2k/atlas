@@ -12,7 +12,6 @@ MODULE_NAME="ksplash"
 MODULE_DESCRIPTION="Startup splash: activates the org.atlas.hud KSplash theme shipped by desktop/lockscreen."
 MODULE_DEPENDS=(desktop/lockscreen)
 
-_KSPLASH_MODULE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _KSPLASH_PACKAGE_ID="org.atlas.hud"
 
 _ksplash_dir() { printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/plasma/look-and-feel/$_KSPLASH_PACKAGE_ID"; }

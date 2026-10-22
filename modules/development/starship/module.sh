@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# development/starship - RFC-0011.
+# development/starship - RFC-0011, activation RFC-0031.
 #
-# Atlas owns an isolated Starship prompt config. It does not install Starship,
-# activate shell integration, or edit user-owned Starship/shell configuration.
+# Install owns an isolated prompt config and does not install the Starship
+# binary. Activate wires that config into interactive fish via
+# conf.d/10-atlas-starship.fish and restores any prior file on deactivate.
 MODULE_NAME="starship"
 MODULE_DESCRIPTION="Starship prompt theme: installs Atlas's engineering-focused prompt config."
 MODULE_DEPENDS=()
@@ -19,7 +20,6 @@ _starship_config_dir() {
 
 _starship_config_file() { printf '%s\n' "$(_starship_config_dir)/starship.toml"; }
 _starship_config_source() { printf '%s\n' "$_STARSHIP_MODULE_DIR/config/starship.toml"; }
-_starship_user_config_file() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"; }
 _starship_binary() { printf '%s\n' starship; }
 _starship_sha256() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 
