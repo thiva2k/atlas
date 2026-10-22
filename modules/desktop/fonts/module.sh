@@ -38,9 +38,6 @@ _fonts_font_dir_safe() {
 _fonts_marker_init() {
   _FONTS_MARKER_STATE=absent
   _FONTS_MARKER_INTER_PACKAGE=
-  _FONTS_MARKER_NERD_VERSION=
-  _FONTS_MARKER_NERD_ARCHIVE=
-  _FONTS_MARKER_NERD_URL=
   _FONTS_MARKER_NERD_DIR=
 }
 
@@ -80,9 +77,9 @@ _fonts_marker_load() {
         seen_state=1
         ;;
       inter_package) _FONTS_MARKER_INTER_PACKAGE="$val"; seen_inter=1 ;;
-      nerd_font_version) _FONTS_MARKER_NERD_VERSION="$val"; seen_version=1 ;;
-      nerd_font_archive) _FONTS_MARKER_NERD_ARCHIVE="$val"; seen_archive=1 ;;
-      nerd_font_url) _FONTS_MARKER_NERD_URL="$val"; seen_url=1 ;;
+      nerd_font_version) seen_version=1 ;;
+      nerd_font_archive) seen_archive=1 ;;
+      nerd_font_url) seen_url=1 ;;
       nerd_font_dir) _FONTS_MARKER_NERD_DIR="$val"; seen_dir=1 ;;
       *) log::error "Fonts marker has an unknown key: $key"; return 1 ;;
     esac
@@ -97,12 +94,6 @@ _fonts_marker_load() {
   [ "$seen_dir" -eq 1 ] || { log::error "Fonts marker is missing nerd_font_dir"; return 1; }
   [ "$_FONTS_MARKER_INTER_PACKAGE" = "$_FONTS_INTER_PACKAGE" ] || {
     log::error "Fonts marker inter_package is unsupported: $_FONTS_MARKER_INTER_PACKAGE"; return 1; }
-  [ "$_FONTS_MARKER_NERD_VERSION" = "$_FONTS_NERD_VERSION" ] || {
-    log::error "Fonts marker Nerd Font version is unsupported: $_FONTS_MARKER_NERD_VERSION"; return 1; }
-  [ "$_FONTS_MARKER_NERD_ARCHIVE" = "$_FONTS_NERD_ARCHIVE" ] || {
-    log::error "Fonts marker Nerd Font archive is unsupported: $_FONTS_MARKER_NERD_ARCHIVE"; return 1; }
-  [ "$_FONTS_MARKER_NERD_URL" = "$_FONTS_NERD_URL" ] || {
-    log::error "Fonts marker Nerd Font URL does not match this module"; return 1; }
   _fonts_font_dir_safe || return 1
   [ "$_FONTS_MARKER_NERD_DIR" = "$(_fonts_font_dir)" ] || {
     log::error "Fonts marker Nerd Font directory does not match this environment"; return 1; }
@@ -131,7 +122,7 @@ _fonts_marker_write() {
 }
 
 _fonts_fc_cache() {
-  fc-cache -f "$(_fonts_font_dir)"
+  fc-cache -f "$1"
 }
 
 _fonts_fetch_nerd_archive() {
@@ -340,8 +331,8 @@ module::remove() {
       ;;
   esac
   rm -rf "$(_fonts_font_dir)" || { log::error "cannot delete $(_fonts_font_dir)"; return 1; }
-  rmdir "$(dirname "$(_fonts_font_dir)")" 2>/dev/null || true
   _fonts_fc_cache "$(dirname "$(_fonts_font_dir)")" || true
+  rmdir "$(dirname "$(_fonts_font_dir)")" 2>/dev/null || true
   _fonts_marker_write detached || return 1
   log::info "detached desktop/fonts without uninstalling packages or touching user font preferences"
 }
