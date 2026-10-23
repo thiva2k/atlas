@@ -12,10 +12,7 @@ ATLAS_STATE_DIR="$HOME/state"; export ATLAS_STATE_DIR
 TEST_NODE_BIN="$HOME/usr/bin/node"; export TEST_NODE_BIN
 TEST_NPM_BIN="$HOME/usr/bin/npm"; export TEST_NPM_BIN
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
-NODE_ARGV_LOG="$HOME/node.argv"; export NODE_ARGV_LOG
-NPM_ARGV_LOG="$HOME/npm.argv"; export NPM_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$NODE_ARGV_LOG"; : > "$NPM_ARGV_LOG"
+: > "$DNF_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_NODE_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -39,7 +36,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac
@@ -66,7 +62,6 @@ _make_node() {
   mkdir -p "$(dirname "$TEST_NODE_BIN")"
   cat > "$TEST_NODE_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$NODE_ARGV_LOG"
 [ "${NODE_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "%s\n" "${NODE_VERSION_OUTPUT:-v24.99.0}" ;;
@@ -79,7 +74,6 @@ _make_npm() {
   mkdir -p "$(dirname "$TEST_NPM_BIN")"
   cat > "$TEST_NPM_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$NPM_ARGV_LOG"
 [ "${NPM_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "99.0.0\n" ;;

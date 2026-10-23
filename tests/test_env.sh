@@ -20,7 +20,6 @@ assert_eq "env var overrides atlas.env" \
 assert_status "missing key returns non-zero" 1 env::get ATLAS_DEFINITELY_MISSING_XYZ
 assert_eq     "missing key prints nothing"   "$(env::get ATLAS_DEFINITELY_MISSING_XYZ 2>/dev/null)" ""
 
-# comment lines are ignored (no key named '# a comment')
 rm -rf "$sandbox"; unset ATLAS_CONFIG_HOME
 
 # atlas.env written on Windows must not leak a trailing CR into the value

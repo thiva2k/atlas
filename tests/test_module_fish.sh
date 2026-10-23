@@ -9,9 +9,7 @@ ATLAS_STATE_DIR="$HOME/state"; export ATLAS_STATE_DIR
 XDG_CONFIG_HOME="$HOME/config"; export XDG_CONFIG_HOME
 TEST_FISH_BIN="$HOME/usr/bin/fish"; export TEST_FISH_BIN
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
-FISH_ARGV_LOG="$HOME/fish.argv"; export FISH_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$FISH_ARGV_LOG"
+: > "$DNF_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_FISH_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -33,7 +31,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac
@@ -55,7 +52,6 @@ _make_fish() {
   mkdir -p "$(dirname "$TEST_FISH_BIN")"
   cat > "$TEST_FISH_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$FISH_ARGV_LOG"
 [ "${FISH_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "fish, version 99.0.0\n" ;;

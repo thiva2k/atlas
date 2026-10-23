@@ -127,38 +127,38 @@ assert_eq "every mktemp is failure-checked (set -e is off inside hooks)" "$hits"
 # --- the rules must FIRE, not merely exist -------------------------------
 # A static rule nobody has seen fail is a rule nobody knows works. Plant each
 # violation in a scratch tree and assert the corresponding grep catches it.
-_plant() { # <filename> <line> -> echoes the rule's hit count
-  local f="$1" line="$2" d
+_plant() {
+  local line="$1" d
   d="$(mktemp -d)"; mkdir -p "$d/modules/x/y" "$d/internal"
   printf '#!/usr/bin/env bash\n%s\n' "$line" > "$d/modules/x/y/module.sh"
   printf '%s' "$d"
 }
 
-d="$(_plant m 'gpg --symmetric --passphrase-fd 3 -o out.gpg 3< <(printf "%s" "$pass")')"
+d="$(_plant 'gpg --symmetric --passphrase-fd 3 -o out.gpg 3< <(printf "%s" "$pass")')"
 hits="$(find "$d" -name '*.sh' | xargs grep -nE '[0-9]<[[:space:]]*<\(' 2>/dev/null | _code_only \
   | grep -v '<(env::get_secret' || true)"
 assert_contains "rule 7 fires on a planted printf-fed secret fd" "$hits" 'printf'
 rm -rf "$d"
 
-d="$(_plant m 'gpg --batch --symmetric --passphrase "$pass" -o out.gpg in.tar')"
+d="$(_plant 'gpg --batch --symmetric --passphrase "$pass" -o out.gpg in.tar')"
 hits="$(find "$d" -name '*.sh' | xargs grep -nE 'gpg[^|]*--passphrase(-file)?[[:space:]]' 2>/dev/null | _code_only || true)"
 assert_contains "rule 8 fires on a planted gpg --passphrase" "$hits" '--passphrase'
 rm -rf "$d"
 
-d="$(_plant m 'ssh-keygen -t ed25519 -f "$k" -N "$pass" -q')"
+d="$(_plant 'ssh-keygen -t ed25519 -f "$k" -N "$pass" -q')"
 hits="$(find "$d" -name '*.sh' | xargs grep -nE "ssh-keygen[^|]*-N[[:space:]]+" 2>/dev/null | _code_only \
   | grep -vE "\-N[[:space:]]+(''|\"\")" || true)"
 assert_contains "rule 9 fires on a planted ssh-keygen -N \$pass" "$hits" 'ssh-keygen'
 rm -rf "$d"
 
-d="$(_plant m 'staging="$(mktemp -d)"')"
+d="$(_plant 'staging="$(mktemp -d)"')"
 hits="$(find "$d" -name '*.sh' | xargs grep -nE '\$\(mktemp' 2>/dev/null | _code_only \
   | grep -vE '\|\||^[^:]+:[0-9]+:[[:space:]]*if[[:space:]]+!' || true)"
 assert_contains "rule 10 fires on a planted unchecked mktemp" "$hits" 'mktemp'
 rm -rf "$d"
 
 # …and rule 9 must NOT fire on the legitimate empty-passphrase form.
-d="$(_plant m "ssh-keygen -t ed25519 -f \"\$k\" -N '' -q")"
+d="$(_plant "ssh-keygen -t ed25519 -f \"\$k\" -N '' -q")"
 hits="$(find "$d" -name '*.sh' | xargs grep -nE "ssh-keygen[^|]*-N[[:space:]]+" 2>/dev/null | _code_only \
   | grep -vE "\-N[[:space:]]+(''|\"\")" || true)"
 assert_eq "rule 9 does not fire on the documented -N '' form" "$hits" ""

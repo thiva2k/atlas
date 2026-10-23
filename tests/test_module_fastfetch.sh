@@ -74,7 +74,7 @@ assert_status "fastfetch install writes the Atlas config" 0 \
 # the fastfetch masthead is the ASCII ATLAS wordmark (block glyphs), followed by
 # a terse telemetry readout (os/kernel/wm/shell/uptime) and ONE tool-check line.
 # No heavy hardware dump (cpu/gpu), no per-tool row wall, no orbital-A mark.
-assert_status "fastfetch config is the SYSTEM ONLINE greeting" 0 \
+assert_status "fastfetch config is the wordmark and telemetry keys" 0 \
   bash -c "$PRE; module::install >/dev/null 2>&1; c=\"\$FASTFETCH_CONFIG\"; grep -q '\"kernel\"' \"\$c\"; grep -q '\"uptime\"' \"\$c\"; grep -q '\"shell\"' \"\$c\"; grep -q 'Developer Workstation' \"\$c\"; grep -q 'python3 node docker claude git' \"\$c\"; grep -q '█' \"\$c\"; ! grep -q '\"cpu\"' \"\$c\"; ! grep -q '\"gpu\"' \"\$c\"; ! grep -q '✓ Codex' \"\$c\""
 
 assert_status "fastfetch install validates with Atlas config" 0 \

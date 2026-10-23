@@ -14,9 +14,8 @@ TEST_CODEX_BIN="$TEST_CODEX_PREFIX/bin/codex"; export TEST_CODEX_BIN
 TEST_CODEX_PACKAGE_DIR="$TEST_CODEX_PREFIX/lib/node_modules/@openai/codex"; export TEST_CODEX_PACKAGE_DIR
 TEST_NPM_BIN="$HOME/usr/bin/npm"; export TEST_NPM_BIN
 NPM_LOG="$HOME/npm.log"; export NPM_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
 CODEX_ARGV_LOG="$HOME/codex.argv"; export CODEX_ARGV_LOG
-: > "$NPM_LOG"; : > "$RPM_LOG"; : > "$CODEX_ARGV_LOG"
+: > "$NPM_LOG"; : > "$CODEX_ARGV_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_NPM_BIN")"
 
 cat > "$TEST_NPM_BIN" <<'"'"'EOF'"'"'
@@ -74,7 +73,6 @@ os::is_fedora() { [ "${FEDORA_OK:-1}" = 1 ]; }
 os::is_root() { return 0; }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -qf)
       case "${2:-}" in

@@ -13,10 +13,9 @@ TEST_CLAUDE_BIN="$HOME/usr/bin/claude"; export TEST_CLAUDE_BIN
 TEST_REPO_FILE="$HOME/etc/yum.repos.d/claude-code.repo"; export TEST_REPO_FILE
 TEST_SETTINGS_FILE="$HOME/etc/claude-code/managed-settings.d/00-atlas.json"; export TEST_SETTINGS_FILE
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
 RPMKEYS_LOG="$HOME/rpmkeys.log"; export RPMKEYS_LOG
 CLAUDE_ARGV_LOG="$HOME/claude.argv"; export CLAUDE_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$RPMKEYS_LOG"; : > "$CLAUDE_ARGV_LOG"
+: > "$DNF_LOG"; : > "$RPMKEYS_LOG"; : > "$CLAUDE_ARGV_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_CLAUDE_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -42,7 +41,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac

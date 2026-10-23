@@ -12,10 +12,7 @@ ATLAS_STATE_DIR="$HOME/state"; export ATLAS_STATE_DIR
 TEST_PYTHON_BIN="$HOME/usr/bin/python3"; export TEST_PYTHON_BIN
 TEST_PIP_BIN="$HOME/usr/bin/pip3"; export TEST_PIP_BIN
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
-PYTHON_ARGV_LOG="$HOME/python.argv"; export PYTHON_ARGV_LOG
-PIP_ARGV_LOG="$HOME/pip.argv"; export PIP_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$PYTHON_ARGV_LOG"; : > "$PIP_ARGV_LOG"
+: > "$DNF_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_PYTHON_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -39,7 +36,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac
@@ -66,7 +62,6 @@ _make_python() {
   mkdir -p "$(dirname "$TEST_PYTHON_BIN")"
   cat > "$TEST_PYTHON_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$PYTHON_ARGV_LOG"
 [ "${PYTHON_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "Python 3.99.0\n" ;;
@@ -79,7 +74,6 @@ _make_pip() {
   mkdir -p "$(dirname "$TEST_PIP_BIN")"
   cat > "$TEST_PIP_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$PIP_ARGV_LOG"
 [ "${PIP_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "pip 99.0 from /usr/lib/python3/site-packages/pip (python 3.99)\n" ;;
