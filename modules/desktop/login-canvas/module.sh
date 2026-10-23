@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-# desktop/login-canvas - RFC-0036.
-#
-# Installs an Atlas-branded wallpaper for the STOCK plasma-login-greeter (the
-# plasma-login-manager greeter UI is compiled-in and NOT themeable — the only
-# lever is the wallpaper it renders via its WallpaperPluginId plugin, default
-# org.kde.image). Install stages the asset user-scope (no root) as the drift-
-# checked source of truth. A separate, reversible RFC-0029 activation (a) deploys
-# a WORLD-READABLE copy to a system path (/usr/share/backgrounds/atlas/) — the
-# greeter runs as the unprivileged `plasmalogin` user and cannot read the mode-700
-# $HOME copy — and (b) switches the greeter's SYSTEM-scoped config
-# (/etc/plasmalogin.conf) to point at that copy, mirroring desktop/theme's escrow.
-# The greeter wallpaper is purely cosmetic: a bad or missing value at worst falls
-# back to the plugin's own default image — it can never block login.
 MODULE_NAME="login-canvas"
 MODULE_DESCRIPTION="Login canvas: installs the Atlas wallpaper for the plasma-login-greeter (cosmetic only; never blocks login)."
 MODULE_DEPENDS=()
@@ -23,11 +10,7 @@ _login_canvas_asset_source() { printf '%s\n' "$_LOGIN_CANVAS_MODULE_DIR/assets/a
 _login_canvas_asset_file() { printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/backgrounds/atlas/atlas-login-canvas.png"; }
 _login_canvas_sha256() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 
-# --- install marker (in-place-upgrade-SAFE: marker_load validates only its own
-# structure; content drift is judged separately by _login_canvas_asset_matches,
-# never by marker_load — the fish/fastfetch bug fixed in RFC-0034 is a marker
-# that hard-fails on a *content* hash mismatch across an Atlas release; this
-# marker never encodes the shipped asset's hash, only install state) ----------
+# The marker stores install state only; asset drift is judged by _login_canvas_asset_matches, so an in-place upgrade does not fail marker_load.
 _login_canvas_marker_init() { _LOGIN_CANVAS_MARKER_STATE=absent; }
 _login_canvas_marker_load() {
   _login_canvas_marker_init
@@ -98,39 +81,6 @@ module::remove() { _login_canvas_marker_load || return 1; case "$_LOGIN_CANVAS_M
 module::backup() { log::info "nothing to back up: desktop/login-canvas is reconstructable from Atlas"; }
 module::restore() { log::info "nothing to restore: reinstall desktop/login-canvas to reconstruct the Atlas-owned asset"; }
 
-# --- RFC-0029 activation ----------------------------------------------------
-# Switches the plasma-login-greeter's wallpaper to the Atlas login canvas.
-#
-# Mechanism (found by inspecting kcm_plasmalogin.so and the greeter binary on a
-# live Fedora KDE box — see RFC-0036 §Research): the greeter is a QML app
-# (org.kde.plasma.login.wallpaper) that reads a `WallpaperPluginId` string
-# (default "org.kde.image") from the KCM's Settings object, whose QML binds
-# `settingName: "WallpaperPluginId"` under KConfig group "Greeter" in
-# /etc/plasmalogin.conf (confirmed: kcmplasmalogin_authhelper, the polkit-gated
-# root D-Bus helper the KCM uses to write system config, embeds exactly one
-# path string, "/etc/plasmalogin.conf" — there is no other candidate file). The
-# org.kde.image wallpaper plugin's own schema (contents/config/main.xml, shared
-# with the desktop wallpaper engine) defines a General/Image string key. Nested
-# KConfig groups follow the same convention RFC-0033 already verified for the
-# desktop's plasma-org.kde.plasma.desktop-appletsrc
-# ([Containments][C][Wallpaper][org.kde.image][General] Image=) — applied here
-# with "Greeter" as the outer group in place of a containment id:
-#
-#   /etc/plasmalogin.conf
-#     [Greeter]
-#     WallpaperPluginId=org.kde.image
-#
-#     [Greeter][Wallpaper][org.kde.image][General]
-#     Image=file:///path/to/atlas-login-canvas.png
-#
-# Verified experimentally with kwriteconfig6/kreadconfig6 (which support
-# repeated --group for nested groups) round-tripping both keys through a
-# throwaway file. This is SYSTEM-scoped (/etc), so activation requires root —
-# _run_privileged wraps every read/write exactly like desktop/sddm and
-# desktop/plymouth. The greeter reads this file when it spawns the wallpaper
-# process (not live): activation and deactivation both apply at the NEXT LOGIN
-# SCREEN, never mid-session. A bad or absent value only ever falls back to the
-# org.kde.image plugin's own built-in default — this can never block login.
 _LOGIN_CANVAS_CONF="/etc/plasmalogin.conf"
 _LOGIN_CANVAS_ACT_ABSENT="__ATLAS_ABSENT__"
 _login_canvas_act_marker() { printf '%s\n' "${ATLAS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/atlas}/activated/desktop-login-canvas"; }

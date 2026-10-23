@@ -17,8 +17,6 @@ OUT="assets"
 mkdir -p "$OUT"
 TMP="$(mktemp -d)" || exit 1; trap 'rm -rf "$TMP"' EXIT
 
-rm -f "$OUT"/bg.png "$OUT"/hero.png "$OUT"/node-core.png "$OUT"/node-bloom.png "$OUT"/scanbar.png
-
 JBM="$(fc-list | awk -F: '/JetBrainsMonoNerdFontMono-Regular\.ttf/{print $1; exit}')" || true
 [ -n "${JBM:-}" ] || JBM="$HOME/.local/share/fonts/atlas/JetBrainsMonoNerdFont/JetBrainsMonoNerdFontMono-Regular.ttf"
 [ -f "$JBM" ] || { echo "JetBrainsMono Nerd Font Mono not found" >&2; exit 1; }

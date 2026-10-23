@@ -8,7 +8,7 @@
             }
         ],
         "Category": "",
-        "Description": "Atlas lock-screen HUD: deep navy ground, a slow-drifting armillary, a giant thin clock in reticle brackets, and a bare hairline password field.",
+        "Description": "Flat #070707 lock screen with the ATLAS masthead, a clock, and a password field.",
         "Id": "org.atlas.hud",
         "License": "MIT",
         "Name": "Atlas HUD",
