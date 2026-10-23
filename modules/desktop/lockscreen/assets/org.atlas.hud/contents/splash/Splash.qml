@@ -1,24 +1,3 @@
-/*
-    Atlas KSplash — startup splash between login and desktop (RFC-0037).
-    B&W word-only identity (2026-07-16): the ATLAS masthead over a thin
-    hairline progress, on flat near-black — so boot → login → splash → desktop
-    reads as one continuous power-on of the same wordmark. No logo, no navy,
-    no reticle (superseded by the B&W word-only direction).
-
-    STAGE CONTRACT (do not change the shape of this): copied structurally from
-    the reference KSplash theme shipped with this system —
-    /usr/share/plasma/look-and-feel/org.kde.breeze.desktop/contents/splash/Splash.qml
-    ksplashqml drives a single root item with a `property int stage` that it
-    increments 1→6 as startup phases complete (kded, ksmserver, kcminit, etc.);
-    the theme reacts via `onStageChanged`. The reference starts a fade-in at
-    stage 2 and finishes by stage 5. Atlas mirrors that: content fades in at
-    stage 2, the hairline progress fills to complete by stage 5, and the scene
-    fades out as ksplashqml tears down. There is no qmllint/qml6 in the
-    environment that built this file, so it could not be executed or
-    type-checked before shipping — see modules/desktop/lockscreen/README.md's
-    honesty note, which applies here too. A bad splash theme falls back to the
-    default KSplash theme; it never blocks startup.
-*/
 import QtQuick
 import org.kde.kirigami as Kirigami
 

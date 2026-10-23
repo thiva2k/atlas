@@ -1,6 +1,6 @@
 [SddmGreeterTheme]
 Name=Atlas
-Description=Atlas starship security console — operator verification greeter
+Description=Black-and-white ATLAS masthead greeter on a flat #070707 ground.
 Type=sddm-theme
 Version=2.0
 MainScript=Main.qml

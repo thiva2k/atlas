@@ -26,10 +26,7 @@ import QtQuick.Controls as QQC2
 
 import org.kde.plasma.private.keyboardindicator as KeyboardIndicator
 import org.kde.kirigami as Kirigami
-import org.kde.kscreenlocker as ScreenLocker
-
 import org.kde.plasma.private.sessions
-import org.kde.breeze.components
 
 Item {
     id: lockScreenUi
@@ -65,8 +62,6 @@ Item {
         }
         return s
     }
-
-    readonly property bool softwareRendering: GraphicsInfo.api === GraphicsInfo.Software
 
     // Time source for the clock (plain Date, refreshed by a timer — no
     // external clock module that could fail to import).

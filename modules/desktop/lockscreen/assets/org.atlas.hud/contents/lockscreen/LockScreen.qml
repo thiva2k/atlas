@@ -11,7 +11,6 @@ import QtQuick
 
 Item {
     id: root
-    property bool debug: false
     property string notification
     signal clearPassword()
     signal notificationRepeated()

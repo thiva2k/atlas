@@ -34,7 +34,6 @@ Rectangle {
     readonly property color cTextPrimary:  "#d6d6d6"
     readonly property color cTextSecond:   "#6a6a6a"
     readonly property color cHover:        "#f2f2f2"
-    readonly property color cSessionHover: "#b8b8b8"
     readonly property color cError:        "#e5484d"
 
     readonly property string fMono: "JetBrainsMono Nerd Font Mono"
