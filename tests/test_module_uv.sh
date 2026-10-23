@@ -11,9 +11,7 @@ trap "rm -rf \"$HOME\"" EXIT
 ATLAS_STATE_DIR="$HOME/state"; export ATLAS_STATE_DIR
 TEST_UV_BIN="$HOME/usr/bin/uv"; export TEST_UV_BIN
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
-UV_ARGV_LOG="$HOME/uv.argv"; export UV_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$UV_ARGV_LOG"
+: > "$DNF_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_UV_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -35,7 +33,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac
@@ -57,7 +54,6 @@ _make_uv() {
   mkdir -p "$(dirname "$TEST_UV_BIN")"
   cat > "$TEST_UV_BIN" <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
-printf "%s\n" "$*" >> "$UV_ARGV_LOG"
 [ "${UV_OK:-1}" = 1 ] || exit 1
 case "$*" in
   "--version") printf "uv 99.0.0\n" ;;

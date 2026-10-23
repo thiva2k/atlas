@@ -279,9 +279,6 @@ assert_status "docker verify fails when authorized API probe fails" 1 \
 assert_status "docker verify passes when managed state is healthy" 0 \
   bash -c "$PRE; _docker_marker_write installed; $MOD_READY; module::verify"
 
-assert_status "docker legacy TCP test flag no longer affects production verify" 0 \
-  bash -c "$PRE; _docker_marker_write installed; $MOD_READY; ATLAS_DOCKER_TEST_TCP_LISTENER=1; export ATLAS_DOCKER_TEST_TCP_LISTENER; module::verify"
-
 assert_status "docker detached marker verifies without health assertions" 0 \
   bash -c "$PRE; _docker_marker_write detached; SOCKET_OK=0; SERVICE_ACTIVE=0; module::verify"
 

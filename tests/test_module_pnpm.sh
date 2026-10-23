@@ -11,9 +11,8 @@ trap "rm -rf \"$HOME\"" EXIT
 ATLAS_STATE_DIR="$HOME/state"; export ATLAS_STATE_DIR
 TEST_PNPM_BIN="$HOME/usr/bin/pnpm"; export TEST_PNPM_BIN
 DNF_LOG="$HOME/dnf.log"; export DNF_LOG
-RPM_LOG="$HOME/rpm.log"; export RPM_LOG
 PNPM_ARGV_LOG="$HOME/pnpm.argv"; export PNPM_ARGV_LOG
-: > "$DNF_LOG"; : > "$RPM_LOG"; : > "$PNPM_ARGV_LOG"
+: > "$DNF_LOG"; : > "$PNPM_ARGV_LOG"
 mkdir -p "$HOME/bin" "$(dirname "$TEST_PNPM_BIN")"
 
 source "$ATLAS_ROOT/internal/error.sh"
@@ -35,7 +34,6 @@ os::dnf_install() {
 }
 
 rpm() {
-  printf "%s\n" "$*" >> "$RPM_LOG"
   case "${1:-}" in
     -q)
       case " ${RPM_INSTALLED:-} " in *" ${2:-} "*) return 0 ;; *) return 1 ;; esac
